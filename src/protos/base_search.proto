@@ -1,0 +1,66 @@
+syntax = "proto3";
+
+option csharp_namespace = "gRPC.Server";
+
+package base_search;
+
+message SearchRequest {
+  string number = 1;
+  string mail = 2;
+  string snils = 3;
+  string inn = 4;
+  string passport = 5;
+  string fio = 6;
+  string date_of_birth = 7;
+  string telegram = 8;
+  string vk = 9;
+  string facebook = 10;
+  string imsi = 11;
+  string imei = 12;
+  string grz = 13;
+  string vin = 14;
+}
+
+message DataBase {
+  string name_table = 1;
+  string name = 2;
+  string info = 3;
+  string type = 4; 
+}
+
+message ObjectData {
+  string source_name = 1;
+  map<string,string> fields = 2;
+}
+
+message GroupedItem {
+  string value = 1;
+  int32 count = 2;
+}
+
+message AddSerachItem {
+  string key = 1;
+  string value = 2;
+}
+
+message ObjectGrouped {
+  string key = 1;
+  repeated GroupedItem item = 2;
+}
+
+message ObjectAddSearch {
+  repeated AddSerachItem item = 1;
+}
+
+message SearchResult {
+  oneof result {
+    DataBase object_data_base = 1;
+    ObjectData object_data = 2;
+    ObjectGrouped object_grouped = 3;
+    ObjectAddSearch object_add_search = 4;
+  }
+}
+
+service BaseSearches {
+  rpc StreamSearch(SearchRequest) returns (stream SearchResult);
+}
