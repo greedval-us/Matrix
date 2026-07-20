@@ -1,140 +1,246 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 
-const sourceFolderPath = ref('')
-const databaseRootPath = ref('')
-const databaseStatus = ref(null)
-const importStatus = ref(null)
-const indexStatus = ref(null)
-const error = ref('')
-const isImporting = ref(false)
-const isIndexing = ref(false)
+const sourceFolderPath = ref("");
+const databaseRootPath = ref("");
+const databaseStatus = ref(null);
+const importStatus = ref(null);
+const indexStatus = ref(null);
+const importProgress = ref(null);
+const indexProgress = ref(null);
+const error = ref("");
+const isImporting = ref(false);
+const isIndexing = ref(false);
 
-let indexPollingTimer = null
+let indexPollingTimer = null;
+let removeImportProgressListener = null;
+let removeIndexProgressListener = null;
 
-const canImport = computed(() =>
-  Boolean(sourceFolderPath.value) &&
-  Boolean(databaseStatus.value?.initialized) &&
-  !isImporting.value
-)
+const canImport = computed(
+  () =>
+    Boolean(sourceFolderPath.value) &&
+    Boolean(databaseStatus.value?.initialized) &&
+    !isImporting.value &&
+    !isIndexing.value
+);
 
-const canBuildIndex = computed(() =>
-  Boolean(databaseStatus.value?.initialized) &&
-  !isImporting.value &&
-  !isIndexing.value
-)
+const canBuildIndex = computed(
+  () =>
+    Boolean(databaseStatus.value?.initialized) &&
+    !isImporting.value &&
+    !isIndexing.value
+);
+
+const importTotals = computed(() => ({
+  filesProcessed:
+    importProgress.value?.filesProcessed ?? importStatus.value?.filesProcessed ?? 0,
+  filesTotal:
+    importProgress.value?.filesTotal ??
+    importStatus.value?.filesTotal ??
+    importStatus.value?.sources?.length ??
+    0,
+  documentsImported:
+    importProgress.value?.documentsImported ?? importStatus.value?.documentsImported ?? 0,
+  documentsTotal:
+    importProgress.value?.recordsTotal ??
+    importStatus.value?.documentsTotal ??
+    importStatus.value?.documentsImported ??
+    0,
+  fileDocumentsImported: importProgress.value?.fileDocumentsImported ?? 0,
+  fileDocumentsTotal: importProgress.value?.fileRecordsTotal ?? 0,
+}));
+
+const indexTotals = computed(() => ({
+  filesProcessed:
+    indexProgress.value?.filesProcessed ?? indexStatus.value?.filesProcessed ?? 0,
+  filesTotal:
+    indexProgress.value?.filesTotal ?? indexStatus.value?.filesTotal ?? 0,
+  indexedDocuments:
+    indexProgress.value?.indexedDocuments ?? indexStatus.value?.indexedDocuments ?? 0,
+  documentsTotal:
+    indexProgress.value?.documentsTotal ??
+    indexStatus.value?.documentsTotal ??
+    indexStatus.value?.indexedDocuments ??
+    0,
+  indexedEntries:
+    indexProgress.value?.indexedEntries ?? indexStatus.value?.indexedEntries ?? 0,
+  fileDocumentsProcessed: indexProgress.value?.fileDocumentsProcessed ?? 0,
+  fileDocumentsTotal: indexProgress.value?.fileDocumentsTotal ?? 0,
+}));
+
+const importProgressPercent = computed(() => {
+  const { documentsImported, documentsTotal, filesProcessed, filesTotal } =
+    importTotals.value;
+
+  if (documentsTotal > 0) {
+    return Math.min(100, Math.round((documentsImported / documentsTotal) * 100));
+  }
+
+  if (filesTotal > 0) {
+    return Math.min(100, Math.round((filesProcessed / filesTotal) * 100));
+  }
+
+  return 0;
+});
 
 const indexProgressPercent = computed(() => {
-  const filesTotal = indexStatus.value?.filesTotal ?? 0
-  const filesProcessed = indexStatus.value?.filesProcessed ?? 0
+  const { indexedDocuments, documentsTotal, filesProcessed, filesTotal } =
+    indexTotals.value;
 
-  if (!filesTotal) return 0
+  if (documentsTotal > 0) {
+    return Math.min(100, Math.round((indexedDocuments / documentsTotal) * 100));
+  }
 
-  return Math.min(100, Math.round((filesProcessed / filesTotal) * 100))
-})
+  if (filesTotal > 0) {
+    return Math.min(100, Math.round((filesProcessed / filesTotal) * 100));
+  }
+
+  return 0;
+});
 
 const databaseStatusText = computed(() => {
-  if (!databaseStatus.value) return 'Статус локальной базы не загружен'
-  if (databaseStatus.value.initialized) return 'Локальная база готова к импорту и индексации'
-  if (databaseStatus.value.rootPath) return 'Локальная база еще не создана'
-  return 'Сначала выберите каталог базы в настройках'
-})
+  if (!databaseStatus.value) return "Статус локальной базы еще не загружен";
+  if (databaseStatus.value.initialized) return "Локальная база готова к импорту и индексации";
+  if (databaseStatus.value.rootPath) return "Локальная база еще не создана";
+  return "Сначала выберите каталог базы в настройках";
+});
+
+const importStatusText = computed(() => {
+  if (importProgress.value?.stage === "started") return "Импорт запущен";
+  if (importProgress.value?.stage === "progress") return "Импорт выполняется";
+  if (importProgress.value?.stage === "file-completed") return "Файл импортирован";
+  if (importProgress.value?.stage === "completed") return "Импорт завершен";
+  if (importProgress.value?.stage === "failed") return "Импорт завершился с ошибкой";
+
+  if (!importStatus.value) return "Импорт еще не запускался";
+  if (importStatus.value.status === "running") return "Импорт выполняется";
+  if (importStatus.value.status === "failed") return "Импорт завершился с ошибкой";
+  if (importStatus.value.status === "completed") return "Импорт завершен";
+  return "Статус импорта неизвестен";
+});
 
 const indexStatusText = computed(() => {
-  if (!indexStatus.value) return 'Индексация еще не запускалась'
-  if (indexStatus.value.status === 'running') return 'Индексация выполняется'
-  if (indexStatus.value.status === 'failed') return 'Индексация завершилась с ошибкой'
-  if (indexStatus.value.status === 'completed') return 'Индексация завершена'
-  return 'Статус индексации неизвестен'
-})
+  if (indexProgress.value?.stage === "started") return "Индексация запущена";
+  if (indexProgress.value?.stage === "progress") return "Индексация выполняется";
+  if (indexProgress.value?.stage === "file-completed") return "Файл проиндексирован";
+  if (indexProgress.value?.stage === "completed") return "Индексация завершена";
+  if (indexProgress.value?.stage === "failed") return "Индексация завершилась с ошибкой";
+
+  if (!indexStatus.value) return "Индексация еще не запускалась";
+  if (indexStatus.value.status === "running") return "Индексация выполняется";
+  if (indexStatus.value.status === "failed") return "Индексация завершилась с ошибкой";
+  if (indexStatus.value.status === "completed") return "Индексация завершена";
+  return "Статус индексации неизвестен";
+});
 
 async function loadState() {
-  databaseRootPath.value = await window.databaseStorageAPI.getRootPath()
-  databaseStatus.value = await window.databaseStorageAPI.getStatus(databaseRootPath.value)
-  importStatus.value = await window.importAPI.getLastStatus()
-  indexStatus.value = await window.indexAPI.getLastStatus()
+  databaseRootPath.value = await window.databaseStorageAPI.getRootPath();
+  databaseStatus.value = await window.databaseStorageAPI.getStatus(databaseRootPath.value);
+  importStatus.value = await window.importAPI.getLastStatus();
+  indexStatus.value = await window.indexAPI.getLastStatus();
 
-  if (indexStatus.value?.status === 'running') {
-    isIndexing.value = true
-    startIndexPolling()
+  if (indexStatus.value?.status === "running") {
+    isIndexing.value = true;
+    startIndexPolling();
   }
 }
 
 async function refreshIndexStatus() {
-  indexStatus.value = await window.indexAPI.getLastStatus()
+  indexStatus.value = await window.indexAPI.getLastStatus();
 
-  if (!indexStatus.value || indexStatus.value.status !== 'running') {
-    isIndexing.value = false
-    stopIndexPolling()
+  if (!indexStatus.value || indexStatus.value.status !== "running") {
+    isIndexing.value = false;
+    stopIndexPolling();
   }
 }
 
 function startIndexPolling() {
-  if (indexPollingTimer) return
+  if (indexPollingTimer) return;
 
   indexPollingTimer = window.setInterval(() => {
     refreshIndexStatus().catch((e) => {
-      error.value = e.message || 'Ошибка обновления статуса индексации'
-      console.error(e)
-      stopIndexPolling()
-    })
-  }, 1000)
+      error.value = e.message || "Ошибка обновления статуса индексации";
+      stopIndexPolling();
+    });
+  }, 1000);
 }
 
 function stopIndexPolling() {
-  if (!indexPollingTimer) return
+  if (!indexPollingTimer) return;
 
-  window.clearInterval(indexPollingTimer)
-  indexPollingTimer = null
+  window.clearInterval(indexPollingTimer);
+  indexPollingTimer = null;
 }
 
 async function chooseImportFolder() {
   try {
-    const selectedPath = await window.fileDialog.openFolder()
-    if (!selectedPath) return
-    sourceFolderPath.value = selectedPath
-    error.value = ''
+    const selectedPath = await window.fileDialog.openFolder();
+    if (!selectedPath) return;
+    sourceFolderPath.value = selectedPath;
+    error.value = "";
   } catch (e) {
-    error.value = 'Не удалось выбрать папку импорта'
-    console.error(e)
+    error.value = "Не удалось выбрать папку импорта";
+    console.error(e);
   }
 }
 
 async function runImport() {
-  if (!canImport.value) return
+  if (!canImport.value) return;
 
-  isImporting.value = true
+  isImporting.value = true;
+  importProgress.value = null;
+  error.value = "";
+
   try {
-    importStatus.value = await window.importAPI.runFolder(sourceFolderPath.value)
-    indexStatus.value = await window.indexAPI.getLastStatus()
-    error.value = ''
+    importStatus.value = await window.importAPI.runFolder(sourceFolderPath.value);
+    indexStatus.value = await window.indexAPI.getLastStatus();
   } catch (e) {
-    error.value = e.message || 'Ошибка импорта'
-    console.error(e)
+    error.value = e.message || "Ошибка импорта";
+    console.error(e);
   } finally {
-    isImporting.value = false
+    isImporting.value = false;
   }
 }
 
 async function buildIndex() {
-  if (!canBuildIndex.value) return
+  if (!canBuildIndex.value) return;
 
-  isIndexing.value = true
-  error.value = ''
+  isIndexing.value = true;
+  indexProgress.value = null;
+  error.value = "";
 
   try {
-    startIndexPolling()
-    indexStatus.value = await window.indexAPI.build()
+    startIndexPolling();
+    indexStatus.value = await window.indexAPI.build();
   } catch (e) {
-    error.value = e.message || 'Ошибка индексации'
-    console.error(e)
+    error.value = e.message || "Ошибка индексации";
+    console.error(e);
   } finally {
-    await refreshIndexStatus()
+    await refreshIndexStatus();
   }
 }
 
-onMounted(loadState)
-onBeforeUnmount(stopIndexPolling)
+onMounted(async () => {
+  await loadState();
+
+  if (window.importAPI?.onProgress) {
+    removeImportProgressListener = window.importAPI.onProgress((payload) => {
+      importProgress.value = payload;
+    });
+  }
+
+  if (window.indexAPI?.onProgress) {
+    removeIndexProgressListener = window.indexAPI.onProgress((payload) => {
+      indexProgress.value = payload;
+    });
+  }
+});
+
+onBeforeUnmount(() => {
+  stopIndexPolling();
+  removeImportProgressListener?.();
+  removeIndexProgressListener?.();
+});
 </script>
 
 <template>
@@ -143,8 +249,7 @@ onBeforeUnmount(stopIndexPolling)
       <div class="rounded-3xl border border-neutral-700 bg-neutral-900/80 p-8 shadow-2xl backdrop-blur-xl">
         <h1 class="text-3xl font-bold">Импорт и индексация</h1>
         <p class="mt-2 text-sm text-neutral-400">
-          Сначала импортируйте JSON-файлы в локальную базу, затем отдельным шагом постройте индексы
-          для поиска по полям.
+          Сначала импортируйте JSON-файлы в локальную базу, затем отдельным шагом постройте индексы для поиска по полям.
         </p>
       </div>
 
@@ -177,7 +282,7 @@ onBeforeUnmount(stopIndexPolling)
               :disabled="!canImport"
               class="rounded-2xl bg-emerald-700 px-5 py-3 font-semibold transition hover:bg-emerald-600 disabled:bg-emerald-900/50"
             >
-              {{ isImporting ? 'Импорт...' : 'Запустить импорт' }}
+              {{ isImporting ? "Импорт..." : "Запустить импорт" }}
             </button>
             <button
               @click="loadState"
@@ -185,6 +290,36 @@ onBeforeUnmount(stopIndexPolling)
             >
               Обновить
             </button>
+          </div>
+
+          <div class="space-y-3 rounded-2xl border border-neutral-700 bg-neutral-800/70 p-4">
+            <div class="flex flex-wrap items-center justify-between gap-3 text-sm">
+              <div class="text-neutral-300">{{ importStatusText }}</div>
+              <div class="text-neutral-400">{{ importProgressPercent }}%</div>
+            </div>
+
+            <div class="h-3 overflow-hidden rounded-full bg-neutral-700">
+              <div
+                class="h-full rounded-full bg-emerald-500 transition-all duration-300"
+                :style="{ width: `${importProgressPercent}%` }"
+              />
+            </div>
+
+            <div class="grid gap-3 text-sm text-neutral-300 md:grid-cols-2">
+              <div>
+                Файлы: {{ importTotals.filesProcessed }} / {{ importTotals.filesTotal }}
+              </div>
+              <div>
+                Документы: {{ importTotals.documentsImported }} / {{ importTotals.documentsTotal }}
+              </div>
+            </div>
+
+            <div v-if="importProgress?.fileName" class="space-y-1 text-sm text-neutral-400">
+              <div class="break-all">Текущий файл: {{ importProgress.fileName }}</div>
+              <div>
+                Внутри файла: {{ importTotals.fileDocumentsImported }} / {{ importTotals.fileDocumentsTotal }}
+              </div>
+            </div>
           </div>
         </section>
 
@@ -196,7 +331,7 @@ onBeforeUnmount(stopIndexPolling)
 
           <div class="rounded-2xl border border-neutral-700 bg-neutral-800/70 p-4 text-sm">
             <div class="text-neutral-400">Путь базы</div>
-            <div class="mt-1 break-all text-white">{{ databaseRootPath || 'Не выбран' }}</div>
+            <div class="mt-1 break-all text-white">{{ databaseRootPath || "Не выбран" }}</div>
           </div>
 
           <div v-if="error" class="rounded-2xl border border-red-500 bg-red-900/20 px-4 py-3 text-sm text-red-300">
@@ -219,7 +354,7 @@ onBeforeUnmount(stopIndexPolling)
             :disabled="!canBuildIndex"
             class="rounded-2xl bg-sky-700 px-5 py-3 font-semibold transition hover:bg-sky-600 disabled:bg-sky-900/50"
           >
-            {{ isIndexing ? 'Индексация...' : 'Построить индекс' }}
+            {{ isIndexing ? "Индексация..." : "Построить индекс" }}
           </button>
         </div>
 
@@ -236,8 +371,20 @@ onBeforeUnmount(stopIndexPolling)
             />
           </div>
 
-          <div v-if="indexStatus?.currentFile" class="break-all text-sm text-neutral-400">
-            Текущий файл: {{ indexStatus.currentFile }}
+          <div class="grid gap-3 text-sm text-neutral-300 md:grid-cols-2">
+            <div>
+              Файлы: {{ indexTotals.filesProcessed }} / {{ indexTotals.filesTotal }}
+            </div>
+            <div>
+              Документы: {{ indexTotals.indexedDocuments }} / {{ indexTotals.documentsTotal }}
+            </div>
+          </div>
+
+          <div v-if="indexStatus?.currentFile || indexProgress?.currentFile" class="space-y-1 text-sm text-neutral-400">
+            <div class="break-all">Текущий файл: {{ indexProgress?.currentFile || indexStatus?.currentFile }}</div>
+            <div>
+              Внутри файла: {{ indexTotals.fileDocumentsProcessed }} / {{ indexTotals.fileDocumentsTotal }}
+            </div>
           </div>
 
           <div v-if="indexStatus?.error" class="break-all text-sm text-red-300">
@@ -249,20 +396,24 @@ onBeforeUnmount(stopIndexPolling)
           <div class="rounded-2xl border border-neutral-700 bg-neutral-800/70 p-4">
             <div class="text-xs uppercase tracking-wide text-neutral-400">Файлы</div>
             <div class="mt-2 text-sm text-white">
-              {{ indexStatus?.filesProcessed ?? 0 }} / {{ indexStatus?.filesTotal ?? 0 }}
+              {{ indexTotals.filesProcessed }} / {{ indexTotals.filesTotal }}
             </div>
           </div>
           <div class="rounded-2xl border border-neutral-700 bg-neutral-800/70 p-4">
             <div class="text-xs uppercase tracking-wide text-neutral-400">Документы</div>
-            <div class="mt-2 text-sm text-white">{{ indexStatus?.indexedDocuments ?? 0 }}</div>
+            <div class="mt-2 text-sm text-white">
+              {{ indexTotals.indexedDocuments }}
+            </div>
           </div>
           <div class="rounded-2xl border border-neutral-700 bg-neutral-800/70 p-4">
             <div class="text-xs uppercase tracking-wide text-neutral-400">Индекс-записи</div>
-            <div class="mt-2 text-sm text-white">{{ indexStatus?.indexedEntries ?? 0 }}</div>
+            <div class="mt-2 text-sm text-white">
+              {{ indexTotals.indexedEntries }}
+            </div>
           </div>
           <div class="rounded-2xl border border-neutral-700 bg-neutral-800/70 p-4">
             <div class="text-xs uppercase tracking-wide text-neutral-400">Дата</div>
-            <div class="mt-2 break-all text-sm text-white">{{ indexStatus?.indexedAt || '-' }}</div>
+            <div class="mt-2 break-all text-sm text-white">{{ indexStatus?.indexedAt || "-" }}</div>
           </div>
         </div>
       </section>
@@ -278,25 +429,29 @@ onBeforeUnmount(stopIndexPolling)
           <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <div class="rounded-2xl border border-neutral-700 bg-neutral-800/70 p-4">
               <div class="text-xs uppercase tracking-wide text-neutral-400">Импорт</div>
-              <div class="mt-2 text-sm text-white">{{ importStatus.importId || '-' }}</div>
+              <div class="mt-2 text-sm text-white">{{ importStatus.importId || "-" }}</div>
             </div>
             <div class="rounded-2xl border border-neutral-700 bg-neutral-800/70 p-4">
               <div class="text-xs uppercase tracking-wide text-neutral-400">Файлы</div>
-              <div class="mt-2 text-sm text-white">{{ importStatus.filesProcessed ?? 0 }}</div>
+              <div class="mt-2 text-sm text-white">
+                {{ importStatus.filesProcessed ?? 0 }} / {{ importStatus.filesTotal ?? 0 }}
+              </div>
             </div>
             <div class="rounded-2xl border border-neutral-700 bg-neutral-800/70 p-4">
               <div class="text-xs uppercase tracking-wide text-neutral-400">Документы</div>
-              <div class="mt-2 text-sm text-white">{{ importStatus.documentsImported ?? 0 }}</div>
+              <div class="mt-2 text-sm text-white">
+                {{ importStatus.documentsImported ?? 0 }} / {{ importStatus.documentsTotal ?? 0 }}
+              </div>
             </div>
             <div class="rounded-2xl border border-neutral-700 bg-neutral-800/70 p-4">
               <div class="text-xs uppercase tracking-wide text-neutral-400">Дата</div>
-              <div class="mt-2 break-all text-sm text-white">{{ importStatus.importedAt || '-' }}</div>
+              <div class="mt-2 break-all text-sm text-white">{{ importStatus.importedAt || "-" }}</div>
             </div>
           </div>
 
           <div class="rounded-2xl border border-neutral-700 bg-neutral-800/70 p-4">
             <div class="text-xs uppercase tracking-wide text-neutral-400">Выходной файл</div>
-            <div class="mt-2 break-all text-sm text-white">{{ importStatus.outputPath || '-' }}</div>
+            <div class="mt-2 break-all text-sm text-white">{{ importStatus.outputPath || "-" }}</div>
           </div>
 
           <div v-if="Array.isArray(importStatus.sources) && importStatus.sources.length" class="space-y-3">

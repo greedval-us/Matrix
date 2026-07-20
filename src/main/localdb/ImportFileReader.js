@@ -59,4 +59,14 @@ export class ImportFileReader {
       yield JSON.parse(line);
     }
   }
+
+  async countRecords(filePath) {
+    let count = 0;
+
+    for await (const _record of this.iterateRecords(filePath)) {
+      count += 1;
+    }
+
+    return count;
+  }
 }

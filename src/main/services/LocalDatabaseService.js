@@ -6,12 +6,21 @@ import {
   DEFAULT_DATABASE_FOLDER_NAME,
   STORAGE_KEY,
 } from "../localdb/constants.js";
+import { LocalDatabaseMigrationService } from "../localdb/LocalDatabaseMigrationService.js";
 import { LocalDatabaseStateRepository } from "../localdb/LocalDatabaseStateRepository.js";
+import { EnsureLocalDatabaseReadyUseCase } from "../application/localdb/EnsureLocalDatabaseReadyUseCase.js";
 
 export class LocalDatabaseService {
   constructor() {
     this.store = new Store();
     this.stateRepository = new LocalDatabaseStateRepository();
+    this.migrationService = new LocalDatabaseMigrationService({
+      stateRepository: this.stateRepository,
+    });
+    this.ensureReadyUseCase = new EnsureLocalDatabaseReadyUseCase({
+      localDatabaseService: this,
+      migrationService: this.migrationService,
+    });
   }
 
   normalizeRootPath(rootPath) {
@@ -129,5 +138,9 @@ export class LocalDatabaseService {
     this.setStoredRootPath(normalizedRootPath);
 
     return await this.getStatus(normalizedRootPath);
+  }
+
+  async ensureReady(rootPath = this.getStoredRootPath()) {
+    return await this.ensureReadyUseCase.execute(rootPath);
   }
 }

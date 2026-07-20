@@ -5,6 +5,7 @@ import { ImportService } from "../services/ImportService.js";
 export class ImportHandler {
   constructor() {
     this.service = new ImportService();
+    this.progressChannel = "import:progress";
   }
 
   register() {
@@ -15,8 +16,10 @@ export class ImportHandler {
 
     ipcMain.handle(
       "import:run-folder",
-      wrapHandler("import:run-folder", (_event, folderPath) =>
-        this.service.importFolder(folderPath)
+      wrapHandler("import:run-folder", (event, folderPath) =>
+        this.service.importFolder(folderPath, {
+          onProgress: (payload) => event.sender.send(this.progressChannel, payload),
+        })
       )
     );
   }

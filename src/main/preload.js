@@ -55,11 +55,21 @@ contextBridge.exposeInMainWorld("databaseStorageAPI", {
 contextBridge.exposeInMainWorld("importAPI", {
   getLastStatus: () => ipcRenderer.invoke("import:get-last-status"),
   runFolder: (folderPath) => ipcRenderer.invoke("import:run-folder", folderPath),
+  onProgress: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on("import:progress", listener);
+    return () => ipcRenderer.removeListener("import:progress", listener);
+  },
 });
 
 contextBridge.exposeInMainWorld("indexAPI", {
   getLastStatus: () => ipcRenderer.invoke("index:get-last-status"),
   build: () => ipcRenderer.invoke("index:build"),
+  onProgress: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on("index:progress", listener);
+    return () => ipcRenderer.removeListener("index:progress", listener);
+  },
 });
 
 contextBridge.exposeInMainWorld("grpcAPI", {

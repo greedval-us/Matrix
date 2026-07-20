@@ -77,6 +77,16 @@ export class JsonLinesRepository {
     }
   }
 
+  async countLines(filePath) {
+    let count = 0;
+
+    for await (const _line of this.iterateLines(filePath)) {
+      count += 1;
+    }
+
+    return count;
+  }
+
   async listFiles(directoryPath, extension) {
     const entries = await fsPromises.readdir(directoryPath, { withFileTypes: true });
 

@@ -11,6 +11,8 @@ export class ListLocalSourcesUseCase {
     const rootPath = this.localDatabaseService.getStoredRootPath();
     if (!rootPath) return [];
 
+    await this.localDatabaseService.ensureReady(rootPath);
+
     const sources = await this.stateRepository.readSources(new LocalDatabasePaths(rootPath));
 
     return sources.map((source) => ({

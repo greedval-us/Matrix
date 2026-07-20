@@ -30,7 +30,7 @@ export class ImportService {
     return await this.stateRepository.readImportState(new LocalDatabasePaths(rootPath));
   }
 
-  async importFolder(folderPath) {
-    return await this.useCase.execute(folderPath);
+  async importFolder(folderPath, options) {
+    return await this.useCase.execute(folderPath, options);
   }
 }

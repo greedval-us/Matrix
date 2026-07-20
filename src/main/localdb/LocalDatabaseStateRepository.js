@@ -1,5 +1,9 @@
 import fs from "fs/promises";
-import { INDEXABLE_FIELDS } from "./constants.js";
+import {
+  INDEXABLE_FIELDS,
+  LOCAL_DATABASE_FORMAT,
+  LOCAL_DATABASE_VERSION,
+} from "./constants.js";
 
 export class LocalDatabaseStateRepository {
   async readJson(filePath, fallbackValue = null) {
@@ -58,8 +62,8 @@ export class LocalDatabaseStateRepository {
 
   buildDatabaseMeta(now) {
     return {
-      format: "matrix-local-db",
-      version: 1,
+      format: LOCAL_DATABASE_FORMAT,
+      version: LOCAL_DATABASE_VERSION,
       createdAt: now,
       updatedAt: now,
       storage: {

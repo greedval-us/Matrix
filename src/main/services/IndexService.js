@@ -26,7 +26,7 @@ export class IndexService {
     return await this.stateRepository.readIndexState(new LocalDatabasePaths(rootPath));
   }
 
-  async buildIndexes() {
-    return await this.useCase.execute();
+  async buildIndexes(options) {
+    return await this.useCase.execute(options);
   }
 }

@@ -5,6 +5,7 @@ import { IndexService } from "../services/IndexService.js";
 export class IndexHandler {
   constructor() {
     this.service = new IndexService();
+    this.progressChannel = "index:progress";
   }
 
   register() {
@@ -15,7 +16,11 @@ export class IndexHandler {
 
     ipcMain.handle(
       "index:build",
-      wrapHandler("index:build", () => this.service.buildIndexes())
+      wrapHandler("index:build", (event) =>
+        this.service.buildIndexes({
+          onProgress: (payload) => event.sender.send(this.progressChannel, payload),
+        })
+      )
     );
   }
 }

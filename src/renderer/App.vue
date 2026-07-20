@@ -1,5 +1,5 @@
 <script setup>
-import AppLayout from '@/renderer/layouts/App/AppSidebarLayout.vue'
+import AppLayout from "@/renderer/layouts/app/AppSidebarLayout.vue";
 </script>
 
 <template>

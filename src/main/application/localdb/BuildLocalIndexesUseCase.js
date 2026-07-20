@@ -8,6 +8,7 @@ import {
 } from "../../localdb/constants.js";
 import { LocalDatabasePaths } from "../../localdb/LocalDatabasePaths.js";
 import { localDbMessages } from "../../localdb/messages.js";
+import { ProgressReporter } from "../../localdb/ProgressReporter.js";
 
 export class BuildLocalIndexesUseCase {
   constructor({
@@ -24,10 +25,12 @@ export class BuildLocalIndexesUseCase {
     this.termService = termService;
   }
 
-  async execute() {
+  async execute(options = {}) {
+    const progress = new ProgressReporter(options.onProgress);
+
     return await this.operationCoordinator.runExclusive("local-db-index", async () => {
       const databaseRootPath = this.localDatabaseService.getStoredRootPath();
-      const databaseStatus = await this.localDatabaseService.getStatus(databaseRootPath);
+      const databaseStatus = await this.localDatabaseService.ensureReady(databaseRootPath);
 
       if (!databaseStatus.initialized) {
         throw new Error(localDbMessages.databaseNotInitialized);
@@ -40,6 +43,11 @@ export class BuildLocalIndexesUseCase {
         throw new Error(localDbMessages.noIndexedDocuments);
       }
 
+      const filePlans = await this.buildFilePlans(paths, documentFiles);
+      const documentsTotal = filePlans.reduce(
+        (total, plan) => total + plan.documentsTotal,
+        0
+      );
       const startedAt = new Date().toISOString();
       const buildId = startedAt.replace(/[:.]/g, "-");
       const tempIndexesDir = paths.getTempPath(`${INDEX_BUILD_TEMP_PREFIX}-${buildId}`);
@@ -51,6 +59,7 @@ export class BuildLocalIndexesUseCase {
         filesTotal: documentFiles.length,
         filesProcessed: 0,
         indexedDocuments: 0,
+        documentsTotal,
         indexedEntries: 0,
         lookupEntries: 0,
         currentFile: null,
@@ -58,22 +67,39 @@ export class BuildLocalIndexesUseCase {
         fields: Object.fromEntries(INDEXABLE_FIELDS.map((field) => [field, 0])),
       };
 
+      progress.emit("started", {
+        filesTotal: documentFiles.length,
+        indexedDocuments: 0,
+        documentsTotal,
+      });
       await this.jsonLinesRepository.remove(tempIndexesDir);
       await this.prepareIndexDirectories(paths, tempIndexesDir);
       await this.stateRepository.writeIndexState(paths, summary);
 
       try {
-        for (const fileName of documentFiles) {
-          summary.currentFile = fileName;
+        for (const filePlan of filePlans) {
+          summary.currentFile = filePlan.fileName;
           await this.stateRepository.writeIndexState(paths, summary);
           await this.indexDocumentFile(
-            path.join(paths.documentsDir, fileName),
+            filePlan.filePath,
             paths,
             tempIndexesDir,
-            summary
+            summary,
+            progress,
+            filePlan
           );
           summary.filesProcessed += 1;
           await this.stateRepository.writeIndexState(paths, summary);
+          progress.emit("file-completed", {
+            currentFile: filePlan.fileName,
+            filesProcessed: summary.filesProcessed,
+            filesTotal: summary.filesTotal,
+            indexedDocuments: summary.indexedDocuments,
+            indexedEntries: summary.indexedEntries,
+            documentsTotal,
+            fileDocumentsProcessed: filePlan.documentsTotal,
+            fileDocumentsTotal: filePlan.documentsTotal,
+          });
         }
 
         await this.replaceIndexesAtomically(paths, tempIndexesDir, backupIndexesDir);
@@ -93,6 +119,12 @@ export class BuildLocalIndexesUseCase {
             fields: INDEXABLE_FIELDS,
           },
         }));
+        progress.emit("completed", {
+          filesProcessed: summary.filesProcessed,
+          filesTotal: summary.filesTotal,
+          indexedDocuments: summary.indexedDocuments,
+          indexedEntries: summary.indexedEntries,
+        });
 
         return summary;
       } catch (error) {
@@ -101,6 +133,11 @@ export class BuildLocalIndexesUseCase {
         summary.completedAt = new Date().toISOString();
         await this.stateRepository.writeIndexState(paths, summary);
         await this.jsonLinesRepository.remove(tempIndexesDir);
+        progress.emit("failed", {
+          error: error.message,
+          filesProcessed: summary.filesProcessed,
+          filesTotal: summary.filesTotal,
+        });
         throw error;
       }
     });
@@ -114,14 +151,32 @@ export class BuildLocalIndexesUseCase {
     await this.jsonLinesRepository.ensureDirectory(paths.getDocumentLookupDir(indexesDir));
   }
 
-  async indexDocumentFile(filePath, paths, indexesDir, summary) {
+  async buildFilePlans(paths, documentFiles) {
+    const plans = [];
+
+    for (const fileName of documentFiles) {
+      const filePath = path.join(paths.documentsDir, fileName);
+      const documentsTotal = await this.jsonLinesRepository.countLines(filePath);
+      plans.push({
+        fileName,
+        filePath,
+        documentsTotal,
+      });
+    }
+
+    return plans;
+  }
+
+  async indexDocumentFile(filePath, paths, indexesDir, summary, progress, filePlan) {
     const bufferMap = new Map();
     let documentsSinceLastSave = 0;
+    let fileDocumentsProcessed = 0;
 
     try {
       for await (const document of this.jsonLinesRepository.iterateJson(filePath)) {
         summary.indexedDocuments += 1;
         documentsSinceLastSave += 1;
+        fileDocumentsProcessed += 1;
 
         await this.bufferDocumentLookup(paths, indexesDir, document, bufferMap, summary);
         await this.bufferFieldIndexes(paths, indexesDir, document, bufferMap, summary);
@@ -129,12 +184,33 @@ export class BuildLocalIndexesUseCase {
         if (documentsSinceLastSave >= PROGRESS_SAVE_INTERVAL) {
           await this.flushAllBuffers(bufferMap);
           await this.stateRepository.writeIndexState(paths, summary);
+          progress.emit("progress", {
+            currentFile: filePlan.fileName,
+            filesProcessed: summary.filesProcessed,
+            filesTotal: summary.filesTotal,
+            indexedDocuments: summary.indexedDocuments,
+            documentsTotal: summary.documentsTotal,
+            indexedEntries: summary.indexedEntries,
+            fileDocumentsProcessed,
+            fileDocumentsTotal: filePlan.documentsTotal,
+          });
           documentsSinceLastSave = 0;
         }
       }
     } finally {
       await this.flushAllBuffers(bufferMap);
     }
+
+    progress.emit("progress", {
+      currentFile: filePlan.fileName,
+      filesProcessed: summary.filesProcessed,
+      filesTotal: summary.filesTotal,
+      indexedDocuments: summary.indexedDocuments,
+      documentsTotal: summary.documentsTotal,
+      indexedEntries: summary.indexedEntries,
+      fileDocumentsProcessed,
+      fileDocumentsTotal: filePlan.documentsTotal,
+    });
   }
 
   async bufferFieldIndexes(paths, indexesDir, document, bufferMap, summary) {

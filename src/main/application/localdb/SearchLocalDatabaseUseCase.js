@@ -22,6 +22,8 @@ export class SearchLocalDatabaseUseCase {
       throw new Error(localDbMessages.databaseNotInitialized);
     }
 
+    await this.localDatabaseService.ensureReady(rootPath);
+
     const searchToken = { cancelled: false };
     this.currentSearchToken = searchToken;
 
