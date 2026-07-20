@@ -1,13 +1,13 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { FileService } from '../../services/FileService'
-import { GrpcService } from "../../services/GrpcService"
+import { SearchService } from "../../services/SearchService"
 import { ResultParser } from '../../utils/ResultParser'
 import ManagerExport from '../../services/export/MenegerExport'
 
 
 export const usePackagesSearchStoreUI = defineStore('packagesSearchUI', () => {
-  const grpcService = new GrpcService(window.grpcAPI)
+  const searchService = new SearchService(window.searchAPI)
   const parser = new ResultParser()
   const exportManager = new ManagerExport()
 
@@ -123,7 +123,7 @@ export const usePackagesSearchStoreUI = defineStore('packagesSearchUI', () => {
 
   try {
     addLog('🚀 Создание gRPC клиента...')
-    await grpcService.createClient(tabId)
+    await searchService.createClient(tabId)
     addLog('✅ Клиент создан')
 
     for (const [index, line] of lines.entries()) {
@@ -137,7 +137,7 @@ export const usePackagesSearchStoreUI = defineStore('packagesSearchUI', () => {
       payload[searchField.value] = line
 
       try {
-        const results = await grpcService.baseSearch(tabId, payload)
+        const results = await searchService.search(tabId, payload)
         addLog(`✅ Результаты получены для строки ${index + 1}`)
         console.log(results)
 
@@ -183,7 +183,7 @@ export const usePackagesSearchStoreUI = defineStore('packagesSearchUI', () => {
   } finally {
     try {
       addLog('🗑️ Уничтожение gRPC клиента...')
-      await grpcService.destroyClient(tabId)
+      await searchService.destroyClient(tabId)
       addLog('✅ Клиент уничтожен')
       addLog('✅ Поиск завершон')
     } catch (err) {

@@ -35,11 +35,37 @@ contextBridge.exposeInMainWorld("storeAPI", {
   clearHistory: () => ipcRenderer.invoke("store:history:clear"),
 });
 
+const searchAPI = {
+  createClient: (tabId, endpoint) => ipcRenderer.invoke("search:create-client", tabId, endpoint),
+  run: (tabId, payload) => ipcRenderer.invoke("search:run", tabId, payload),
+  cancel: (tabId) => ipcRenderer.send("search:cancel", tabId),
+  destroyClient: (tabId) => ipcRenderer.invoke("search:destroy-client", tabId),
+  listDatabases: (payload) => ipcRenderer.invoke("search:list-databases", payload),
+};
+
+contextBridge.exposeInMainWorld("searchAPI", searchAPI);
+
+contextBridge.exposeInMainWorld("databaseStorageAPI", {
+  getRootPath: () => ipcRenderer.invoke("database-storage:get-root-path"),
+  setRootPath: (rootPath) => ipcRenderer.invoke("database-storage:set-root-path", rootPath),
+  getStatus: (rootPath) => ipcRenderer.invoke("database-storage:get-status", rootPath),
+  initialize: (rootPath) => ipcRenderer.invoke("database-storage:initialize", rootPath),
+});
+
+contextBridge.exposeInMainWorld("importAPI", {
+  getLastStatus: () => ipcRenderer.invoke("import:get-last-status"),
+  runFolder: (folderPath) => ipcRenderer.invoke("import:run-folder", folderPath),
+});
+
+contextBridge.exposeInMainWorld("indexAPI", {
+  getLastStatus: () => ipcRenderer.invoke("index:get-last-status"),
+  build: () => ipcRenderer.invoke("index:build"),
+});
 
 contextBridge.exposeInMainWorld("grpcAPI", {
-  createSearchClient: (tabId, serverAddress) => ipcRenderer.invoke("grpc:create-search-client", tabId, serverAddress),
-  baseSearch: (tabId, payload) => ipcRenderer.invoke("grpc:base_search", tabId, payload),
-  cancelSearch: (tabId) => ipcRenderer.send("grpc:cancel-search", tabId),
-  destroySearchClient: (tabId) => ipcRenderer.invoke("grpc:destroy-search-client", tabId),
-  databaseAll: (payload) => ipcRenderer.invoke("grpc:database_all", payload),
+  createSearchClient: (tabId, endpoint) => searchAPI.createClient(tabId, endpoint),
+  baseSearch: (tabId, payload) => searchAPI.run(tabId, payload),
+  cancelSearch: (tabId) => searchAPI.cancel(tabId),
+  destroySearchClient: (tabId) => searchAPI.destroyClient(tabId),
+  databaseAll: (payload) => searchAPI.listDatabases(payload),
 });

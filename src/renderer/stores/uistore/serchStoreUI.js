@@ -4,7 +4,7 @@ import { Field } from '../../utils/Field'
 import { iconsSerchs, defaultPatterns, defaultPlaceholders } from '../../../shared/constants/searchItems'
 import { key as translateKey } from '../../../shared/constants/translateKey'
 import { help } from '../../../shared/constants/help'
-import { useGrpcStore } from '../grpcStore'
+import { useSearchStore } from '../searchStore'
 import { useTabStore } from '../tabStore'
 import { ResultParser } from '../../utils/ResultParser'
 import { useHistoryStore } from '../historyStore'
@@ -130,7 +130,7 @@ export const useSearchUIStore = defineStore('searchUI', () => {
   }
 
 async function search(tabId) {
-  const grpcStore = useGrpcStore()
+  const searchStore = useSearchStore()
   const query = getFullQuery(tabId)
 
   const newTitle = Object.values(query).filter(v => v).join(', ')
@@ -139,8 +139,8 @@ async function search(tabId) {
   try {
     clearResults(tabId)
     setLoading(tabId, true)
-    await grpcStore.createClient(tabId)
-    const results = await grpcStore.baseSearch(tabId, query)
+    await searchStore.createClient(tabId)
+    const results = await searchStore.search(tabId, query)
     setResults(tabId, results)
 
     const fields = getSelectedFields(tabId)
@@ -154,7 +154,7 @@ async function search(tabId) {
     throw e
   } finally {
     setLoading(tabId, false)
-    grpcStore.destroyClient(tabId)
+    searchStore.destroyClient(tabId)
   }
 }
 

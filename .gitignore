@@ -37,6 +37,11 @@ bower_components
 
 # Compiled binary addons (https://nodejs.org/api/addons.html)
 build/Release
+src/native/build/Release/
+src/native/build/*.vcxproj*
+src/native/build/*.sln
+src/native/build/config.gypi
+src/native/build/*.node
 
 # Dependency directories
 node_modules/
@@ -90,6 +95,8 @@ out
 # Nuxt.js build / generate output
 .nuxt
 dist
+dist-electron
+release
 
 # Gatsby files
 .cache/
@@ -127,6 +134,10 @@ dist
 
 # Stores VSCode versions used for testing VSCode extensions
 .vscode-test
+
+# Electron builder artifacts
+*.blockmap
+latest*.yml
 
 # yarn v2
 .yarn/cache

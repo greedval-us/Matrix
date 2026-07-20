@@ -1,9 +1,9 @@
 import { defineStore } from "pinia"
 import { reactive, computed } from "vue"
-import { useGrpcStore } from "../grpcStore"
+import { useSearchStore } from "../searchStore"
 
 export const useDatabaseStore = defineStore("database", () => {
-  const grpcStore = useGrpcStore()
+  const searchStore = useSearchStore()
 
   const state = reactive({
     rows: [],
@@ -60,7 +60,7 @@ export const useDatabaseStore = defineStore("database", () => {
     state.error = null
     try {
       const payload = { request: email }
-      const result = await grpcStore.databaseAll(payload)
+      const result = await searchStore.listDatabases(payload)
       state.rows = result
     } catch (e) {
       state.error = e.message ?? e.toString()

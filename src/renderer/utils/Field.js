@@ -48,7 +48,9 @@ export class Field {
   }
 
   validate() {
-    if (!this.pattern) {
+    if (this.value.includes('?') || this.value.includes('%')) {
+      this.valid = true
+    } else if (!this.pattern) {
       this.valid = true
     } else {
       const regex = new RegExp(this.pattern)
