@@ -1,13 +1,17 @@
 import fs from "fs/promises";
 import path from "path";
 import Store from "electron-store";
-
-const STORAGE_KEY = "databaseRootPath";
-const DEFAULT_DATABASE_FOLDER_NAME = "MatrixData";
+import { LocalDatabasePaths } from "../localdb/LocalDatabasePaths.js";
+import {
+  DEFAULT_DATABASE_FOLDER_NAME,
+  STORAGE_KEY,
+} from "../localdb/constants.js";
+import { LocalDatabaseStateRepository } from "../localdb/LocalDatabaseStateRepository.js";
 
 export class LocalDatabaseService {
   constructor() {
     this.store = new Store();
+    this.stateRepository = new LocalDatabaseStateRepository();
   }
 
   normalizeRootPath(rootPath) {
@@ -85,13 +89,14 @@ export class LocalDatabaseService {
       throw new Error("Database root path is required");
     }
 
+    const paths = new LocalDatabasePaths(normalizedRootPath);
     const directories = [
       normalizedRootPath,
-      path.join(normalizedRootPath, "documents"),
-      path.join(normalizedRootPath, "indexes"),
-      path.join(normalizedRootPath, "state"),
-      path.join(normalizedRootPath, "meta"),
-      path.join(normalizedRootPath, "temp"),
+      paths.documentsDir,
+      paths.indexesDir,
+      paths.stateDir,
+      paths.metaDir,
+      paths.tempDir,
     ];
 
     for (const directory of directories) {
@@ -99,54 +104,16 @@ export class LocalDatabaseService {
     }
 
     const now = new Date().toISOString();
-    const meta = {
-      format: "matrix-local-db",
-      version: 1,
-      createdAt: now,
-      updatedAt: now,
-      storage: {
-        engine: "rocksdb",
-        status: "empty",
-      },
-      indexes: {
-        version: 1,
-        fields: [
-          "number",
-          "mail",
-          "fio",
-          "passport",
-          "inn",
-          "snils",
-          "telegram",
-          "vk",
-          "facebook",
-          "grz",
-          "vin",
-          "date_of_birth",
-        ],
-      },
-    };
-
-    const metaPath = path.join(normalizedRootPath, "meta", "db.json");
-    const readmePath = path.join(normalizedRootPath, "README.txt");
-    const statePath = path.join(normalizedRootPath, "state", "index_state.json");
-
-    await fs.writeFile(metaPath, JSON.stringify(meta, null, 2), "utf8");
-    await fs.writeFile(
-      statePath,
-      JSON.stringify(
-        {
-          lastIndexedSource: null,
-          indexedDocuments: 0,
-          updatedAt: now,
-        },
-        null,
-        2
-      ),
-      "utf8"
+    await this.stateRepository.writeJson(
+      paths.databaseMetaPath,
+      this.stateRepository.buildDatabaseMeta(now)
+    );
+    await this.stateRepository.writeJson(
+      paths.indexStatePath,
+      this.stateRepository.buildInitialIndexState(now)
     );
     await fs.writeFile(
-      readmePath,
+      paths.readmePath,
       [
         "Matrix local database storage",
         "",
