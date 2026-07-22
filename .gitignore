@@ -139,6 +139,15 @@ release
 *.blockmap
 latest*.yml
 
+# One-off local SQL migration artifacts
+scripts/importLegacySqlDump.mjs
+legacy_import*.log
+legacy_import*.err.log
+legacy_import_checkpoint.json
+tmp_legacy_sample.sql
+tmp_legacy_db/
+tmp_resume_db/
+
 # yarn v2
 .yarn/cache
 .yarn/unplugged
