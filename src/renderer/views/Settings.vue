@@ -10,8 +10,8 @@ const isInitializing = ref(false);
 const statusText = computed(() => {
   if (!status.value) return "Статус еще не проверен";
   if (!status.value.rootPath) return "Путь к локальной базе не выбран";
-  if (status.value.initialized) return "Локальная база инициализирована";
-  if (status.value.exists) return "Каталог найден, база еще не инициализирована";
+  if (status.value.initialized) return "Локальная база готова к работе";
+  if (status.value.exists) return "Каталог найден, но база еще не инициализирована";
   return "Каталог недоступен";
 });
 
@@ -86,9 +86,18 @@ onMounted(loadSettings);
 </script>
 
 <template>
-  <div class="h-full flex items-center justify-center bg-gradient-to-br from-neutral-900 to-neutral-950 p-6">
-    <div class="w-full max-w-2xl space-y-6 rounded-3xl border border-neutral-700 bg-neutral-900/80 p-8 text-white shadow-2xl backdrop-blur-xl transition-all hover:shadow-3xl">
-      <h2 class="text-center text-3xl font-bold text-white drop-shadow-md">Локальная база</h2>
+  <div class="flex h-full items-center justify-center bg-gradient-to-br from-neutral-900 to-neutral-950 p-6">
+    <div
+      class="w-full max-w-2xl space-y-6 rounded-3xl border border-neutral-700 bg-neutral-900/80 p-8 text-white shadow-2xl backdrop-blur-xl transition-all hover:shadow-3xl"
+    >
+      <h2 class="text-center text-3xl font-bold text-white drop-shadow-md">
+        Настройка локальной базы
+      </h2>
+
+      <div class="rounded-2xl border border-neutral-700 bg-neutral-800/60 p-4 text-sm text-neutral-300">
+        Старые настройки подключения к серверу больше не используются. Эта версия приложения
+        работает с локальной базой по выбранному пути на диске.
+      </div>
 
       <div class="space-y-2">
         <label for="database-root" class="text-sm font-medium text-neutral-300">
@@ -97,12 +106,12 @@ onMounted(loadSettings);
         <input
           id="database-root"
           v-model="databaseRootPath"
-          placeholder="E:\\MatrixData"
+          placeholder="Z:\\zookeeper\\MatrixData"
           class="w-full rounded-2xl border border-neutral-600 bg-neutral-800 p-4 text-white placeholder-neutral-500 shadow-inner transition-all hover:bg-neutral-700 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-neutral-400"
         >
         <p class="text-xs text-neutral-400">
-          Можно выбрать корень съемного диска или отдельную папку, где будут созданы каталоги
-          `documents`, `indexes`, `meta`, `state`.
+          Можно выбрать локальную папку или сетевой каталог. Внутри будут использоваться
+          `documents`, `indexes`, `meta`, `state` и `temp`.
         </p>
       </div>
 

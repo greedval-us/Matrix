@@ -11,12 +11,13 @@ import typeFormat from '../../renderer/images/type_format.png'
 
 export const InstructionSteps = [
   {
-    title: 'Настройка подключения',
+    title: 'Настройка локальной базы',
     text: `
       <div class="space-y-3">
         <p>Откройте раздел <strong>Настройки</strong>.</p>
-        <p>Введите адрес сервера в формате <code>IP:PORT</code>, например <code>127.0.0.1:5196</code>.</p>
-        <p>Нажмите кнопку <strong>Сохранить</strong>.</p>
+        <p>Укажите путь к локальной базе, например <code>Z:\\zookeeper\\MatrixData</code> или <code>E:\\MatrixData</code>.</p>
+        <p>Нажмите кнопку <strong>Сохранить путь</strong>, чтобы сделать этот каталог активным.</p>
+        <p>Если база еще не создана, нажмите <strong>Создать пустую базу</strong>.</p>
       </div>
     `,
     icon: Server,

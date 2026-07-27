@@ -1,49 +1,116 @@
-export function processAndGroupMeta(data) {
-  const processed = data
-    .map(item => {
-      const [datePart] = item.created_at.split(' ')
-      const [dayStr, monthStr, yearStr] = datePart.split('.')
-      const day = parseInt(dayStr, 10)
-      const month = parseInt(monthStr, 10)
-      const year = parseInt(yearStr, 10)
+const MONTH_NAMES = [
+  "Январь",
+  "Февраль",
+  "Март",
+  "Апрель",
+  "Май",
+  "Июнь",
+  "Июль",
+  "Август",
+  "Сентябрь",
+  "Октябрь",
+  "Ноябрь",
+  "Декабрь",
+];
 
-      return {
-        ...item,
-        year,
-        month,
-        day,
-        formattedDate: `${dayStr}-${monthStr}-${yearStr}`
-      }
-    })
-    .filter(item => item.year >= 2025)
+export function processAndGroupMeta(data = []) {
+  const processed = (Array.isArray(data) ? data : [])
+    .map((item, index) => normalizeMetaItem(item, index))
+    .filter(Boolean)
+    .sort((left, right) => right.timestamp - left.timestamp);
 
-  if (!processed.length) return {}
+  if (processed.length === 0) {
+    return {};
+  }
 
-  const updatesByMonth = {}
-  processed.forEach(item => {
-    const key = `${item.year}-${item.month}`
-    if (!updatesByMonth[key]) updatesByMonth[key] = { year: item.year, month: item.month, items: [] }
-    updatesByMonth[key].items.push(item)
-  })
+  const grouped = {};
 
-  const sortedKeys = Object.keys(updatesByMonth).sort((a, b) => {
-    const [yearA, monthA] = a.split('-').map(Number)
-    const [yearB, monthB] = b.split('-').map(Number)
-    return yearA === yearB ? monthB - monthA : yearB - yearA
-  })
+  for (const item of processed) {
+    const yearKey = String(item.year);
+    const monthKey = MONTH_NAMES[item.month - 1] || "Без месяца";
 
-  const monthNames = [
-    'Январь','Февраль','Март','Апрель','Май','Июнь',
-    'Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'
-  ]
+    if (!grouped[yearKey]) grouped[yearKey] = {};
+    if (!grouped[yearKey][monthKey]) grouped[yearKey][monthKey] = [];
 
-  const sortedUpdates = {}
-  sortedKeys.forEach(k => {
-    const { year, month, items } = updatesByMonth[k]
-    const monthName = monthNames[month - 1]
-    if (!sortedUpdates[year]) sortedUpdates[year] = {}
-    sortedUpdates[year][monthName] = items
-  })
+    grouped[yearKey][monthKey].push(item);
+  }
 
-  return sortedUpdates
+  return grouped;
+}
+
+function normalizeMetaItem(item, index) {
+  const parsedDate = parseMetaDate(
+    item?.updated_at ||
+      item?.created_at ||
+      item?.updatedAt ||
+      item?.createdAt ||
+      item?.importedAt ||
+      item?.relevance_date
+  );
+
+  if (!parsedDate) return null;
+
+  return {
+    ...item,
+    id: item?.id ?? item?.name_table ?? item?.sourceTable ?? index,
+    name: item?.name || item?.name_table || item?.sourceTable || "Без названия",
+    type: item?.type || "local-import",
+    count: normalizeCount(item?.count),
+    year: parsedDate.year,
+    month: parsedDate.month,
+    day: parsedDate.day,
+    timestamp: parsedDate.date.getTime(),
+    formattedDate: parsedDate.formattedDate,
+  };
+}
+
+function normalizeCount(value) {
+  const count = Number.parseInt(value, 10);
+  return Number.isFinite(count) ? count.toLocaleString("ru-RU") : "0";
+}
+
+function parseMetaDate(value) {
+  if (value === null || value === undefined || value === "") return null;
+
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return buildDateParts(new Date(value));
+  }
+
+  const text = String(value).trim();
+  if (!text) return null;
+
+  const directDate = new Date(text);
+  if (!Number.isNaN(directDate.getTime())) {
+    return buildDateParts(directDate);
+  }
+
+  const dottedMatch = text.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+  if (dottedMatch) {
+    const [, day, month, year] = dottedMatch;
+    return buildDateParts(new Date(Number(year), Number(month) - 1, Number(day)));
+  }
+
+  const sqlMatch = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (sqlMatch) {
+    const [, year, month, day] = sqlMatch;
+    return buildDateParts(new Date(Number(year), Number(month) - 1, Number(day)));
+  }
+
+  return null;
+}
+
+function buildDateParts(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return null;
+
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const year = date.getFullYear();
+
+  return {
+    date,
+    day: Number(day),
+    month: Number(month),
+    year,
+    formattedDate: `${day}.${month}.${year}`,
+  };
 }
