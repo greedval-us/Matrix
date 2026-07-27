@@ -278,29 +278,29 @@ onBeforeUnmount(() => {
           <div class="grid gap-4 md:grid-cols-2">
             <div class="space-y-2">
               <label for="import-description" class="text-sm font-medium text-neutral-300">
-                РћРїРёСЃР°РЅРёРµ РЅРѕРІС‹С… Р±Р°Р·
+                Описание новых баз
               </label>
               <textarea
                 id="import-description"
                 v-model="defaultImportDescription"
                 rows="3"
-                placeholder="Р•СЃР»Рё РїРѕР»Рµ РїСѓСЃС‚РѕРµ, РѕРїРёСЃР°РЅРёРµ Р±СѓРґРµС‚ СЃРѕР·РґР°РЅРѕ Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРё РїРѕ РёРјРµРЅРё С„Р°Р№Р»Р°"
+                placeholder="Если поле пустое, описание будет создано автоматически по имени файла"
                 class="w-full rounded-2xl border border-neutral-600 bg-neutral-800 p-4 text-white placeholder-neutral-500 focus:outline-none focus:ring-2 focus:ring-neutral-400"
               />
             </div>
 
             <div class="space-y-2">
               <label for="import-type" class="text-sm font-medium text-neutral-300">
-                РўРёРї РЅРѕРІС‹С… Р±Р°Р·
+                Тип новых баз
               </label>
               <input
                 id="import-type"
                 v-model="defaultImportType"
-                placeholder="РќР°РїСЂРёРјРµСЂ: РљРѕРЅС‚Р°РєС‚С‹, Р¤РёРЅР°РЅСЃС‹, РЈСЃР»СѓРіРё"
+                placeholder="Например: Контакты, Финансы, Услуги"
                 class="w-full rounded-2xl border border-neutral-600 bg-neutral-800 p-4 text-white placeholder-neutral-500 focus:outline-none focus:ring-2 focus:ring-neutral-400"
               >
               <p class="text-xs text-neutral-500">
-                Р•СЃР»Рё РЅРµ Р·Р°РїРѕР»РЅСЏС‚СЊ, Р±СѓРґРµС‚ РёСЃРїРѕР»СЊР·РѕРІР°РЅ С‚РёРї `local-import`.
+                Если не заполнять, будет использован тип `local-import`.
               </p>
             </div>
           </div>
@@ -329,7 +329,7 @@ onBeforeUnmount(() => {
 
           <div class="space-y-3 rounded-2xl border border-neutral-700 bg-neutral-800/70 p-4">
             <div class="rounded-2xl border border-neutral-700/80 bg-neutral-900/60 p-3 text-xs text-neutral-400">
-              РРјРїРѕСЂС‚ РЅРµ Р·Р°С‚РёСЂР°РµС‚ СѓР¶Рµ СЃСѓС‰РµСЃС‚РІСѓСЋС‰РёРµ РёСЃС‚РѕС‡РЅРёРєРё: РµСЃР»Рё РёРјСЏ С‚Р°Р±Р»РёС†С‹ СѓР¶Рµ Р·Р°РЅСЏС‚Рѕ, Р±СѓРґРµС‚ СЃРѕР·РґР°РЅРѕ РЅРѕРІРѕРµ СѓРЅРёРєР°Р»СЊРЅРѕРµ РёРјСЏ.
+              Импорт не затирает уже существующие источники: если имя таблицы уже занято, будет создано новое уникальное имя.
             </div>
             <div class="flex flex-wrap items-center justify-between gap-3 text-sm">
               <div class="text-neutral-300">{{ importStatusText }}</div>
@@ -452,61 +452,6 @@ onBeforeUnmount(() => {
           <div class="rounded-2xl border border-neutral-700 bg-neutral-800/70 p-4">
             <div class="text-xs uppercase tracking-wide text-neutral-400">Дата</div>
             <div class="mt-2 break-all text-sm text-white">{{ indexStatus?.indexedAt || "-" }}</div>
-          </div>
-        </div>
-      </section>
-
-      <section class="space-y-4 rounded-3xl border border-neutral-700 bg-neutral-900/80 p-8 shadow-xl backdrop-blur-xl">
-        <h2 class="text-xl font-semibold">Последний импорт</h2>
-
-        <div v-if="!importStatus" class="text-sm text-neutral-400">
-          Импорт еще не запускался.
-        </div>
-
-        <div v-else class="space-y-4">
-          <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <div class="rounded-2xl border border-neutral-700 bg-neutral-800/70 p-4">
-              <div class="text-xs uppercase tracking-wide text-neutral-400">Импорт</div>
-              <div class="mt-2 text-sm text-white">{{ importStatus.importId || "-" }}</div>
-            </div>
-            <div class="rounded-2xl border border-neutral-700 bg-neutral-800/70 p-4">
-              <div class="text-xs uppercase tracking-wide text-neutral-400">Файлы</div>
-              <div class="mt-2 text-sm text-white">
-                {{ importStatus.filesProcessed ?? 0 }} / {{ importStatus.filesTotal ?? 0 }}
-              </div>
-            </div>
-            <div class="rounded-2xl border border-neutral-700 bg-neutral-800/70 p-4">
-              <div class="text-xs uppercase tracking-wide text-neutral-400">Документы</div>
-              <div class="mt-2 text-sm text-white">
-                {{ importStatus.documentsImported ?? 0 }} / {{ importStatus.documentsTotal ?? 0 }}
-              </div>
-            </div>
-            <div class="rounded-2xl border border-neutral-700 bg-neutral-800/70 p-4">
-              <div class="text-xs uppercase tracking-wide text-neutral-400">Дата</div>
-              <div class="mt-2 break-all text-sm text-white">{{ importStatus.importedAt || "-" }}</div>
-            </div>
-          </div>
-
-          <div class="rounded-2xl border border-neutral-700 bg-neutral-800/70 p-4">
-            <div class="text-xs uppercase tracking-wide text-neutral-400">Выходной файл</div>
-            <div class="mt-2 break-all text-sm text-white">{{ importStatus.outputPath || "-" }}</div>
-          </div>
-
-          <div v-if="Array.isArray(importStatus.sources) && importStatus.sources.length" class="space-y-3">
-            <div class="text-sm font-medium text-neutral-300">Источники</div>
-            <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              <div
-                v-for="source in importStatus.sources"
-                :key="source.sourceTable"
-                class="rounded-2xl border border-neutral-700 bg-neutral-800/70 p-4"
-              >
-                <div class="text-sm font-semibold text-white">{{ source.sourceTable }}</div>
-                <div class="mt-2 text-xs text-neutral-400">{{ source.fileName }}</div>
-                <div class="mt-3 text-sm text-neutral-200">
-                  Документов: {{ source.documentsImported }}
-                </div>
-              </div>
-            </div>
           </div>
         </div>
       </section>
