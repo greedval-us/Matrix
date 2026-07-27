@@ -69,3 +69,72 @@ test("BuildLocalIndexesUseCase builds indexes and emits progress", async () => {
 
   await fs.rm(tempRoot, { recursive: true, force: true });
 });
+
+test("BuildLocalIndexesUseCase indexes valid numbers extracted from no_valid_number", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "matrix-index-invalid-"));
+  const dbRoot = path.join(tempRoot, "db");
+  const paths = new LocalDatabasePaths(dbRoot);
+  const stateRepository = new LocalDatabaseStateRepository();
+  const jsonLinesRepository = new JsonLinesRepository();
+
+  await fs.mkdir(paths.documentsDir, { recursive: true });
+  await fs.mkdir(paths.metaDir, { recursive: true });
+  await fs.mkdir(paths.stateDir, { recursive: true });
+  await fs.mkdir(paths.tempDir, { recursive: true });
+  await stateRepository.writeJson(
+    paths.databaseMetaPath,
+    stateRepository.buildDatabaseMeta("2026-07-23T10:00:00.000Z")
+  );
+  await jsonLinesRepository.appendLines(
+    path.join(paths.documentsDir, "import_invalid_numbers.jsonl"),
+    [
+      JSON.stringify({
+        docId: "numbers:1",
+        sourceTable: "numbers",
+        rowId: 1,
+        fields: {},
+        invalidFields: {
+          no_valid_number: "79274279737 8434125131 79274279747",
+        },
+      }),
+    ]
+  );
+
+  const fakeLocalDatabaseService = {
+    getStoredRootPath() {
+      return dbRoot;
+    },
+    async ensureReady(rootPath) {
+      return { initialized: true, rootPath };
+    },
+  };
+
+  const useCase = new BuildLocalIndexesUseCase({
+    localDatabaseService: fakeLocalDatabaseService,
+    stateRepository,
+    jsonLinesRepository,
+    operationCoordinator: new OperationCoordinator(),
+    termService: new SearchTermService(),
+  });
+
+  await useCase.execute();
+
+  const bucketPath = paths.getIndexBucketPath("number", "79");
+  const indexedEntries = [];
+  for await (const entry of jsonLinesRepository.iterateJson(bucketPath)) {
+    indexedEntries.push(entry);
+  }
+
+  assert.ok(indexedEntries.some((entry) => entry.term === "79274279737"));
+  assert.ok(indexedEntries.some((entry) => entry.term === "79274279747"));
+
+  const secondBucketPath = paths.getIndexBucketPath("number", "84");
+  const secondBucketEntries = [];
+  for await (const entry of jsonLinesRepository.iterateJson(secondBucketPath)) {
+    secondBucketEntries.push(entry);
+  }
+
+  assert.ok(secondBucketEntries.some((entry) => entry.term === "8434125131"));
+
+  await fs.rm(tempRoot, { recursive: true, force: true });
+});

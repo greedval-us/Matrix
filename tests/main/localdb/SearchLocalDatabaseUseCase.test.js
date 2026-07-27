@@ -22,7 +22,16 @@ test("SearchLocalDatabaseUseCase returns matching local source and records", asy
 
   await stateRepository.writeJson(
     paths.sourcesMetaPath,
-    [{ sourceTable: "people", fileName: "people.json", importedAt: "2026-07-20T10:00:00.000Z" }]
+    [
+      {
+        sourceTable: "people",
+        fileName: "people.json",
+        importedAt: "2026-07-20T10:00:00.000Z",
+        name: "Люди",
+        description: "Тестовая локальная база",
+        type: "Контакты",
+      },
+    ]
   );
   await jsonLinesRepository.appendLines(
     paths.getIndexBucketPath("number", "79"),
@@ -61,6 +70,9 @@ test("SearchLocalDatabaseUseCase returns matching local source and records", asy
 
   assert.equal(results.length, 2);
   assert.equal(results[0].object_data_base.name_table, "people");
+  assert.equal(results[0].object_data_base.name, "Люди");
+  assert.equal(results[0].object_data_base.info, "Тестовая локальная база");
+  assert.equal(results[0].object_data_base.type, "Контакты");
   assert.equal(results[1].object_data.source_name, "people");
 
   await fs.rm(tempRoot, { recursive: true, force: true });

@@ -16,8 +16,9 @@ export class ImportHandler {
 
     ipcMain.handle(
       "import:run-folder",
-      wrapHandler("import:run-folder", (event, folderPath) =>
+      wrapHandler("import:run-folder", (event, folderPath, options = {}) =>
         this.service.importFolder(folderPath, {
+          ...options,
           onProgress: (payload) => event.sender.send(this.progressChannel, payload),
         })
       )

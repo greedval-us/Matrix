@@ -54,7 +54,7 @@ contextBridge.exposeInMainWorld("databaseStorageAPI", {
 
 contextBridge.exposeInMainWorld("importAPI", {
   getLastStatus: () => ipcRenderer.invoke("import:get-last-status"),
-  runFolder: (folderPath) => ipcRenderer.invoke("import:run-folder", folderPath),
+  runFolder: (folderPath, options) => ipcRenderer.invoke("import:run-folder", folderPath, options),
   onProgress: (callback) => {
     const listener = (_event, payload) => callback(payload);
     ipcRenderer.on("import:progress", listener);

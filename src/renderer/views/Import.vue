@@ -8,6 +8,8 @@ const importStatus = ref(null);
 const indexStatus = ref(null);
 const importProgress = ref(null);
 const indexProgress = ref(null);
+const defaultImportDescription = ref("");
+const defaultImportType = ref("");
 const error = ref("");
 const isImporting = ref(false);
 const isIndexing = ref(false);
@@ -192,7 +194,10 @@ async function runImport() {
   error.value = "";
 
   try {
-    importStatus.value = await window.importAPI.runFolder(sourceFolderPath.value);
+    importStatus.value = await window.importAPI.runFolder(sourceFolderPath.value, {
+      defaultDescription: defaultImportDescription.value,
+      defaultType: defaultImportType.value,
+    });
     indexStatus.value = await window.indexAPI.getLastStatus();
   } catch (e) {
     error.value = e.message || "Ошибка импорта";
@@ -270,6 +275,36 @@ onBeforeUnmount(() => {
             >
           </div>
 
+          <div class="grid gap-4 md:grid-cols-2">
+            <div class="space-y-2">
+              <label for="import-description" class="text-sm font-medium text-neutral-300">
+                РћРїРёСЃР°РЅРёРµ РЅРѕРІС‹С… Р±Р°Р·
+              </label>
+              <textarea
+                id="import-description"
+                v-model="defaultImportDescription"
+                rows="3"
+                placeholder="Р•СЃР»Рё РїРѕР»Рµ РїСѓСЃС‚РѕРµ, РѕРїРёСЃР°РЅРёРµ Р±СѓРґРµС‚ СЃРѕР·РґР°РЅРѕ Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРё РїРѕ РёРјРµРЅРё С„Р°Р№Р»Р°"
+                class="w-full rounded-2xl border border-neutral-600 bg-neutral-800 p-4 text-white placeholder-neutral-500 focus:outline-none focus:ring-2 focus:ring-neutral-400"
+              />
+            </div>
+
+            <div class="space-y-2">
+              <label for="import-type" class="text-sm font-medium text-neutral-300">
+                РўРёРї РЅРѕРІС‹С… Р±Р°Р·
+              </label>
+              <input
+                id="import-type"
+                v-model="defaultImportType"
+                placeholder="РќР°РїСЂРёРјРµСЂ: РљРѕРЅС‚Р°РєС‚С‹, Р¤РёРЅР°РЅСЃС‹, РЈСЃР»СѓРіРё"
+                class="w-full rounded-2xl border border-neutral-600 bg-neutral-800 p-4 text-white placeholder-neutral-500 focus:outline-none focus:ring-2 focus:ring-neutral-400"
+              >
+              <p class="text-xs text-neutral-500">
+                Р•СЃР»Рё РЅРµ Р·Р°РїРѕР»РЅСЏС‚СЊ, Р±СѓРґРµС‚ РёСЃРїРѕР»СЊР·РѕРІР°РЅ С‚РёРї `local-import`.
+              </p>
+            </div>
+          </div>
+
           <div class="flex flex-wrap gap-3">
             <button
               @click="chooseImportFolder"
@@ -293,6 +328,9 @@ onBeforeUnmount(() => {
           </div>
 
           <div class="space-y-3 rounded-2xl border border-neutral-700 bg-neutral-800/70 p-4">
+            <div class="rounded-2xl border border-neutral-700/80 bg-neutral-900/60 p-3 text-xs text-neutral-400">
+              РРјРїРѕСЂС‚ РЅРµ Р·Р°С‚РёСЂР°РµС‚ СѓР¶Рµ СЃСѓС‰РµСЃС‚РІСѓСЋС‰РёРµ РёСЃС‚РѕС‡РЅРёРєРё: РµСЃР»Рё РёРјСЏ С‚Р°Р±Р»РёС†С‹ СѓР¶Рµ Р·Р°РЅСЏС‚Рѕ, Р±СѓРґРµС‚ СЃРѕР·РґР°РЅРѕ РЅРѕРІРѕРµ СѓРЅРёРєР°Р»СЊРЅРѕРµ РёРјСЏ.
+            </div>
             <div class="flex flex-wrap items-center justify-between gap-3 text-sm">
               <div class="text-neutral-300">{{ importStatusText }}</div>
               <div class="text-neutral-400">{{ importProgressPercent }}%</div>

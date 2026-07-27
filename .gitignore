@@ -141,12 +141,16 @@ latest*.yml
 
 # One-off local SQL migration artifacts
 scripts/importLegacySqlDump.mjs
+scripts/buildLegacySqlOffsets.mjs
+scripts/importLegacySourceCatalog.mjs
 legacy_import*.log
 legacy_import*.err.log
 legacy_import_checkpoint.json
+legacy_sql_offsets*.json
 tmp_legacy_sample.sql
 tmp_legacy_db/
 tmp_resume_db/
+tmp_direct_resume_db/
 
 # yarn v2
 .yarn/cache

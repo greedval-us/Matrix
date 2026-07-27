@@ -40,6 +40,20 @@ export class SearchTermService {
     }
   }
 
+  extractFallbackIndexTerms(field, value) {
+    const stringValue = String(value).trim();
+    if (!stringValue) return [];
+
+    switch (field) {
+      case "number":
+        return [...new Set((stringValue.match(/\d{9,14}/g) || []).map((item) => item.trim()))];
+      default: {
+        const normalized = this.normalizeIndexTerm(field, stringValue);
+        return normalized ? [normalized] : [];
+      }
+    }
+  }
+
   normalizeQueryTerm(field, value) {
     const stringValue = String(value).trim();
     if (!stringValue) return null;

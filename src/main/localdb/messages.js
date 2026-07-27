@@ -10,6 +10,9 @@ export const localDbMessages = {
   searchBaseInfo(fileName) {
     return `Import from file ${fileName}`;
   },
+  defaultImportDescription(fileName) {
+    return `Imported from file ${fileName}`;
+  },
   localSourceInfo: "Local source",
   tooManyImportFiles(limit) {
     return `Too many import files. Maximum allowed: ${limit}`;

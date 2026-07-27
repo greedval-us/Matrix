@@ -215,25 +215,44 @@ export class BuildLocalIndexesUseCase {
 
   async bufferFieldIndexes(paths, indexesDir, document, bufferMap, summary) {
     for (const field of INDEXABLE_FIELDS) {
-      const rawValue = document.fields?.[field];
-      if (rawValue === null || rawValue === undefined || rawValue === "") continue;
+      const terms = this.collectDocumentIndexTerms(document, field);
+      for (const term of terms) {
+        const bucket = this.termService.getBucketName(term);
+        const bucketFile = paths.getIndexBucketPath(field, bucket, indexesDir);
+        const entry = JSON.stringify({
+          term,
+          docId: document.docId,
+          sourceTable: document.sourceTable,
+          rowId: document.rowId,
+        });
 
-      const term = this.termService.normalizeIndexTerm(field, rawValue);
-      if (!term) continue;
-
-      const bucket = this.termService.getBucketName(term);
-      const bucketFile = paths.getIndexBucketPath(field, bucket, indexesDir);
-      const entry = JSON.stringify({
-        term,
-        docId: document.docId,
-        sourceTable: document.sourceTable,
-        rowId: document.rowId,
-      });
-
-      await this.pushBufferedLine(bufferMap, bucketFile, entry);
-      summary.indexedEntries += 1;
-      summary.fields[field] += 1;
+        await this.pushBufferedLine(bufferMap, bucketFile, entry);
+        summary.indexedEntries += 1;
+        summary.fields[field] += 1;
+      }
     }
+  }
+
+  collectDocumentIndexTerms(document, field) {
+    const terms = new Set();
+    const rawValue = document.fields?.[field];
+    if (rawValue !== null && rawValue !== undefined && rawValue !== "") {
+      const normalized = this.termService.normalizeIndexTerm(field, rawValue);
+      if (normalized) {
+        terms.add(normalized);
+      }
+    }
+
+    const invalidValue = document.invalidFields?.[`no_valid_${field}`];
+    if (invalidValue !== null && invalidValue !== undefined && invalidValue !== "") {
+      for (const fallbackTerm of this.termService.extractFallbackIndexTerms(field, invalidValue)) {
+        if (fallbackTerm) {
+          terms.add(fallbackTerm);
+        }
+      }
+    }
+
+    return [...terms];
   }
 
   async bufferDocumentLookup(paths, indexesDir, document, bufferMap, summary) {

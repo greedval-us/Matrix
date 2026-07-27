@@ -57,6 +57,8 @@ export class ImportLocalDatabaseUseCase {
       }
 
       const filePlans = await this.buildFilePlans(checkedPaths.sourceFolderPath, jsonFiles);
+      const existingSources = await this.stateRepository.readSources(paths);
+      const metadataOptions = this.normalizeMetadataOptions(options);
       const documentsTotal = filePlans.reduce(
         (total, plan) => total + plan.recordsTotal,
         0
@@ -78,7 +80,7 @@ export class ImportLocalDatabaseUseCase {
         status: "running",
       };
       const sourceMetaMap = new Map();
-      const usedSourceTables = new Set();
+      const usedSourceTables = new Set(existingSources.map((source) => source.sourceTable));
 
       progress.emit("started", {
         importId,
@@ -107,12 +109,13 @@ export class ImportLocalDatabaseUseCase {
 
           summary.filesProcessed += 1;
 
-          const sourceMeta = {
-            sourceTable,
+          const sourceMeta = this.buildSourceMeta({
             fileName: filePlan.fileName,
+            sourceTable,
             documentsImported: sourceCount,
             importedAt: importStartedAt,
-          };
+            metadataOptions,
+          });
 
           summary.sources.push(sourceMeta);
           sourceMetaMap.set(sourceTable, sourceMeta);
@@ -179,6 +182,55 @@ export class ImportLocalDatabaseUseCase {
 
     usedSourceTables.add(uniqueName);
     return uniqueName;
+  }
+
+  normalizeMetadataOptions(options = {}) {
+    const normalizedSources = new Map();
+
+    for (const sourceMeta of Array.isArray(options.sources) ? options.sources : []) {
+      const fileName = typeof sourceMeta?.fileName === "string" ? sourceMeta.fileName.trim() : "";
+      if (!fileName) continue;
+
+      normalizedSources.set(fileName.toLowerCase(), {
+        name: this.normalizeOptionalText(sourceMeta.name),
+        description: this.normalizeOptionalText(sourceMeta.description),
+        type: this.normalizeOptionalText(sourceMeta.type),
+      });
+    }
+
+    return {
+      defaultDescription: this.normalizeOptionalText(options.defaultDescription),
+      defaultType: this.normalizeOptionalText(options.defaultType),
+      sources: normalizedSources,
+    };
+  }
+
+  buildSourceMeta({
+    fileName,
+    sourceTable,
+    documentsImported,
+    importedAt,
+    metadataOptions,
+  }) {
+    const perFileMeta = metadataOptions.sources.get(fileName.toLowerCase()) || {};
+
+    return {
+      sourceTable,
+      fileName,
+      name: perFileMeta.name || sourceTable,
+      description:
+        perFileMeta.description ||
+        metadataOptions.defaultDescription ||
+        localDbMessages.defaultImportDescription(fileName),
+      type: perFileMeta.type || metadataOptions.defaultType || "local-import",
+      documentsImported,
+      importedAt,
+    };
+  }
+
+  normalizeOptionalText(value) {
+    if (typeof value !== "string") return "";
+    return value.trim();
   }
 
   async buildFilePlans(sourceFolderPath, jsonFiles) {

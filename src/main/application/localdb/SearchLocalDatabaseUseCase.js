@@ -75,14 +75,7 @@ export class SearchLocalDatabaseUseCase {
         if (!seenSources.has(document.sourceTable)) {
           const sourceMeta = sourceMetaMap.get(document.sourceTable);
           results.push({
-            object_data_base: {
-              name_table: document.sourceTable,
-              name: document.sourceTable,
-              info: sourceMeta
-                ? localDbMessages.searchBaseInfo(sourceMeta.fileName)
-                : localDbMessages.localSourceInfo,
-              type: "local-import",
-            },
+            object_data_base: this.mapSourceResult(document.sourceTable, sourceMeta),
           });
           seenSources.add(document.sourceTable);
         }
@@ -224,5 +217,19 @@ export class SearchLocalDatabaseUseCase {
   async loadSourceMeta(paths) {
     const sources = await this.stateRepository.readSources(paths);
     return new Map(sources.map((source) => [source.sourceTable, source]));
+  }
+
+  mapSourceResult(sourceTable, sourceMeta) {
+    return {
+      name_table: sourceTable,
+      name: sourceMeta?.name || sourceTable,
+      info:
+        sourceMeta?.description ||
+        (sourceMeta?.fileName
+          ? localDbMessages.searchBaseInfo(sourceMeta.fileName)
+          : localDbMessages.localSourceInfo),
+      type: sourceMeta?.type || "local-import",
+      type_sources: sourceMeta?.type || "local-import",
+    };
   }
 }
