@@ -115,6 +115,7 @@ export class ImportLocalDatabaseUseCase {
             documentsImported: sourceCount,
             importedAt: importStartedAt,
             metadataOptions,
+            filesTotal: filePlans.length,
           });
 
           summary.sources.push(sourceMeta);
@@ -199,6 +200,7 @@ export class ImportLocalDatabaseUseCase {
     }
 
     return {
+      defaultName: this.normalizeOptionalText(options.defaultName),
       defaultDescription: this.normalizeOptionalText(options.defaultDescription),
       defaultType: this.normalizeOptionalText(options.defaultType),
       sources: normalizedSources,
@@ -211,13 +213,16 @@ export class ImportLocalDatabaseUseCase {
     documentsImported,
     importedAt,
     metadataOptions,
+    filesTotal = 1,
   }) {
     const perFileMeta = metadataOptions.sources.get(fileName.toLowerCase()) || {};
 
     return {
       sourceTable,
       fileName,
-      name: perFileMeta.name || sourceTable,
+      name:
+        perFileMeta.name ||
+        this.resolveDefaultSourceName(sourceTable, metadataOptions.defaultName, filesTotal),
       description:
         perFileMeta.description ||
         metadataOptions.defaultDescription ||
@@ -226,6 +231,12 @@ export class ImportLocalDatabaseUseCase {
       documentsImported,
       importedAt,
     };
+  }
+
+  resolveDefaultSourceName(sourceTable, defaultName, filesTotal) {
+    if (!defaultName) return sourceTable;
+    if (filesTotal <= 1) return defaultName;
+    return `${defaultName} (${sourceTable})`;
   }
 
   normalizeOptionalText(value) {

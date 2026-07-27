@@ -33,6 +33,15 @@ export class JsonLinesRepository {
     await fsPromises.rename(sourcePath, targetPath);
   }
 
+  async copy(sourcePath, targetPath) {
+    await this.ensureDirectory(path.dirname(targetPath));
+    await fsPromises.cp(sourcePath, targetPath, { recursive: true, force: true });
+  }
+
+  async stat(targetPath) {
+    return await fsPromises.stat(targetPath);
+  }
+
   async readFirstNonWhitespaceChar(filePath, bytesToRead = 4096) {
     const handle = await fsPromises.open(filePath, "r");
 

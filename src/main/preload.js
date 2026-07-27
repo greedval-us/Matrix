@@ -65,6 +65,7 @@ contextBridge.exposeInMainWorld("importAPI", {
 contextBridge.exposeInMainWorld("indexAPI", {
   getLastStatus: () => ipcRenderer.invoke("index:get-last-status"),
   build: () => ipcRenderer.invoke("index:build"),
+  cancel: () => ipcRenderer.invoke("index:cancel"),
   onProgress: (callback) => {
     const listener = (_event, payload) => callback(payload);
     ipcRenderer.on("index:progress", listener);

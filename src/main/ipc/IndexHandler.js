@@ -15,6 +15,11 @@ export class IndexHandler {
     );
 
     ipcMain.handle(
+      "index:cancel",
+      wrapHandler("index:cancel", () => this.service.cancelBuild())
+    );
+
+    ipcMain.handle(
       "index:build",
       wrapHandler("index:build", (event) =>
         this.service.buildIndexes({
@@ -22,5 +27,11 @@ export class IndexHandler {
         })
       )
     );
+  }
+
+  requestStop(reason = "app-close") {
+    this.service.cancelBuild(reason).catch((error) => {
+      console.error("Failed to stop index build:", error);
+    });
   }
 }

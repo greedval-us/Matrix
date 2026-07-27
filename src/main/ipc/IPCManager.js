@@ -13,6 +13,7 @@ import { IndexHandler } from "./IndexHandler.js";
 export class IPCManager {
   constructor() {
     this.handlers = [];
+    this.indexHandler = null;
   }
 
   init() {
@@ -29,8 +30,13 @@ export class IPCManager {
     this.handlers.push(new DatabaseCatalogHandler());
     this.handlers.push(new LocalDatabaseHandler());
     this.handlers.push(new ImportHandler());
-    this.handlers.push(new IndexHandler());
+    this.indexHandler = new IndexHandler();
+    this.handlers.push(this.indexHandler);
 
     this.handlers.forEach((handler) => handler.register());
+  }
+
+  shutdown() {
+    this.indexHandler?.requestStop("app-close");
   }
 }

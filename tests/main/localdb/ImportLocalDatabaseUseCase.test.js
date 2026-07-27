@@ -71,6 +71,7 @@ test("ImportLocalDatabaseUseCase imports records and updates metadata", async ()
   assert.equal(summary.documentsTotal, 2);
   assert.equal(importState.status, "completed");
   assert.equal(sources.length, 1);
+  assert.equal(sources[0].name, "people");
   assert.equal(sources[0].description, "Imported from file people.json");
   assert.equal(sources[0].type, "local-import");
   assert.equal(documentFiles.length, 1);
@@ -135,6 +136,7 @@ test("ImportLocalDatabaseUseCase applies custom metadata and avoids source table
   });
 
   const summary = await useCase.execute(importRoot, {
+    defaultName: "Новая база",
     defaultDescription: "User supplied description",
     defaultType: "Контакты",
   });
@@ -144,9 +146,9 @@ test("ImportLocalDatabaseUseCase applies custom metadata and avoids source table
 
   assert.equal(summary.status, "completed");
   assert.equal(newSource.sourceTable, "people_2");
+  assert.equal(newSource.name, "Новая база");
   assert.equal(newSource.description, "User supplied description");
   assert.equal(newSource.type, "Контакты");
-  assert.equal(newSource.name, "people_2");
   assert.equal(
     sources.find((source) => source.sourceTable === "people").description,
     "Existing description"
