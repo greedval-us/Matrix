@@ -34,11 +34,18 @@ export const useSearchStore = defineStore("search", () => {
     }
   };
 
-  const search = async (tabId, payload) => {
+  const search = async (tabId, payload, options = {}) => {
     state.isSearching[tabId] = true;
+    state.searchResults[tabId] = [];
     try {
-      const results = await searchService.search(tabId, payload);
-      state.searchResults[tabId] = results;
+      const results = await searchService.search(tabId, payload, {
+        onChunk: (items) => {
+          const current = state.searchResults[tabId] || [];
+          current.push(...items);
+          state.searchResults[tabId] = current;
+          options.onChunk?.(items);
+        },
+      });
       return results;
     } finally {
       state.isSearching[tabId] = false;

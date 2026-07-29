@@ -54,6 +54,10 @@ export class LocalDatabasePaths {
     return path.join(indexesDir, field);
   }
 
+  getDocumentPath(fileName) {
+    return path.join(this.documentsDir, fileName);
+  }
+
   getIndexBucketPath(field, bucketName, indexesDir = this.indexesDir) {
     return path.join(this.getIndexFieldDir(field, indexesDir), `${bucketName}.jsonl`);
   }
@@ -67,7 +71,7 @@ export class LocalDatabasePaths {
   }
 
   getImportOutputPath(importId) {
-    return path.join(this.documentsDir, `import_${importId}.jsonl`);
+    return this.getDocumentPath(`import_${importId}.jsonl`);
   }
 
   getTempPath(name) {

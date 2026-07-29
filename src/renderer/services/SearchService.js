@@ -19,14 +19,27 @@ export class SearchService {
     delete this.isSearching[tabId];
   }
 
-  async search(tabId, payload) {
+  async search(tabId, payload, options = {}) {
     if (!this.clients[tabId]) throw new Error(`Client not found for tab ${tabId}`);
     this.isSearching[tabId] = true;
+    this.searchResults[tabId] = [];
+
+    const removeProgressListener = this.searchAPI.onProgress((eventPayload) => {
+      if (!eventPayload || eventPayload.tabId !== tabId) return;
+      if (eventPayload.type !== "chunk" || !Array.isArray(eventPayload.items)) return;
+
+      this.searchResults[tabId].push(...eventPayload.items);
+      options.onChunk?.(eventPayload.items);
+    });
+
     try {
-      const results = await this.searchAPI.run(tabId, payload);
-      this.searchResults[tabId] = results;
-      return results;
+      const meta = await this.searchAPI.run(tabId, payload);
+      return {
+        items: this.searchResults[tabId],
+        meta,
+      };
     } finally {
+      removeProgressListener();
       this.isSearching[tabId] = false;
     }
   }

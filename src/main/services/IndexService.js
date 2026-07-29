@@ -5,6 +5,7 @@ import { LocalDatabasePaths } from "../localdb/LocalDatabasePaths.js";
 import { LocalDatabaseStateRepository } from "../localdb/LocalDatabaseStateRepository.js";
 import { OperationCoordinator } from "../localdb/OperationCoordinator.js";
 import { SearchTermService } from "../localdb/SearchTermService.js";
+import log from "../utils/logger.js";
 import { LocalDatabaseService } from "./LocalDatabaseService.js";
 
 export class IndexService {
@@ -32,11 +33,26 @@ export class IndexService {
   }
 
   async buildIndexes(options) {
-    return await this.useCase.execute(options);
+    try {
+      const rootPath = this.localDatabaseService.getStoredRootPath();
+      log.info(`[Index] buildIndexes requested rootPath=${rootPath || "<empty>"}`);
+      return await this.useCase.execute(options);
+    } catch (error) {
+      if (this.isAlreadyRunningError(error)) {
+        log.warn("[Index] buildIndexes ignored because indexing is already running");
+        return await this.getLastIndexStatus();
+      }
+      log.error("[Index] buildIndexes failed", error);
+      throw error;
+    }
   }
 
   async cancelBuild(reason = "manual-stop") {
     this.useCase.cancel(reason);
     return await this.getLastIndexStatus();
+  }
+
+  isAlreadyRunningError(error) {
+    return String(error?.message || "").includes('Operation "local-db-index" is already running');
   }
 }

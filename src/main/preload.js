@@ -41,6 +41,11 @@ const searchAPI = {
   cancel: (tabId) => ipcRenderer.send("search:cancel", tabId),
   destroyClient: (tabId) => ipcRenderer.invoke("search:destroy-client", tabId),
   listDatabases: (payload) => ipcRenderer.invoke("search:list-databases", payload),
+  onProgress: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on("search:progress", listener);
+    return () => ipcRenderer.removeListener("search:progress", listener);
+  },
 };
 
 contextBridge.exposeInMainWorld("searchAPI", searchAPI);

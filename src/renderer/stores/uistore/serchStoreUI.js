@@ -109,6 +109,15 @@ export const useSearchUIStore = defineStore('searchUI', () => {
     if (tab) tab.results = normalized
   }
 
+  function appendResults(tabId, data) {
+    if (!Array.isArray(data) || data.length === 0) return
+    const normalized = data.map(item => parser.parse(item))
+    const tab = getTab(tabId)
+    if (tab) {
+      tab.results.push(...normalized)
+    }
+  }
+
   function setLoading(tabId, value) {
     const tab = getTab(tabId)
     if (tab) tab.loading = value
@@ -140,8 +149,15 @@ async function search(tabId) {
     clearResults(tabId)
     setLoading(tabId, true)
     await searchStore.createClient(tabId)
-    const results = await searchStore.search(tabId, query)
-    setResults(tabId, results)
+    const response = await searchStore.search(tabId, query, {
+      onChunk: (items) => appendResults(tabId, items)
+    })
+
+    if (Array.isArray(response)) {
+      setResults(tabId, response)
+    } else if (Array.isArray(response?.items) && response.items.length > 0) {
+      setResults(tabId, response.items)
+    }
 
     const fields = getSelectedFields(tabId)
     iconsSerchs.forEach(({ type }) => {
@@ -231,6 +247,7 @@ async function search(tabId) {
     toggleField,
     toggleCollapse,
     setResults,
+    appendResults,
     setLoading,
     resetFields,
     clearTab,
