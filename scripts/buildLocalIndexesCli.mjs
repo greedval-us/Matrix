@@ -158,8 +158,11 @@ async function main() {
 
   if (args.clean) {
     console.log(`Cleaning existing indexes for: ${paths.rootPath}`);
+    await jsonLinesRepository.ensureDirectory(paths.rootPath);
     await jsonLinesRepository.remove(paths.indexesDir);
     await jsonLinesRepository.remove(paths.tempDir);
+    await jsonLinesRepository.ensureDirectory(paths.metaDir);
+    await jsonLinesRepository.ensureDirectory(paths.stateDir);
     await jsonLinesRepository.ensureDirectory(paths.tempDir);
     await stateRepository.writeIndexState(
       paths,
