@@ -591,13 +591,20 @@ test("BuildLocalIndexesUseCase can cancel and resume unfinished indexing", async
   await jsonLinesRepository.appendLines(sourceFile, records);
 
   const useCase = createUseCase({ dbRoot, stateRepository, jsonLinesRepository });
-  const cancelledSummary = await useCase.execute({
-    onProgress: (event) => {
-      if (event.stage === "progress") {
+  const originalIterateJsonWithMetadata =
+    jsonLinesRepository.iterateJsonWithMetadata.bind(jsonLinesRepository);
+  let seenDocuments = 0;
+  jsonLinesRepository.iterateJsonWithMetadata = async function* (...args) {
+    for await (const entry of originalIterateJsonWithMetadata(...args)) {
+      seenDocuments += 1;
+      if (seenDocuments === 100) {
         useCase.cancel("manual-stop");
       }
-    },
-  });
+      yield entry;
+    }
+  };
+
+  const cancelledSummary = await useCase.execute();
 
   assert.equal(cancelledSummary.status, "cancelled");
   assert.equal(cancelledSummary.filesProcessed, 0);

@@ -95,13 +95,12 @@ function printUsage() {
   console.log(
     [
       "Usage:",
-      "  node scripts/buildLocalIndexesCli.mjs --db-root /path/to/MatrixData [--clean] [--concurrency N]",
+      "  node scripts/buildLocalIndexesCli.mjs --db-root /path/to/MatrixData [--clean]",
       "",
       "Examples:",
       "  node scripts/buildLocalIndexesCli.mjs --db-root /srv/data/MatrixData",
       "  node scripts/buildLocalIndexesCli.mjs --db-root /srv/data/MatrixData --clean",
-      "  node scripts/buildLocalIndexesCli.mjs --db-root /srv/data/MatrixData --concurrency 2",
-      "  npm run index:cli -- --db-root /srv/data/MatrixData --clean --concurrency 2",
+      "  npm run index:cli -- --db-root /srv/data/MatrixData --clean",
     ].join("\n")
   );
 }
@@ -110,7 +109,6 @@ function parseArgs(argv) {
   const args = {
     dbRoot: "",
     clean: false,
-    concurrency: undefined,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -132,12 +130,6 @@ function parseArgs(argv) {
       continue;
     }
 
-    if (current === "--concurrency") {
-      const value = Number(argv[index + 1]);
-      args.concurrency = Number.isFinite(value) ? value : undefined;
-      index += 1;
-      continue;
-    }
   }
 
   return args;
@@ -200,7 +192,6 @@ async function main() {
   console.log(`Starting local index build for: ${localDatabaseService.getStoredRootPath()}`);
 
   const summary = await useCase.execute({
-    concurrency: args.concurrency,
     onProgress: (payload) => {
       console.log(formatProgress(payload));
     },

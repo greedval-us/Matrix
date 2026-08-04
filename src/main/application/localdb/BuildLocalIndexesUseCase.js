@@ -1,11 +1,9 @@
 import {
   BUFFER_FLUSH_SIZE,
-  DEFAULT_INDEX_BUILD_CONCURRENCY,
   DOCUMENT_LOOKUP_FORMAT_VERSION,
   INDEXABLE_FIELDS,
   INDEX_BACKUP_TEMP_PREFIX,
   INDEX_BUILD_TEMP_PREFIX,
-  MAX_INDEX_BUILD_CONCURRENCY,
   PROGRESS_EMIT_INTERVAL,
   PROGRESS_SAVE_INTERVAL,
 } from "../../localdb/constants.js";
@@ -345,7 +343,6 @@ export class BuildLocalIndexesUseCase {
   }
 
   async processFilePlans({
-    options,
     progress,
     paths,
     summary,
@@ -355,23 +352,8 @@ export class BuildLocalIndexesUseCase {
     canPublishPartially,
     buildToken,
   }) {
-    const indexingConcurrency = this.resolveIndexingConcurrency(options?.concurrency);
-
     try {
-      if (indexingConcurrency <= 1 || filePlans.length <= 1) {
-        return await this.processFilePlansSequential({
-          progress,
-          paths,
-          summary,
-          filePlans,
-          workingIndexesDir,
-          backupIndexesDir,
-          canPublishPartially,
-          buildToken,
-        });
-      }
-
-      return await this.processFilePlansConcurrent({
+      return await this.processFilePlansSequential({
         progress,
         paths,
         summary,
@@ -380,7 +362,6 @@ export class BuildLocalIndexesUseCase {
         backupIndexesDir,
         canPublishPartially,
         buildToken,
-        indexingConcurrency,
       });
     } catch (error) {
       if (error instanceof IndexBuildCancelledError) {
@@ -455,92 +436,6 @@ export class BuildLocalIndexesUseCase {
         }
         throw error;
       }
-    }
-
-    await this.replaceIndexesAtomically(paths, workingIndexesDir, backupIndexesDir);
-    return await this.completeBuild(paths, summary, progress);
-  }
-
-  async processFilePlansConcurrent({
-    progress,
-    paths,
-    summary,
-    filePlans,
-    workingIndexesDir,
-    backupIndexesDir,
-    canPublishPartially,
-    buildToken,
-    indexingConcurrency,
-  }) {
-    const taskResults = new Array(filePlans.length);
-    const startedWorkDirs = new Set();
-    let nextToStart = 0;
-
-    const startTask = (taskIndex) => {
-      const filePlan = filePlans[taskIndex];
-      const fileWorkDir = this.getFileWorkDir(paths, summary, filePlan.fileName);
-      startedWorkDirs.add(fileWorkDir);
-      taskResults[taskIndex] = this.runFileIndexTask({
-        filePlan,
-        fileWorkDir,
-        paths,
-        buildToken,
-      });
-    };
-
-    while (nextToStart < Math.min(indexingConcurrency, filePlans.length)) {
-      startTask(nextToStart);
-      nextToStart += 1;
-    }
-
-    try {
-      for (let index = 0; index < filePlans.length; index += 1) {
-        const filePlan = filePlans[index];
-        summary.currentFile = filePlan.fileName;
-        summary.currentFileDocumentsProcessed = 0;
-        summary.currentFileDocumentsTotal = 0;
-        await this.stateRepository.writeIndexState(paths, summary);
-
-        const taskResult = await taskResults[index];
-        if (!taskResult.ok) {
-          throw taskResult.error;
-        }
-
-        const { fileWorkDir, fileResult } = taskResult.value;
-        await this.mergeIndexedFile(paths, fileWorkDir, workingIndexesDir);
-        await this.publishIndexedFileAfterCommit(
-          paths,
-          fileWorkDir,
-          canPublishPartially
-        );
-        await this.jsonLinesRepository.remove(fileWorkDir);
-        startedWorkDirs.delete(fileWorkDir);
-        this.commitFileResult(summary, filePlan, fileResult);
-        await this.stateRepository.writeIndexState(paths, summary);
-        log.info(
-          `[Index] file committed file=${filePlan.fileName} filesProcessed=${summary.filesProcessed}/${summary.filesTotal} indexedDocuments=${summary.indexedDocuments} concurrency=${indexingConcurrency}`
-        );
-        progress.emit("file-completed", this.buildFileCompletedPayload(summary, filePlan));
-
-        if (nextToStart < filePlans.length) {
-          startTask(nextToStart);
-          nextToStart += 1;
-        }
-      }
-    } catch (error) {
-      if (error instanceof IndexBuildCancelledError) {
-        return await this.handleConcurrentCancellation({
-          error,
-          progress,
-          paths,
-          summary,
-          taskResults,
-          startedWorkDirs,
-        });
-      }
-
-      await this.cancelOutstandingTasks(buildToken, taskResults, startedWorkDirs);
-      throw error;
     }
 
     await this.replaceIndexesAtomically(paths, workingIndexesDir, backupIndexesDir);
@@ -653,37 +548,6 @@ export class BuildLocalIndexesUseCase {
     }
 
     await this.jsonLinesRepository.ensureDirectory(paths.getDocumentLookupDir(indexesDir));
-  }
-
-  async runFileIndexTask({ filePlan, fileWorkDir, paths, buildToken }) {
-    try {
-      this.throwIfCancelled(buildToken);
-      await this.jsonLinesRepository.remove(fileWorkDir);
-      await this.prepareIndexDirectories(paths, fileWorkDir);
-      const fileResult = await this.indexDocumentFile({
-        filePath: filePlan.filePath,
-        filePlan,
-        paths,
-        indexesDir: fileWorkDir,
-        summary: null,
-        progress: null,
-        buildToken,
-      });
-
-      return {
-        ok: true,
-        value: {
-          fileWorkDir,
-          fileResult,
-        },
-      };
-    } catch (error) {
-      await this.jsonLinesRepository.remove(fileWorkDir);
-      return {
-        ok: false,
-        error,
-      };
-    }
   }
 
   async indexDocumentFile({
@@ -981,44 +845,6 @@ export class BuildLocalIndexesUseCase {
       await this.jsonLinesRepository.remove(previousState.session.backupIndexesDir);
     }
     await this.removeCurrentFileWorkDir(previousState, paths);
-  }
-
-  async handleConcurrentCancellation({
-    error,
-    progress,
-    paths,
-    summary,
-    taskResults,
-    startedWorkDirs,
-  }) {
-    await this.cancelOutstandingTasks(this.currentBuildToken, taskResults, startedWorkDirs);
-    return await this.handleCancellation({
-      error,
-      progress,
-      paths,
-      summary,
-    });
-  }
-
-  async cancelOutstandingTasks(buildToken, taskResults, startedWorkDirs) {
-    if (buildToken) {
-      buildToken.cancelled = true;
-      buildToken.reason = buildToken.reason || "parallel-stop";
-    }
-
-    await Promise.allSettled(taskResults.filter(Boolean));
-    for (const fileWorkDir of startedWorkDirs) {
-      await this.jsonLinesRepository.remove(fileWorkDir);
-    }
-  }
-
-  resolveIndexingConcurrency(requestedConcurrency) {
-    const parsed = Number(requestedConcurrency);
-    if (Number.isFinite(parsed) && parsed >= 1) {
-      return Math.max(1, Math.min(MAX_INDEX_BUILD_CONCURRENCY, Math.trunc(parsed)));
-    }
-
-    return DEFAULT_INDEX_BUILD_CONCURRENCY;
   }
 
   async hasPublishedIndexes(paths) {
