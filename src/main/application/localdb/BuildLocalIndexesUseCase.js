@@ -1,13 +1,18 @@
 import {
   BUFFER_FLUSH_SIZE,
+  DEFAULT_INDEX_BUILD_CONCURRENCY,
+  DOCUMENT_LOOKUP_FORMAT_VERSION,
   INDEXABLE_FIELDS,
   INDEX_BACKUP_TEMP_PREFIX,
   INDEX_BUILD_TEMP_PREFIX,
+  MAX_INDEX_BUILD_CONCURRENCY,
+  PROGRESS_EMIT_INTERVAL,
   PROGRESS_SAVE_INTERVAL,
 } from "../../localdb/constants.js";
 import { LocalDatabasePaths } from "../../localdb/LocalDatabasePaths.js";
 import { localDbMessages } from "../../localdb/messages.js";
 import { ProgressReporter } from "../../localdb/ProgressReporter.js";
+import log from "../../utils/logger.js";
 
 class IndexBuildCancelledError extends Error {
   constructor(reason = "cancelled") {
@@ -40,7 +45,11 @@ export class BuildLocalIndexesUseCase {
 
     return await this.operationCoordinator.runExclusive("local-db-index", async () => {
       const databaseRootPath = this.localDatabaseService.getStoredRootPath();
+      log.info(`[Index] execute started rootPath=${databaseRootPath || "<empty>"}`);
       const databaseStatus = await this.localDatabaseService.ensureReady(databaseRootPath);
+      log.info(
+        `[Index] database status initialized=${Boolean(databaseStatus?.initialized)} rootPath=${databaseStatus?.rootPath || "<empty>"}`
+      );
 
       if (!databaseStatus.initialized) {
         throw new Error(localDbMessages.databaseNotInitialized);
@@ -48,7 +57,11 @@ export class BuildLocalIndexesUseCase {
 
       const paths = new LocalDatabasePaths(databaseRootPath);
       const documentFiles = await this.jsonLinesRepository.listFiles(paths.documentsDir, ".jsonl");
+      const hasExistingIndexes = await this.hasPublishedIndexes(paths);
       const previousState = await this.stateRepository.readIndexState(paths);
+      log.info(
+        `[Index] discovered documentFiles=${documentFiles.length} previousStatus=${previousState?.status || "<none>"} documentsDir=${paths.documentsDir}`
+      );
 
       if (documentFiles.length === 0) {
         throw new Error(localDbMessages.noIndexedDocuments);
@@ -67,6 +80,7 @@ export class BuildLocalIndexesUseCase {
           paths,
           documentFiles,
           previousState,
+          hasExistingIndexes,
           buildToken,
         });
       } finally {
@@ -84,7 +98,15 @@ export class BuildLocalIndexesUseCase {
     }
   }
 
-  async runBuild({ options, progress, paths, documentFiles, previousState, buildToken }) {
+  async runBuild({
+    options,
+    progress,
+    paths,
+    documentFiles,
+    previousState,
+    hasExistingIndexes,
+    buildToken,
+  }) {
     const resumableSession = await this.tryCreateResumeSession({
       paths,
       documentFiles,
@@ -100,6 +122,7 @@ export class BuildLocalIndexesUseCase {
         filePlans: resumableSession.filePlans,
         workingIndexesDir: resumableSession.workingIndexesDir,
         backupIndexesDir: resumableSession.backupIndexesDir,
+        canPublishPartially: !hasExistingIndexes,
         buildToken,
       });
     }
@@ -109,6 +132,9 @@ export class BuildLocalIndexesUseCase {
       documentFiles,
       previousState,
     });
+    log.info(
+      `[Index] build plan mode=${buildPlan.mode} reason=${buildPlan.reason} filesTotal=${buildPlan.filesTotal} documentsTotal=${buildPlan.documentsTotal}`
+    );
 
     if (buildPlan.mode === "noop") {
       return await this.completeWithoutChanges(paths, previousState, buildPlan, progress);
@@ -130,16 +156,21 @@ export class BuildLocalIndexesUseCase {
     await this.jsonLinesRepository.remove(workingIndexesDir);
     await this.prepareWorkingIndexes(paths, workingIndexesDir, buildPlan.mode);
     await this.stateRepository.writeIndexState(paths, summary);
+    log.info(
+      `[Index] session created buildId=${buildId} workingIndexesDir=${workingIndexesDir} backupIndexesDir=${backupIndexesDir}`
+    );
 
     progress.emit("started", this.buildStartedPayload(summary));
 
     return await this.processFilePlans({
+      options,
       progress,
       paths,
       summary,
       filePlans: buildPlan.filePlans,
       workingIndexesDir,
       backupIndexesDir,
+      canPublishPartially: buildPlan.mode === "incremental" || !hasExistingIndexes,
       buildToken,
     });
   }
@@ -147,6 +178,10 @@ export class BuildLocalIndexesUseCase {
   async tryCreateResumeSession({ paths, documentFiles, previousState }) {
     if (!previousState?.session?.resumable) return null;
     if (!["cancelled", "running"].includes(previousState.status)) return null;
+    if (Number(previousState.lookupFormatVersion || 1) !== DOCUMENT_LOOKUP_FORMAT_VERSION) {
+      await this.cleanupAbandonedSession(paths, previousState);
+      return null;
+    }
 
     const workingIndexesDir = previousState.session.workingIndexesDir;
     if (!workingIndexesDir || !(await this.jsonLinesRepository.exists(workingIndexesDir))) {
@@ -178,23 +213,27 @@ export class BuildLocalIndexesUseCase {
   }
 
   async resumeBuild({
+    options,
     progress,
     paths,
     summary,
     filePlans,
     workingIndexesDir,
     backupIndexesDir,
+    canPublishPartially,
     buildToken,
   }) {
     progress.emit("started", this.buildStartedPayload(summary));
 
     return await this.processFilePlans({
+      options,
       progress,
       paths,
       summary,
       filePlans,
       workingIndexesDir,
       backupIndexesDir,
+      canPublishPartially,
       buildToken,
     });
   }
@@ -221,6 +260,7 @@ export class BuildLocalIndexesUseCase {
       documentsTotal: buildPlan.documentsTotal,
       indexedEntries: 0,
       lookupEntries: 0,
+      lookupFormatVersion: DOCUMENT_LOOKUP_FORMAT_VERSION,
       reusedFiles: buildPlan.reusedFiles,
       reusedDocuments: buildPlan.reusedDocuments,
       currentFile: null,
@@ -233,6 +273,7 @@ export class BuildLocalIndexesUseCase {
       session: {
         resumable: true,
         buildId,
+        lookupFormatVersion: DOCUMENT_LOOKUP_FORMAT_VERSION,
         workingIndexesDir,
         backupIndexesDir,
         completedFiles: [],
@@ -253,8 +294,10 @@ export class BuildLocalIndexesUseCase {
       currentFileDocumentsTotal: 0,
       filesTotal: resumePlan.filePlans.length,
       documentsTotal: resumePlan.documentsTotal,
+      lookupFormatVersion: DOCUMENT_LOOKUP_FORMAT_VERSION,
       session: {
         ...previousState.session,
+        lookupFormatVersion: DOCUMENT_LOOKUP_FORMAT_VERSION,
         pendingFiles: resumePlan.filePlans.map((plan) => plan.fileName),
       },
     };
@@ -262,6 +305,9 @@ export class BuildLocalIndexesUseCase {
 
   async completeWithoutChanges(paths, previousState, buildPlan, progress) {
     const completedAt = new Date().toISOString();
+    const previousFields =
+      previousState?.fields ||
+      Object.fromEntries(INDEXABLE_FIELDS.map((field) => [field, 0]));
     const summary = {
       ...(previousState || {}),
       status: "completed",
@@ -277,80 +323,65 @@ export class BuildLocalIndexesUseCase {
       documentFiles: [],
       filesTotal: 0,
       filesProcessed: 0,
-      indexedDocuments: 0,
-      documentsTotal: 0,
-      indexedEntries: 0,
-      lookupEntries: 0,
+      indexedDocuments: Number(previousState?.indexedDocuments || 0),
+      documentsTotal: Number(previousState?.documentsTotal || previousState?.indexedDocuments || 0),
+      indexedEntries: Number(previousState?.indexedEntries || 0),
+      lookupEntries: Number(previousState?.lookupEntries || 0),
+      lookupFormatVersion: DOCUMENT_LOOKUP_FORMAT_VERSION,
       reusedFiles: buildPlan.reusedFiles,
       reusedDocuments: buildPlan.reusedDocuments,
       fileManifest: buildPlan.fileManifest,
-      fields:
-        previousState?.fields ||
-        Object.fromEntries(INDEXABLE_FIELDS.map((field) => [field, 0])),
+      fields: Object.fromEntries(
+        INDEXABLE_FIELDS.map((field) => [field, Number(previousFields[field] || 0)])
+      ),
       session: null,
     };
 
     await this.stateRepository.writeIndexState(paths, summary);
+    log.info(`[Index] noop completed reason=${buildPlan.reason}`);
     progress.emit("started", this.buildStartedPayload(summary));
     progress.emit("completed", this.buildCompletedPayload(summary));
     return summary;
   }
 
   async processFilePlans({
+    options,
     progress,
     paths,
     summary,
     filePlans,
     workingIndexesDir,
     backupIndexesDir,
+    canPublishPartially,
     buildToken,
   }) {
+    const indexingConcurrency = this.resolveIndexingConcurrency(options?.concurrency);
+
     try {
-      for (const filePlan of filePlans) {
-        this.throwIfCancelled(buildToken);
-
-        summary.currentFile = filePlan.fileName;
-        summary.currentFileDocumentsProcessed = 0;
-        summary.currentFileDocumentsTotal = filePlan.documentsTotal;
-        await this.stateRepository.writeIndexState(paths, summary);
-
-        const fileWorkDir = this.getFileWorkDir(paths, summary, filePlan.fileName);
-        await this.jsonLinesRepository.remove(fileWorkDir);
-        await this.prepareIndexDirectories(paths, fileWorkDir);
-
-        try {
-          const fileResult = await this.indexDocumentFile({
-            filePath: filePlan.filePath,
-            filePlan,
-            paths,
-            indexesDir: fileWorkDir,
-            summary,
-            progress,
-            buildToken,
-          });
-
-          await this.mergeIndexedFile(paths, fileWorkDir, workingIndexesDir);
-          await this.jsonLinesRepository.remove(fileWorkDir);
-          this.commitFileResult(summary, filePlan, fileResult);
-          await this.stateRepository.writeIndexState(paths, summary);
-          progress.emit("file-completed", this.buildFileCompletedPayload(summary, filePlan));
-        } catch (error) {
-          await this.jsonLinesRepository.remove(fileWorkDir);
-          if (error instanceof IndexBuildCancelledError) {
-            return await this.handleCancellation({
-              error,
-              progress,
-              paths,
-              summary,
-              filePlan,
-            });
-          }
-          throw error;
-        }
+      if (indexingConcurrency <= 1 || filePlans.length <= 1) {
+        return await this.processFilePlansSequential({
+          progress,
+          paths,
+          summary,
+          filePlans,
+          workingIndexesDir,
+          backupIndexesDir,
+          canPublishPartially,
+          buildToken,
+        });
       }
 
-      await this.replaceIndexesAtomically(paths, workingIndexesDir, backupIndexesDir);
-      return await this.completeBuild(paths, summary, progress);
+      return await this.processFilePlansConcurrent({
+        progress,
+        paths,
+        summary,
+        filePlans,
+        workingIndexesDir,
+        backupIndexesDir,
+        canPublishPartially,
+        buildToken,
+        indexingConcurrency,
+      });
     } catch (error) {
       if (error instanceof IndexBuildCancelledError) {
         return await this.handleCancellation({
@@ -365,11 +396,163 @@ export class BuildLocalIndexesUseCase {
     }
   }
 
+  async processFilePlansSequential({
+    progress,
+    paths,
+    summary,
+    filePlans,
+    workingIndexesDir,
+    backupIndexesDir,
+    canPublishPartially,
+    buildToken,
+  }) {
+    for (const filePlan of filePlans) {
+      this.throwIfCancelled(buildToken);
+
+      summary.currentFile = filePlan.fileName;
+      summary.currentFileDocumentsProcessed = 0;
+      summary.currentFileDocumentsTotal = 0;
+      await this.stateRepository.writeIndexState(paths, summary);
+
+      const fileWorkDir = this.getFileWorkDir(paths, summary, filePlan.fileName);
+      await this.jsonLinesRepository.remove(fileWorkDir);
+      await this.prepareIndexDirectories(paths, fileWorkDir);
+
+      try {
+        const fileResult = await this.indexDocumentFile({
+          filePath: filePlan.filePath,
+          filePlan,
+          paths,
+          indexesDir: fileWorkDir,
+          summary,
+          progress,
+          buildToken,
+        });
+
+        await this.mergeIndexedFile(paths, fileWorkDir, workingIndexesDir);
+        await this.publishIndexedFileAfterCommit(
+          paths,
+          fileWorkDir,
+          canPublishPartially
+        );
+        await this.jsonLinesRepository.remove(fileWorkDir);
+        this.commitFileResult(summary, filePlan, fileResult);
+        await this.stateRepository.writeIndexState(paths, summary);
+        log.info(
+          `[Index] file committed file=${filePlan.fileName} filesProcessed=${summary.filesProcessed}/${summary.filesTotal} indexedDocuments=${summary.indexedDocuments}`
+        );
+        progress.emit("file-completed", this.buildFileCompletedPayload(summary, filePlan));
+      } catch (error) {
+        await this.jsonLinesRepository.remove(fileWorkDir);
+        if (error instanceof IndexBuildCancelledError) {
+          return await this.handleCancellation({
+            error,
+            progress,
+            paths,
+            summary,
+            filePlan,
+          });
+        }
+        throw error;
+      }
+    }
+
+    await this.replaceIndexesAtomically(paths, workingIndexesDir, backupIndexesDir);
+    return await this.completeBuild(paths, summary, progress);
+  }
+
+  async processFilePlansConcurrent({
+    progress,
+    paths,
+    summary,
+    filePlans,
+    workingIndexesDir,
+    backupIndexesDir,
+    canPublishPartially,
+    buildToken,
+    indexingConcurrency,
+  }) {
+    const taskResults = new Array(filePlans.length);
+    const startedWorkDirs = new Set();
+    let nextToStart = 0;
+
+    const startTask = (taskIndex) => {
+      const filePlan = filePlans[taskIndex];
+      const fileWorkDir = this.getFileWorkDir(paths, summary, filePlan.fileName);
+      startedWorkDirs.add(fileWorkDir);
+      taskResults[taskIndex] = this.runFileIndexTask({
+        filePlan,
+        fileWorkDir,
+        paths,
+        buildToken,
+      });
+    };
+
+    while (nextToStart < Math.min(indexingConcurrency, filePlans.length)) {
+      startTask(nextToStart);
+      nextToStart += 1;
+    }
+
+    try {
+      for (let index = 0; index < filePlans.length; index += 1) {
+        const filePlan = filePlans[index];
+        summary.currentFile = filePlan.fileName;
+        summary.currentFileDocumentsProcessed = 0;
+        summary.currentFileDocumentsTotal = 0;
+        await this.stateRepository.writeIndexState(paths, summary);
+
+        const taskResult = await taskResults[index];
+        if (!taskResult.ok) {
+          throw taskResult.error;
+        }
+
+        const { fileWorkDir, fileResult } = taskResult.value;
+        await this.mergeIndexedFile(paths, fileWorkDir, workingIndexesDir);
+        await this.publishIndexedFileAfterCommit(
+          paths,
+          fileWorkDir,
+          canPublishPartially
+        );
+        await this.jsonLinesRepository.remove(fileWorkDir);
+        startedWorkDirs.delete(fileWorkDir);
+        this.commitFileResult(summary, filePlan, fileResult);
+        await this.stateRepository.writeIndexState(paths, summary);
+        log.info(
+          `[Index] file committed file=${filePlan.fileName} filesProcessed=${summary.filesProcessed}/${summary.filesTotal} indexedDocuments=${summary.indexedDocuments} concurrency=${indexingConcurrency}`
+        );
+        progress.emit("file-completed", this.buildFileCompletedPayload(summary, filePlan));
+
+        if (nextToStart < filePlans.length) {
+          startTask(nextToStart);
+          nextToStart += 1;
+        }
+      }
+    } catch (error) {
+      if (error instanceof IndexBuildCancelledError) {
+        return await this.handleConcurrentCancellation({
+          error,
+          progress,
+          paths,
+          summary,
+          taskResults,
+          startedWorkDirs,
+        });
+      }
+
+      await this.cancelOutstandingTasks(buildToken, taskResults, startedWorkDirs);
+      throw error;
+    }
+
+    await this.replaceIndexesAtomically(paths, workingIndexesDir, backupIndexesDir);
+    return await this.completeBuild(paths, summary, progress);
+  }
+
   async completeBuild(paths, summary, progress) {
     summary.status = "completed";
     summary.currentFile = null;
     summary.currentFileDocumentsProcessed = 0;
     summary.currentFileDocumentsTotal = 0;
+    summary.documentsTotal = summary.indexedDocuments;
     summary.completedAt = new Date().toISOString();
     summary.error = null;
     summary.session = null;
@@ -383,8 +566,12 @@ export class BuildLocalIndexesUseCase {
         version: 1,
         builtAt: summary.completedAt,
         fields: INDEXABLE_FIELDS,
+        lookupFormatVersion: DOCUMENT_LOOKUP_FORMAT_VERSION,
       },
     }));
+    log.info(
+      `[Index] completed buildMode=${summary.buildMode} filesProcessed=${summary.filesProcessed} indexedDocuments=${summary.indexedDocuments} indexesDir=${paths.indexesDir}`
+    );
     progress.emit("completed", this.buildCompletedPayload(summary));
 
     return summary;
@@ -400,6 +587,9 @@ export class BuildLocalIndexesUseCase {
     summary.session = null;
     await this.stateRepository.writeIndexState(paths, summary);
     await this.jsonLinesRepository.remove(workingIndexesDir);
+    log.error(
+      `[Index] failed buildMode=${summary.buildMode} filesProcessed=${summary.filesProcessed} currentFile=${summary.currentFile || "<none>"}`
+    );
     progress.emit("failed", {
       error: error.message,
       filesProcessed: summary.filesProcessed,
@@ -409,13 +599,21 @@ export class BuildLocalIndexesUseCase {
     throw error;
   }
 
+  async publishIndexedFileAfterCommit(paths, fileWorkDir, canPublishPartially) {
+    if (!canPublishPartially) {
+      return;
+    }
+
+    await this.mergeIndexedFile(paths, fileWorkDir, paths.indexesDir);
+  }
+
   async handleCancellation({ error, progress, paths, summary, filePlan = null }) {
     summary.status = "cancelled";
     summary.error = null;
     summary.completedAt = new Date().toISOString();
     summary.currentFile = filePlan?.fileName || summary.currentFile;
     summary.currentFileDocumentsProcessed = 0;
-    summary.currentFileDocumentsTotal = filePlan?.documentsTotal || summary.currentFileDocumentsTotal;
+    summary.currentFileDocumentsTotal = 0;
     if (summary.session) {
       const pendingFiles = new Set(summary.session.pendingFiles || []);
       if (summary.currentFile) {
@@ -425,6 +623,9 @@ export class BuildLocalIndexesUseCase {
     }
 
     await this.stateRepository.writeIndexState(paths, summary);
+    log.warn(
+      `[Index] cancelled buildMode=${summary.buildMode} currentFile=${summary.currentFile || "<none>"} filesProcessed=${summary.filesProcessed}/${summary.filesTotal} reason=${error.reason || "cancelled"}`
+    );
     progress.emit("cancelled", {
       filesProcessed: summary.filesProcessed,
       filesTotal: summary.filesTotal,
@@ -454,6 +655,37 @@ export class BuildLocalIndexesUseCase {
     await this.jsonLinesRepository.ensureDirectory(paths.getDocumentLookupDir(indexesDir));
   }
 
+  async runFileIndexTask({ filePlan, fileWorkDir, paths, buildToken }) {
+    try {
+      this.throwIfCancelled(buildToken);
+      await this.jsonLinesRepository.remove(fileWorkDir);
+      await this.prepareIndexDirectories(paths, fileWorkDir);
+      const fileResult = await this.indexDocumentFile({
+        filePath: filePlan.filePath,
+        filePlan,
+        paths,
+        indexesDir: fileWorkDir,
+        summary: null,
+        progress: null,
+        buildToken,
+      });
+
+      return {
+        ok: true,
+        value: {
+          fileWorkDir,
+          fileResult,
+        },
+      };
+    } catch (error) {
+      await this.jsonLinesRepository.remove(fileWorkDir);
+      return {
+        ok: false,
+        error,
+      };
+    }
+  }
+
   async indexDocumentFile({
     filePath,
     filePlan,
@@ -465,6 +697,7 @@ export class BuildLocalIndexesUseCase {
   }) {
     const bufferMap = new Map();
     let documentsSinceLastSave = 0;
+    let documentsSinceLastProgress = 0;
     let fileDocumentsProcessed = 0;
     const fileResult = {
       indexedDocuments: 0,
@@ -474,30 +707,47 @@ export class BuildLocalIndexesUseCase {
     };
 
     try {
-      for await (const document of this.jsonLinesRepository.iterateJson(filePath)) {
+      for await (const indexedDocument of this.jsonLinesRepository.iterateJsonWithMetadata(filePath)) {
         this.throwIfCancelled(buildToken);
+        const document = indexedDocument.value;
 
         fileDocumentsProcessed += 1;
         documentsSinceLastSave += 1;
+        documentsSinceLastProgress += 1;
         fileResult.indexedDocuments += 1;
 
-        await this.bufferDocumentLookup(paths, indexesDir, document, bufferMap, fileResult);
+        await this.bufferDocumentLookup(
+          paths,
+          indexesDir,
+          filePlan.fileName,
+          document,
+          indexedDocument,
+          bufferMap,
+          fileResult
+        );
         await this.bufferFieldIndexes(paths, indexesDir, document, bufferMap, fileResult);
 
-        if (documentsSinceLastSave >= PROGRESS_SAVE_INTERVAL) {
+        if (documentsSinceLastSave >= PROGRESS_SAVE_INTERVAL && summary) {
           await this.flushAllBuffers(bufferMap);
           summary.currentFileDocumentsProcessed = fileDocumentsProcessed;
           await this.stateRepository.writeIndexState(paths, summary);
-          progress.emit("progress", this.buildProgressPayload(summary, filePlan, fileResult));
           documentsSinceLastSave = 0;
+        }
+
+        if (documentsSinceLastProgress >= PROGRESS_EMIT_INTERVAL && summary && progress) {
+          summary.currentFileDocumentsProcessed = fileDocumentsProcessed;
+          progress.emit("progress", this.buildProgressPayload(summary, filePlan, fileResult));
+          documentsSinceLastProgress = 0;
         }
       }
     } finally {
       await this.flushAllBuffers(bufferMap);
     }
 
-    summary.currentFileDocumentsProcessed = fileDocumentsProcessed;
-    progress.emit("progress", this.buildProgressPayload(summary, filePlan, fileResult));
+    if (summary && progress) {
+      summary.currentFileDocumentsProcessed = fileDocumentsProcessed;
+      progress.emit("progress", this.buildProgressPayload(summary, filePlan, fileResult));
+    }
     return fileResult;
   }
 
@@ -543,15 +793,22 @@ export class BuildLocalIndexesUseCase {
     return [...terms];
   }
 
-  async bufferDocumentLookup(paths, indexesDir, document, bufferMap, fileResult) {
+  async bufferDocumentLookup(
+    paths,
+    indexesDir,
+    fileName,
+    document,
+    indexedDocument,
+    bufferMap,
+    fileResult
+  ) {
     const lookupBucket = this.termService.getDocumentBucketName(document.docId);
     const lookupFile = paths.getDocumentLookupBucketPath(lookupBucket, indexesDir);
     const entry = JSON.stringify({
       docId: document.docId,
-      sourceTable: document.sourceTable,
-      rowId: document.rowId,
-      fields: document.fields,
-      invalidFields: document.invalidFields,
+      fileName,
+      byteOffset: indexedDocument.byteOffset,
+      byteLength: indexedDocument.byteLength,
     });
 
     await this.pushBufferedLine(bufferMap, lookupFile, entry);
@@ -610,18 +867,27 @@ export class BuildLocalIndexesUseCase {
     const lines = [];
     for await (const line of this.jsonLinesRepository.iterateLines(sourcePath)) {
       lines.push(line);
+      if (lines.length >= BUFFER_FLUSH_SIZE) {
+        await this.jsonLinesRepository.appendLines(targetPath, lines);
+        lines.length = 0;
+      }
     }
-    await this.jsonLinesRepository.appendLines(targetPath, lines);
+
+    if (lines.length > 0) {
+      await this.jsonLinesRepository.appendLines(targetPath, lines);
+    }
   }
 
   commitFileResult(summary, filePlan, fileResult) {
     summary.filesProcessed += 1;
     summary.indexedDocuments += fileResult.indexedDocuments;
+    summary.documentsTotal += fileResult.indexedDocuments;
     summary.indexedEntries += fileResult.indexedEntries;
     summary.lookupEntries += fileResult.lookupEntries;
     summary.currentFile = filePlan.fileName;
-    summary.currentFileDocumentsProcessed = filePlan.documentsTotal;
-    summary.currentFileDocumentsTotal = filePlan.documentsTotal;
+    summary.currentFileDocumentsProcessed = fileResult.indexedDocuments;
+    summary.currentFileDocumentsTotal = fileResult.indexedDocuments;
+    filePlan.documentsTotal = fileResult.indexedDocuments;
 
     for (const field of INDEXABLE_FIELDS) {
       summary.fields[field] += fileResult.fields[field] || 0;
@@ -656,7 +922,7 @@ export class BuildLocalIndexesUseCase {
       documentsTotal: summary.documentsTotal,
       indexedEntries: summary.indexedEntries + fileResult.indexedEntries,
       fileDocumentsProcessed: summary.currentFileDocumentsProcessed,
-      fileDocumentsTotal: filePlan.documentsTotal,
+      fileDocumentsTotal: Math.max(filePlan.documentsTotal || 0, fileResult.indexedDocuments),
       buildMode: summary.buildMode,
       resumable: Boolean(summary.session?.resumable),
     };
@@ -670,8 +936,8 @@ export class BuildLocalIndexesUseCase {
       indexedDocuments: summary.indexedDocuments,
       indexedEntries: summary.indexedEntries,
       documentsTotal: summary.documentsTotal,
-      fileDocumentsProcessed: filePlan.documentsTotal,
-      fileDocumentsTotal: filePlan.documentsTotal,
+      fileDocumentsProcessed: filePlan.documentsTotal || summary.currentFileDocumentsProcessed,
+      fileDocumentsTotal: filePlan.documentsTotal || summary.currentFileDocumentsTotal,
       buildMode: summary.buildMode,
       resumable: Boolean(summary.session?.resumable),
     };
@@ -715,6 +981,65 @@ export class BuildLocalIndexesUseCase {
       await this.jsonLinesRepository.remove(previousState.session.backupIndexesDir);
     }
     await this.removeCurrentFileWorkDir(previousState, paths);
+  }
+
+  async handleConcurrentCancellation({
+    error,
+    progress,
+    paths,
+    summary,
+    taskResults,
+    startedWorkDirs,
+  }) {
+    await this.cancelOutstandingTasks(this.currentBuildToken, taskResults, startedWorkDirs);
+    return await this.handleCancellation({
+      error,
+      progress,
+      paths,
+      summary,
+    });
+  }
+
+  async cancelOutstandingTasks(buildToken, taskResults, startedWorkDirs) {
+    if (buildToken) {
+      buildToken.cancelled = true;
+      buildToken.reason = buildToken.reason || "parallel-stop";
+    }
+
+    await Promise.allSettled(taskResults.filter(Boolean));
+    for (const fileWorkDir of startedWorkDirs) {
+      await this.jsonLinesRepository.remove(fileWorkDir);
+    }
+  }
+
+  resolveIndexingConcurrency(requestedConcurrency) {
+    const parsed = Number(requestedConcurrency);
+    if (Number.isFinite(parsed) && parsed >= 1) {
+      return Math.max(1, Math.min(MAX_INDEX_BUILD_CONCURRENCY, Math.trunc(parsed)));
+    }
+
+    return DEFAULT_INDEX_BUILD_CONCURRENCY;
+  }
+
+  async hasPublishedIndexes(paths) {
+    if (!(await this.jsonLinesRepository.exists(paths.indexesDir))) {
+      return false;
+    }
+
+    for (const field of INDEXABLE_FIELDS) {
+      const fieldDir = paths.getIndexFieldDir(field);
+      if (!(await this.jsonLinesRepository.exists(fieldDir))) continue;
+      if ((await this.jsonLinesRepository.listFiles(fieldDir, ".jsonl")).length > 0) {
+        return true;
+      }
+    }
+
+    const lookupDir = paths.getDocumentLookupDir();
+    if (!(await this.jsonLinesRepository.exists(lookupDir))) {
+      return false;
+    }
+
+    return (await this.jsonLinesRepository.listFiles(lookupDir, ".jsonl")).length > 0;
   }
 
   async replaceIndexesAtomically(paths, tempIndexesDir, backupIndexesDir) {

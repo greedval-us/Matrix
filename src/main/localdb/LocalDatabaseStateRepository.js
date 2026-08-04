@@ -1,5 +1,6 @@
 import fs from "fs/promises";
 import {
+  DOCUMENT_LOOKUP_FORMAT_VERSION,
   INDEXABLE_FIELDS,
   LOCAL_DATABASE_FORMAT,
   LOCAL_DATABASE_VERSION,
@@ -73,6 +74,7 @@ export class LocalDatabaseStateRepository {
       indexes: {
         version: 1,
         fields: INDEXABLE_FIELDS,
+        lookupFormatVersion: DOCUMENT_LOOKUP_FORMAT_VERSION,
       },
     };
   }

@@ -14,10 +14,31 @@ export class SearchHandler {
       return true;
     };
 
-    const runSearch = async (_event, tabId, payload) => {
+    const runSearch = async (event, tabId, payload) => {
       const client = this.clients.get(tabId);
       if (!client) throw new Error(`Search client not found for tab ${tabId}`);
-      return await client.search(payload);
+      event.sender.send("search:progress", {
+        tabId,
+        type: "started",
+      });
+
+      const result = await client.search(payload, {
+        onChunk: async (items) => {
+          event.sender.send("search:progress", {
+            tabId,
+            type: "chunk",
+            items,
+          });
+        },
+      });
+
+      event.sender.send("search:progress", {
+        tabId,
+        type: "completed",
+        meta: result,
+      });
+
+      return result;
     };
 
     const destroyClient = (_event, tabId) => {

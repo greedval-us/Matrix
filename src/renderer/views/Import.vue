@@ -1,6 +1,12 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 
+const PAGE_SECTIONS = {
+  import: "import",
+  index: "index",
+};
+
+const activeSection = ref(PAGE_SECTIONS.import);
 const sourceFolderPath = ref("");
 const databaseRootPath = ref("");
 const databaseStatus = ref(null);
@@ -29,17 +35,13 @@ const canImport = computed(
 );
 
 const canBuildIndex = computed(
-  () =>
-    Boolean(databaseStatus.value?.initialized) &&
-    !isImporting.value &&
-    !isIndexing.value
+  () => Boolean(databaseStatus.value?.initialized) && !isImporting.value && !isIndexing.value
 );
 
 const canCancelIndex = computed(() => isIndexing.value || indexStatus.value?.status === "running");
 
 const importTotals = computed(() => ({
-  filesProcessed:
-    importProgress.value?.filesProcessed ?? importStatus.value?.filesProcessed ?? 0,
+  filesProcessed: importProgress.value?.filesProcessed ?? importStatus.value?.filesProcessed ?? 0,
   filesTotal:
     importProgress.value?.filesTotal ??
     importStatus.value?.filesTotal ??
@@ -57,10 +59,8 @@ const importTotals = computed(() => ({
 }));
 
 const indexTotals = computed(() => ({
-  filesProcessed:
-    indexProgress.value?.filesProcessed ?? indexStatus.value?.filesProcessed ?? 0,
-  filesTotal:
-    indexProgress.value?.filesTotal ?? indexStatus.value?.filesTotal ?? 0,
+  filesProcessed: indexProgress.value?.filesProcessed ?? indexStatus.value?.filesProcessed ?? 0,
+  filesTotal: indexProgress.value?.filesTotal ?? indexStatus.value?.filesTotal ?? 0,
   indexedDocuments:
     indexProgress.value?.indexedDocuments ?? indexStatus.value?.indexedDocuments ?? 0,
   documentsTotal:
@@ -68,8 +68,7 @@ const indexTotals = computed(() => ({
     indexStatus.value?.documentsTotal ??
     indexStatus.value?.indexedDocuments ??
     0,
-  indexedEntries:
-    indexProgress.value?.indexedEntries ?? indexStatus.value?.indexedEntries ?? 0,
+  indexedEntries: indexProgress.value?.indexedEntries ?? indexStatus.value?.indexedEntries ?? 0,
   fileDocumentsProcessed: indexProgress.value?.fileDocumentsProcessed ?? 0,
   fileDocumentsTotal: indexProgress.value?.fileDocumentsTotal ?? 0,
 }));
@@ -146,7 +145,7 @@ const indexBuildReasonText = computed(() => {
   const resumed = Boolean(indexStatus.value?.resumedAt);
 
   if (resumed && indexStatus.value?.status === "running") {
-    return "Продолжение после ранее остановленной или прерванной индексации";
+    return "Продолжение ранее остановленной или прерванной индексации";
   }
 
   if (resumed && indexStatus.value?.status === "completed") {
@@ -177,7 +176,7 @@ const importStatusBadge = computed(() => {
   if (importProgress.value?.stage === "failed" || importStatus.value?.status === "failed") {
     return "Ошибка";
   }
-  return "Не запущен";
+  return "Не запускался";
 });
 
 const indexStatusBadge = computed(() => {
@@ -193,7 +192,7 @@ const indexStatusBadge = computed(() => {
   if (indexProgress.value?.stage === "failed" || indexStatus.value?.status === "failed") {
     return "Ошибка";
   }
-  return "Не запущена";
+  return "Не запускалась";
 });
 
 const buildIndexButtonText = computed(() => {
@@ -201,6 +200,16 @@ const buildIndexButtonText = computed(() => {
   if (indexStatus.value?.status === "cancelled") return "Продолжить индексацию";
   return "Построить индекс";
 });
+
+const currentSectionTitle = computed(() =>
+  activeSection.value === PAGE_SECTIONS.import ? "Импорт" : "Индексация"
+);
+
+const currentSectionDescription = computed(() =>
+  activeSection.value === PAGE_SECTIONS.import
+    ? "Загрузка новых JSON-файлов в локальную базу с безопасным созданием источников."
+    : "Построение и продолжение поисковых индексов по уже импортированным документам."
+);
 
 async function loadImportedSourcesCount() {
   try {
@@ -247,6 +256,10 @@ function stopIndexPolling() {
   if (!indexPollingTimer) return;
   window.clearInterval(indexPollingTimer);
   indexPollingTimer = null;
+}
+
+function showSection(section) {
+  activeSection.value = section;
 }
 
 async function chooseImportFolder() {
@@ -341,10 +354,10 @@ onBeforeUnmount(() => {
       <section class="rounded-3xl border border-neutral-700 bg-neutral-900/80 p-5 shadow-2xl backdrop-blur-xl sm:p-8">
         <div class="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
           <div class="min-w-0 max-w-3xl space-y-3">
-            <h1 class="break-words text-2xl font-bold text-white sm:text-3xl">Импорт и индексация</h1>
+            <h1 class="break-words text-2xl font-bold text-white sm:text-3xl">Импорт локальной базы</h1>
             <p class="text-sm leading-6 text-neutral-300">
-              Загружайте JSON-файлы в локальную базу, сразу задавайте имя, тип и описание
-              источника, а затем стройте поисковые индексы без ручных промежуточных шагов.
+              Рабочая зона теперь разделена на два понятных сценария: сначала импорт новых документов,
+              затем отдельная индексация. Так проще контролировать процесс и статус каждого шага.
             </p>
           </div>
 
@@ -364,33 +377,61 @@ onBeforeUnmount(() => {
               <div class="text-xs text-neutral-400">Индексация</div>
               <div class="mt-1 break-words text-sm font-semibold text-white">{{ indexStatusBadge }}</div>
               <div class="mt-1 text-xs text-neutral-400">{{ indexBuildModeText }}</div>
-              <div class="mt-1 text-xs text-neutral-500">{{ indexBuildReasonText }}</div>
             </div>
           </div>
+        </div>
+      </section>
+
+      <section class="rounded-3xl border border-neutral-700 bg-neutral-900/80 p-3 shadow-2xl backdrop-blur-xl sm:p-4">
+        <div class="grid gap-3 md:grid-cols-2">
+          <button
+            @click="showSection(PAGE_SECTIONS.import)"
+            class="rounded-2xl border px-4 py-4 text-left transition"
+            :class="
+              activeSection === PAGE_SECTIONS.import
+                ? 'border-emerald-500 bg-emerald-500/10 shadow-lg'
+                : 'border-neutral-700 bg-neutral-800/70 hover:bg-neutral-800'
+            "
+          >
+            <div class="text-sm font-semibold text-white">Импорт</div>
+            <div class="mt-1 text-xs leading-5 text-neutral-400">
+              Добавление новых баз и файлов в `documents/`
+            </div>
+          </button>
+
+          <button
+            @click="showSection(PAGE_SECTIONS.index)"
+            class="rounded-2xl border px-4 py-4 text-left transition"
+            :class="
+              activeSection === PAGE_SECTIONS.index
+                ? 'border-neutral-300 bg-neutral-200/10 shadow-lg'
+                : 'border-neutral-700 bg-neutral-800/70 hover:bg-neutral-800'
+            "
+          >
+            <div class="text-sm font-semibold text-white">Индексация</div>
+            <div class="mt-1 text-xs leading-5 text-neutral-400">
+              Построение и продолжение поисковых индексов в `indexes/`
+            </div>
+          </button>
         </div>
       </section>
 
       <div class="grid gap-6 xl:grid-cols-[1.35fr_0.95fr]">
         <section class="rounded-3xl border border-neutral-700 bg-neutral-900/80 p-5 shadow-2xl backdrop-blur-xl sm:p-8">
           <div class="flex flex-col gap-3 border-b border-neutral-700 pb-5">
-            <div class="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-              <div class="min-w-0">
-                <h2 class="break-words text-xl font-semibold text-white sm:text-2xl">Шаг 1. Импорт документов</h2>
-                <p class="mt-1 text-sm text-neutral-400">
-                  Поддерживаются файлы `*.json` из выбранной папки.
-                </p>
-              </div>
-              <div class="rounded-2xl border border-emerald-800 bg-emerald-950/40 px-4 py-2 text-xs leading-5 text-emerald-200">
-                Безопасный режим: существующие источники не перезаписываются
-              </div>
+            <div class="min-w-0">
+              <h2 class="break-words text-xl font-semibold text-white sm:text-2xl">{{ currentSectionTitle }}</h2>
+              <p class="mt-1 text-sm text-neutral-400">{{ currentSectionDescription }}</p>
             </div>
           </div>
 
-          <div class="mt-6 space-y-5">
+          <div v-if="activeSection === PAGE_SECTIONS.import" class="mt-6 space-y-5">
+            <div class="rounded-2xl border border-emerald-800 bg-emerald-950/40 px-4 py-3 text-xs leading-5 text-emerald-200">
+              Безопасный режим: существующие источники не перезаписываются, а новые добавляются как отдельные.
+            </div>
+
             <div class="space-y-2">
-              <label for="source-folder" class="text-sm font-medium text-neutral-300">
-                Папка с файлами
-              </label>
+              <label for="source-folder" class="text-sm font-medium text-neutral-300">Папка с файлами</label>
               <input
                 id="source-folder"
                 v-model="sourceFolderPath"
@@ -401,9 +442,7 @@ onBeforeUnmount(() => {
 
             <div class="grid gap-4 lg:grid-cols-2">
               <div class="min-w-0 space-y-2">
-                <label for="import-name" class="text-sm font-medium text-neutral-300">
-                  Имя новых баз
-                </label>
+                <label for="import-name" class="text-sm font-medium text-neutral-300">Имя новых баз</label>
                 <input
                   id="import-name"
                   v-model="defaultImportName"
@@ -416,9 +455,7 @@ onBeforeUnmount(() => {
               </div>
 
               <div class="min-w-0 space-y-2">
-                <label for="import-type" class="text-sm font-medium text-neutral-300">
-                  Тип новых баз
-                </label>
+                <label for="import-type" class="text-sm font-medium text-neutral-300">Тип новых баз</label>
                 <input
                   id="import-type"
                   v-model="defaultImportType"
@@ -465,116 +502,85 @@ onBeforeUnmount(() => {
                 Обновить
               </button>
             </div>
+
+            <div class="rounded-3xl border border-neutral-700 bg-neutral-800/60 p-4 sm:p-5">
+              <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div class="min-w-0 break-words text-sm text-neutral-300">{{ importStatusText }}</div>
+                <div class="text-sm font-semibold text-white">{{ importProgressPercent }}%</div>
+              </div>
+
+              <div class="mt-3 h-2.5 overflow-hidden rounded-full bg-neutral-700">
+                <div
+                  class="h-full rounded-full bg-emerald-500 transition-all duration-300"
+                  :style="{ width: `${importProgressPercent}%` }"
+                />
+              </div>
+
+              <div class="mt-4 grid gap-3 sm:grid-cols-2 2xl:grid-cols-4">
+                <div class="min-w-0 rounded-2xl border border-neutral-700 bg-neutral-900/70 p-4">
+                  <div class="text-xs text-neutral-400">Файлы</div>
+                  <div class="mt-1 text-sm font-semibold text-white">
+                    {{ importTotals.filesProcessed }} / {{ importTotals.filesTotal }}
+                  </div>
+                </div>
+                <div class="min-w-0 rounded-2xl border border-neutral-700 bg-neutral-900/70 p-4">
+                  <div class="text-xs text-neutral-400">Документы</div>
+                  <div class="mt-1 text-sm font-semibold text-white">
+                    {{ importTotals.documentsImported }} / {{ importTotals.documentsTotal }}
+                  </div>
+                </div>
+                <div class="min-w-0 rounded-2xl border border-neutral-700 bg-neutral-900/70 p-4">
+                  <div class="text-xs text-neutral-400">Текущий файл</div>
+                  <div class="mt-1 break-all text-sm font-semibold text-white">
+                    {{ importProgress?.fileName || "-" }}
+                  </div>
+                </div>
+                <div class="min-w-0 rounded-2xl border border-neutral-700 bg-neutral-900/70 p-4">
+                  <div class="text-xs text-neutral-400">Внутри файла</div>
+                  <div class="mt-1 text-sm font-semibold text-white">
+                    {{ importTotals.fileDocumentsImported }} / {{ importTotals.fileDocumentsTotal }}
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
 
-          <div class="mt-6 rounded-3xl border border-neutral-700 bg-neutral-800/60 p-4 sm:p-5">
-            <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div class="min-w-0 break-words text-sm text-neutral-300">{{ importStatusText }}</div>
-              <div class="text-sm font-semibold text-white">{{ importProgressPercent }}%</div>
+          <div v-else class="mt-6 space-y-5">
+            <div class="rounded-2xl border border-neutral-700 bg-neutral-800/60 px-4 py-3 text-sm text-neutral-300">
+              Индексы строятся по документам из `documents/` и сохраняются в `indexes/`. Если процесс
+              уже был остановлен, можно продолжить с сохраненного состояния.
             </div>
 
-            <div class="mt-3 h-2.5 overflow-hidden rounded-full bg-neutral-700">
-              <div
-                class="h-full rounded-full bg-emerald-500 transition-all duration-300"
-                :style="{ width: `${importProgressPercent}%` }"
-              />
+            <div class="flex flex-wrap gap-3">
+              <button
+                @click="buildIndex"
+                :disabled="!canBuildIndex"
+                class="rounded-2xl bg-neutral-700 px-5 py-3 text-sm font-semibold text-white shadow-md transition hover:bg-neutral-600 hover:shadow-lg disabled:bg-neutral-800 disabled:text-neutral-500"
+              >
+                {{ buildIndexButtonText }}
+              </button>
+              <button
+                v-if="canCancelIndex"
+                @click="cancelIndex"
+                class="rounded-2xl border border-amber-700 bg-amber-950/40 px-5 py-3 text-sm font-semibold text-amber-200 shadow-md transition hover:bg-amber-900/50 hover:shadow-lg"
+              >
+                Остановить
+              </button>
+              <button
+                @click="loadState"
+                class="rounded-2xl bg-neutral-800 px-5 py-3 text-sm font-semibold text-white shadow-md transition hover:bg-neutral-700 hover:shadow-lg"
+              >
+                Обновить
+              </button>
             </div>
 
-            <div class="mt-4 grid gap-3 sm:grid-cols-2 2xl:grid-cols-4">
-              <div class="min-w-0 rounded-2xl border border-neutral-700 bg-neutral-900/70 p-4">
-                <div class="text-xs text-neutral-400">Файлы</div>
-                <div class="mt-1 text-sm font-semibold text-white">
-                  {{ importTotals.filesProcessed }} / {{ importTotals.filesTotal }}
-                </div>
-              </div>
-              <div class="min-w-0 rounded-2xl border border-neutral-700 bg-neutral-900/70 p-4">
-                <div class="text-xs text-neutral-400">Документы</div>
-                <div class="mt-1 text-sm font-semibold text-white">
-                  {{ importTotals.documentsImported }} / {{ importTotals.documentsTotal }}
-                </div>
-              </div>
-              <div class="min-w-0 rounded-2xl border border-neutral-700 bg-neutral-900/70 p-4">
-                <div class="text-xs text-neutral-400">Текущий файл</div>
-                <div class="mt-1 break-all text-sm font-semibold text-white">
-                  {{ importProgress?.fileName || "-" }}
-                </div>
-              </div>
-              <div class="min-w-0 rounded-2xl border border-neutral-700 bg-neutral-900/70 p-4">
-                <div class="text-xs text-neutral-400">Внутри файла</div>
-                <div class="mt-1 text-sm font-semibold text-white">
-                  {{ importTotals.fileDocumentsImported }} / {{ importTotals.fileDocumentsTotal }}
-                </div>
-              </div>
-            </div>
-
-            <div
-              v-if="error"
-              class="mt-4 rounded-2xl border border-red-500 bg-red-900/30 px-4 py-3 text-sm text-red-300"
-            >
-              {{ error }}
-            </div>
-          </div>
-        </section>
-
-        <div class="space-y-6">
-          <section class="rounded-3xl border border-neutral-700 bg-neutral-900/80 p-5 shadow-2xl backdrop-blur-xl sm:p-8">
-            <h2 class="break-words text-xl font-semibold text-white sm:text-2xl">Локальная база</h2>
-            <p class="mt-2 text-sm leading-6 text-neutral-400">
-              Импорт работает только с инициализированной локальной базой. Если путь не задан или
-              база еще не создана, сначала завершите настройку во вкладке настроек.
-            </p>
-
-            <div class="mt-5 space-y-3">
-              <div class="min-w-0 rounded-2xl border border-neutral-700 bg-neutral-800/70 p-4 shadow-inner">
-                <div class="text-xs text-neutral-400">Статус</div>
-                <div class="mt-1 break-words text-sm font-semibold text-white">{{ databaseStatusText }}</div>
-              </div>
-              <div class="min-w-0 rounded-2xl border border-neutral-700 bg-neutral-800/70 p-4 shadow-inner">
-                <div class="text-xs text-neutral-400">Путь базы</div>
-                <div class="mt-1 break-all text-sm text-white">{{ databaseRootPath || "Не выбран" }}</div>
-              </div>
-              <div class="rounded-2xl border border-neutral-700 bg-neutral-800/70 p-4 text-sm leading-6 text-neutral-300 shadow-inner">
-                Если имя таблицы уже существует, импорт создаст новый уникальный источник и
-                сохранит старые данные без изменений.
-              </div>
-            </div>
-          </section>
-
-          <section class="rounded-3xl border border-neutral-700 bg-neutral-900/80 p-5 shadow-2xl backdrop-blur-xl sm:p-8">
-            <div class="flex flex-col gap-4 border-b border-neutral-700 pb-5">
-              <div class="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-                <div class="min-w-0">
-                  <h2 class="break-words text-xl font-semibold text-white sm:text-2xl">Шаг 2. Индексация</h2>
-                  <p class="mt-1 text-sm text-neutral-400">
-                    Индексы строятся по документам из `documents/` и сохраняются в `indexes/`.
-                  </p>
-                </div>
-                <div class="flex flex-wrap gap-3">
-                  <button
-                    @click="buildIndex"
-                    :disabled="!canBuildIndex"
-                    class="rounded-2xl bg-neutral-700 px-4 py-3 text-sm font-semibold text-white shadow-md transition hover:bg-neutral-600 hover:shadow-lg disabled:bg-neutral-800 disabled:text-neutral-500"
-                  >
-                    {{ buildIndexButtonText }}
-                  </button>
-                  <button
-                    v-if="canCancelIndex"
-                    @click="cancelIndex"
-                    class="rounded-2xl border border-amber-700 bg-amber-950/40 px-4 py-3 text-sm font-semibold text-amber-200 shadow-md transition hover:bg-amber-900/50 hover:shadow-lg"
-                  >
-                    Остановить
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div class="mt-5">
+            <div class="rounded-3xl border border-neutral-700 bg-neutral-800/60 p-4 sm:p-5">
               <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div class="min-w-0 break-words text-sm text-neutral-300">{{ indexStatusText }}</div>
                 <div class="text-sm font-semibold text-white">{{ indexProgressPercent }}%</div>
               </div>
 
-              <div class="mt-2 rounded-2xl border border-neutral-700 bg-neutral-800/60 px-4 py-3 text-sm text-neutral-300">
+              <div class="mt-2 rounded-2xl border border-neutral-700 bg-neutral-800/70 px-4 py-3 text-sm text-neutral-300">
                 <div class="font-medium text-white">{{ indexBuildModeText }}</div>
                 <div class="mt-1 text-xs leading-5 text-neutral-400">{{ indexBuildReasonText }}</div>
               </div>
@@ -587,42 +593,85 @@ onBeforeUnmount(() => {
               </div>
 
               <div class="mt-4 grid gap-3 sm:grid-cols-2">
-                <div class="min-w-0 rounded-2xl border border-neutral-700 bg-neutral-800/70 p-4 shadow-inner">
+                <div class="min-w-0 rounded-2xl border border-neutral-700 bg-neutral-900/70 p-4">
                   <div class="text-xs text-neutral-400">Файлы</div>
                   <div class="mt-1 text-sm font-semibold text-white">
                     {{ indexTotals.filesProcessed }} / {{ indexTotals.filesTotal }}
                   </div>
                 </div>
-                <div class="min-w-0 rounded-2xl border border-neutral-700 bg-neutral-800/70 p-4 shadow-inner">
+                <div class="min-w-0 rounded-2xl border border-neutral-700 bg-neutral-900/70 p-4">
                   <div class="text-xs text-neutral-400">Документы</div>
                   <div class="mt-1 text-sm font-semibold text-white">
                     {{ indexTotals.indexedDocuments }} / {{ indexTotals.documentsTotal }}
                   </div>
                 </div>
-                <div class="min-w-0 rounded-2xl border border-neutral-700 bg-neutral-800/70 p-4 shadow-inner">
+                <div class="min-w-0 rounded-2xl border border-neutral-700 bg-neutral-900/70 p-4">
                   <div class="text-xs text-neutral-400">Текущий файл</div>
                   <div class="mt-1 break-all text-sm font-semibold text-white">
                     {{ indexProgress?.currentFile || indexStatus?.currentFile || "-" }}
                   </div>
                 </div>
-                <div class="min-w-0 rounded-2xl border border-neutral-700 bg-neutral-800/70 p-4 shadow-inner">
+                <div class="min-w-0 rounded-2xl border border-neutral-700 bg-neutral-900/70 p-4">
                   <div class="text-xs text-neutral-400">Индекс-записи</div>
                   <div class="mt-1 text-sm font-semibold text-white">{{ indexTotals.indexedEntries }}</div>
                 </div>
               </div>
 
-              <div class="mt-3 rounded-2xl border border-neutral-700 bg-neutral-800/70 p-4 shadow-inner">
+              <div class="mt-3 rounded-2xl border border-neutral-700 bg-neutral-900/70 p-4">
                 <div class="text-xs text-neutral-400">Внутри файла</div>
                 <div class="mt-1 text-sm font-semibold text-white">
                   {{ indexTotals.fileDocumentsProcessed }} / {{ indexTotals.fileDocumentsTotal }}
                 </div>
               </div>
+            </div>
+          </div>
 
-              <div
-                v-if="indexStatus?.error"
-                class="mt-4 rounded-2xl border border-red-500 bg-red-900/30 px-4 py-3 text-sm text-red-300"
-              >
-                {{ indexStatus.error }}
+          <div
+            v-if="error"
+            class="mt-5 rounded-2xl border border-red-500 bg-red-900/30 px-4 py-3 text-sm text-red-300"
+          >
+            {{ error }}
+          </div>
+        </section>
+
+        <div class="space-y-6">
+          <section class="rounded-3xl border border-neutral-700 bg-neutral-900/80 p-5 shadow-2xl backdrop-blur-xl sm:p-8">
+            <h2 class="break-words text-xl font-semibold text-white sm:text-2xl">Локальная база</h2>
+            <p class="mt-2 text-sm leading-6 text-neutral-400">
+              Импорт и индексация работают только с инициализированной локальной базой. Если путь не
+              задан или база еще не создана, сначала завершите настройку во вкладке настроек.
+            </p>
+
+            <div class="mt-5 space-y-3">
+              <div class="min-w-0 rounded-2xl border border-neutral-700 bg-neutral-800/70 p-4 shadow-inner">
+                <div class="text-xs text-neutral-400">Статус</div>
+                <div class="mt-1 break-words text-sm font-semibold text-white">{{ databaseStatusText }}</div>
+              </div>
+              <div class="min-w-0 rounded-2xl border border-neutral-700 bg-neutral-800/70 p-4 shadow-inner">
+                <div class="text-xs text-neutral-400">Путь базы</div>
+                <div class="mt-1 break-all text-sm text-white">{{ databaseRootPath || "Не выбран" }}</div>
+              </div>
+              <div class="rounded-2xl border border-neutral-700 bg-neutral-800/70 p-4 text-sm leading-6 text-neutral-300 shadow-inner">
+                Если имя таблицы уже существует, импорт создаст новый уникальный источник и сохранит
+                старые данные без изменений.
+              </div>
+            </div>
+          </section>
+
+          <section class="rounded-3xl border border-neutral-700 bg-neutral-900/80 p-5 shadow-2xl backdrop-blur-xl sm:p-8">
+            <h2 class="break-words text-xl font-semibold text-white sm:text-2xl">Что сейчас делать</h2>
+            <div class="mt-4 space-y-3 text-sm leading-6 text-neutral-300">
+              <div class="rounded-2xl border border-neutral-700 bg-neutral-800/70 p-4">
+                <div class="font-semibold text-white">1. Импорт</div>
+                <div class="mt-1">Выберите папку с файлами, при необходимости заполните имя, тип и описание.</div>
+              </div>
+              <div class="rounded-2xl border border-neutral-700 bg-neutral-800/70 p-4">
+                <div class="font-semibold text-white">2. Индексация</div>
+                <div class="mt-1">После завершения импорта перейдите в соседний блок и постройте индекс.</div>
+              </div>
+              <div class="rounded-2xl border border-neutral-700 bg-neutral-800/70 p-4">
+                <div class="font-semibold text-white">3. Продолжение</div>
+                <div class="mt-1">Если индексация была остановлена, здесь же можно безопасно продолжить ее позже.</div>
               </div>
             </div>
           </section>

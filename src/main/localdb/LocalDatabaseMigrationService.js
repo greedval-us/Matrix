@@ -47,6 +47,9 @@ export class LocalDatabaseMigrationService {
         version: LOCAL_DATABASE_VERSION,
         builtAt: meta.indexes?.builtAt || null,
         fields: Array.isArray(meta.indexes?.fields) ? meta.indexes.fields : INDEXABLE_FIELDS,
+        lookupFormatVersion: Number(
+          meta.indexes?.lookupFormatVersion || meta.indexes?.version || 1
+        ),
       },
     };
   }
@@ -56,6 +59,7 @@ export class LocalDatabaseMigrationService {
       meta.format === LOCAL_DATABASE_FORMAT &&
       meta.version === LOCAL_DATABASE_VERSION &&
       Array.isArray(meta.indexes?.fields) &&
+      Number(meta.indexes?.lookupFormatVersion || meta.indexes?.version || 1) >= 1 &&
       meta.storage?.engine
     );
   }

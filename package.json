@@ -9,6 +9,7 @@
     "dev": "concurrently -k \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "start": "electron .",
     "build": "set ELECTRON_CACHE=.electron-cache&& vite build && electron-builder",
+    "index:cli": "node scripts/buildLocalIndexesCli.mjs",
     "test": "node --test tests/main/localdb/*.test.js",
     "postinstall": "electron-builder install-app-deps"
   },

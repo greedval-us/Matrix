@@ -141,15 +141,19 @@ export const usePackagesSearchStoreUI = defineStore('packagesSearchUI', () => {
         addLog(`✅ Результаты получены для строки ${index + 1}`)
         console.log(results)
 
+        const resultItems = Array.isArray(results)
+          ? results
+          : Array.isArray(results?.items)
+            ? results.items
+            : []
+
         const selectedFormats = Object.keys(formats.value).filter(f => formats.value[f])
         for (const format of selectedFormats) {
           const ext = format === 'excel' ? 'xlsx' : format
           const fileName = line || 'результат'
           const filePath = `${saveFolder}/${fileName}.${ext}`
         
-          const normalized = Array.isArray(results)
-            ? results.map(item => parser.parse(item))
-            : []
+          const normalized = resultItems.map(item => parser.parse(item))
         
           let dataToSave
         

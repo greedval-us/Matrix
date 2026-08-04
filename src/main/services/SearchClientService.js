@@ -14,8 +14,8 @@ export class SearchClientService {
     });
   }
 
-  async search(payload) {
-    return await this.useCase.execute(payload);
+  async search(payload, options = {}) {
+    return await this.useCase.execute(payload, options);
   }
 
   cancel() {

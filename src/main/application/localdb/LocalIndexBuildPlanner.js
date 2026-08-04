@@ -1,4 +1,5 @@
 import path from "path";
+import { DOCUMENT_LOOKUP_FORMAT_VERSION } from "../../localdb/constants.js";
 
 export class LocalIndexBuildPlanner {
   constructor({ jsonLinesRepository }) {
@@ -9,9 +10,14 @@ export class LocalIndexBuildPlanner {
     const snapshots = await this.readFileSnapshots(paths, documentFiles);
     const hasIndexes = await this.jsonLinesRepository.exists(paths.indexesDir);
     const previousManifest = this.normalizeManifest(previousState?.fileManifest);
+    const lookupFormatVersion = Number(previousState?.lookupFormatVersion || 1);
 
     if (!hasIndexes || previousState?.status !== "completed" || previousManifest.size === 0) {
       return await this.buildFullPlan(paths, snapshots, "initial-build");
+    }
+
+    if (lookupFormatVersion !== DOCUMENT_LOOKUP_FORMAT_VERSION) {
+      return await this.buildFullPlan(paths, snapshots, "lookup-format-changed");
     }
 
     const removedFiles = this.collectRemovedFiles(previousManifest, snapshots);
@@ -37,7 +43,7 @@ export class LocalIndexBuildPlanner {
       reason: "new-document-files",
       filePlans: newFilePlans,
       filesTotal: newFilePlans.length,
-      documentsTotal: newFilePlans.reduce((total, plan) => total + plan.documentsTotal, 0),
+      documentsTotal: 0,
       reusedFiles: unchangedSnapshots.length,
       reusedDocuments,
       fileManifest: this.buildManifestFromPlans([
@@ -51,6 +57,10 @@ export class LocalIndexBuildPlanner {
   }
 
   async createResumePlan({ paths, documentFiles, previousState }) {
+    if (Number(previousState?.lookupFormatVersion || 1) !== DOCUMENT_LOOKUP_FORMAT_VERSION) {
+      return null;
+    }
+
     const snapshots = await this.readFileSnapshots(paths, documentFiles);
     const previousManifest = this.normalizeManifest(previousState?.fileManifest);
     const currentManifest = this.buildManifestFromPlans(snapshots);
@@ -67,7 +77,7 @@ export class LocalIndexBuildPlanner {
 
     return {
       filePlans,
-      documentsTotal: filePlans.reduce((total, plan) => total + plan.documentsTotal, 0),
+      documentsTotal: 0,
     };
   }
 
@@ -78,7 +88,7 @@ export class LocalIndexBuildPlanner {
       reason,
       filePlans,
       filesTotal: filePlans.length,
-      documentsTotal: filePlans.reduce((total, plan) => total + plan.documentsTotal, 0),
+      documentsTotal: 0,
       reusedFiles: 0,
       reusedDocuments: 0,
       fileManifest: this.buildManifestFromPlans(filePlans),
@@ -107,11 +117,10 @@ export class LocalIndexBuildPlanner {
 
     for (const snapshot of snapshots) {
       const filePath = path.join(paths.documentsDir, snapshot.fileName);
-      const documentsTotal = await this.jsonLinesRepository.countLines(filePath);
       plans.push({
         ...snapshot,
         filePath,
-        documentsTotal,
+        documentsTotal: 0,
       });
     }
 

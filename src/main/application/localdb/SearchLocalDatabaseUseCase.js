@@ -1,4 +1,4 @@
-import { INDEXABLE_FIELDS, MAX_RESULTS } from "../../localdb/constants.js";
+import { INDEXABLE_FIELDS, SEARCH_STREAM_CHUNK_SIZE } from "../../localdb/constants.js";
 import { LocalDatabasePaths } from "../../localdb/LocalDatabasePaths.js";
 import { localDbMessages } from "../../localdb/messages.js";
 
@@ -16,7 +16,7 @@ export class SearchLocalDatabaseUseCase {
     this.currentSearchToken = null;
   }
 
-  async execute(payload) {
+  async execute(payload, options = {}) {
     const rootPath = this.localDatabaseService.getStoredRootPath();
     if (!rootPath) {
       throw new Error(localDbMessages.databaseNotInitialized);
@@ -56,7 +56,7 @@ export class SearchLocalDatabaseUseCase {
 
       if (searchToken.cancelled) return [];
 
-      const matchedDocIds = this.intersectDocIdSets(docIdSets).slice(0, MAX_RESULTS);
+      const matchedDocIds = this.intersectDocIdSets(docIdSets);
       if (matchedDocIds.length === 0) {
         return [];
       }
@@ -68,19 +68,35 @@ export class SearchLocalDatabaseUseCase {
 
       const results = [];
       const seenSources = new Set();
+      const useStreaming = typeof options.onChunk === "function";
+      let chunkBuffer = [];
+      let totalResults = 0;
+
+      const flushChunk = async () => {
+        if (chunkBuffer.length === 0) return;
+
+        if (useStreaming) {
+          await options.onChunk(chunkBuffer);
+        } else {
+          results.push(...chunkBuffer);
+        }
+
+        totalResults += chunkBuffer.length;
+        chunkBuffer = [];
+      };
 
       for (const document of documents) {
         if (searchToken.cancelled) return [];
 
         if (!seenSources.has(document.sourceTable)) {
           const sourceMeta = sourceMetaMap.get(document.sourceTable);
-          results.push({
+          chunkBuffer.push({
             object_data_base: this.mapSourceResult(document.sourceTable, sourceMeta),
           });
           seenSources.add(document.sourceTable);
         }
 
-        results.push({
+        chunkBuffer.push({
           object_data: {
             source_name: document.sourceTable,
             fields: {
@@ -89,9 +105,21 @@ export class SearchLocalDatabaseUseCase {
             },
           },
         });
+
+        if (chunkBuffer.length >= SEARCH_STREAM_CHUNK_SIZE) {
+          await flushChunk();
+        }
       }
 
-      return results;
+      await flushChunk();
+
+      return useStreaming
+        ? {
+            totalResults,
+            matchedDocuments: documents.length,
+            matchedSources: seenSources.size,
+          }
+        : results;
     } finally {
       if (this.currentSearchToken === searchToken) {
         this.currentSearchToken = null;
@@ -118,7 +146,6 @@ export class SearchLocalDatabaseUseCase {
         if (searchToken.cancelled) return [];
         if (entry.term === term) {
           matches.push(entry.docId);
-          if (matches.length >= MAX_RESULTS) break;
         }
       }
     } catch {
@@ -141,14 +168,11 @@ export class SearchLocalDatabaseUseCase {
           if (searchToken.cancelled) return [];
           if (regex.test(entry.term)) {
             matches.add(entry.docId);
-            if (matches.size >= MAX_RESULTS) break;
           }
         }
       } catch {
         continue;
       }
-
-      if (matches.size >= MAX_RESULTS) break;
     }
 
     return [...matches];
@@ -199,7 +223,10 @@ export class SearchLocalDatabaseUseCase {
         for await (const entry of this.jsonLinesRepository.iterateJson(bucketPath)) {
           if (searchToken.cancelled) return [];
           if (bucketSet.has(entry.docId) && targetDocIds.has(entry.docId)) {
-            documents.push(entry);
+            const document = await this.resolveDocumentLookupEntry(paths, entry);
+            if (!document) continue;
+
+            documents.push(document);
             targetDocIds.delete(entry.docId);
             if (targetDocIds.size === 0) break;
           }
@@ -212,6 +239,27 @@ export class SearchLocalDatabaseUseCase {
     }
 
     return documents;
+  }
+
+  async resolveDocumentLookupEntry(paths, entry) {
+    if (entry?.fields || entry?.invalidFields) {
+      return entry;
+    }
+
+    if (!entry?.fileName || !Number.isFinite(entry.byteOffset) || !Number.isFinite(entry.byteLength)) {
+      return null;
+    }
+
+    try {
+      const rawDocument = await this.jsonLinesRepository.readChunk(
+        paths.getDocumentPath(entry.fileName),
+        entry.byteOffset,
+        entry.byteLength
+      );
+      return JSON.parse(rawDocument);
+    } catch {
+      return null;
+    }
   }
 
   async loadSourceMeta(paths) {
