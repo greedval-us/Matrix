@@ -1,4 +1,3 @@
-// stores/tabStore.js
 import { defineStore } from "pinia"
 import { ref, reactive } from "vue"
 
@@ -11,9 +10,6 @@ export const useTabStore = defineStore("tabs", () => {
     searchStates: {}
   })
 
-  // ========================
-  // Инициализация первой вкладки
-  // ========================
   const initializeFirstTab = (initialSearch = '') => {
     state.value.tabs = []
     state.value.activeTabId = null
@@ -33,9 +29,6 @@ export const useTabStore = defineStore("tabs", () => {
     })
   }
 
-  // ========================
-  // Actions
-  // ========================
   const addTab = (searchValue = '') => {
     const newTab = { id: Date.now(), title: searchValue || 'вкладка', key: Date.now() }
     state.value.tabs.push(newTab)
@@ -47,6 +40,7 @@ export const useTabStore = defineStore("tabs", () => {
       loading: false,
       searchValue
     })
+    return newTab.id
   }
 
   const closeTab = (id) => {
@@ -86,9 +80,6 @@ export const useTabStore = defineStore("tabs", () => {
     return state.value.searchStates[tabId]
   }
 
-  // ========================
-  // Редактирование заголовка вкладки вручную
-  // ========================
   const startEdit = (tab) => {
     state.value.editingTabId = tab.id
     state.value.editTitle = tab.title
@@ -105,12 +96,9 @@ export const useTabStore = defineStore("tabs", () => {
     state.value.editTitle = value
   }
 
-  // ========================
-  // Обновление названия вкладки по поисковому запросу
-  // ========================
   const updateTabTitleBySearch = (tabId, searchValue) => {
     const t = state.value.tabs.find(t => t.id === tabId)
-    if (t && !state.value.editingTabId) { // не менять, если редактируем вручную
+    if (t && !state.value.editingTabId) {
       t.title = searchValue || t.title
       if (state.value.searchStates[tabId]) {
         state.value.searchStates[tabId].searchValue = searchValue

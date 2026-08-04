@@ -8,7 +8,9 @@
   "scripts": {
     "dev": "concurrently -k \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "start": "electron .",
-    "build": "set ELECTRON_CACHE=.electron-cache&& vite build && electron-builder",
+    "build": "cross-env ELECTRON_CACHE=.electron-cache vite build && cross-env ELECTRON_CACHE=.electron-cache electron-builder",
+    "build:linux": "cross-env ELECTRON_CACHE=.electron-cache vite build && cross-env ELECTRON_CACHE=.electron-cache electron-builder --linux AppImage",
+    "build:win": "cross-env ELECTRON_CACHE=.electron-cache vite build && cross-env ELECTRON_CACHE=.electron-cache electron-builder --win nsis portable",
     "index:cli": "node scripts/buildLocalIndexesCli.mjs",
     "test": "node --test tests/main/localdb/*.test.js",
     "postinstall": "electron-builder install-app-deps"
@@ -40,7 +42,9 @@
       "target": "dmg"
     },
     "linux": {
-      "target": "AppImage"
+      "target": "AppImage",
+      "icon": "src/public/matrix.png",
+      "category": "Utility"
     }
   },
   "dependencies": {
@@ -58,6 +62,7 @@
     "@vitejs/plugin-vue": "^6.0.1",
     "autoprefixer": "^10.4.21",
     "concurrently": "^9.2.0",
+    "cross-env": "^10.0.0",
     "electron": "^38.1.0",
     "electron-builder": "^24.13.3",
     "postcss": "^8.5.6",

@@ -1,12 +1,14 @@
 <script setup>
 import { ref, computed } from 'vue'
+import { Bookmark } from 'lucide-vue-next'
 import { useTabStore } from '../../stores/tabStore'
 import { useSearchUIStore } from '../../stores/uistore/serchStoreUI'
+import { iconsSerchs } from '../../../shared/constants/searchItems'
 import Hint from '../ui/Hint.vue'
-import { Bookmark } from 'lucide-vue-next'
 
 const tabStore = useTabStore()
 const searchUI = useSearchUIStore()
+const searchableFieldTypes = new Set(iconsSerchs.map(({ type }) => type))
 
 const activeTabId = computed(() => tabStore.state.activeTabId)
 const activeBase = computed(() =>
@@ -19,17 +21,65 @@ const results = computed(() =>
 const loading = computed(() =>
   activeTabId.value ? searchUI.getLoading(activeTabId.value) : false
 )
+const selectedFields = computed(() =>
+  activeTabId.value ? searchUI.getSelectedFields(activeTabId.value) : {}
+)
+
+const recommendedSearches = computed(() => {
+  const currentQueryValues = new Set()
+  for (const [fieldKey, field] of Object.entries(selectedFields.value || {})) {
+    const value = String(field?.value || '').trim()
+    if (value) currentQueryValues.add(`${fieldKey}:${value}`)
+  }
+
+  const suggestions = []
+  const seen = new Set()
+
+  for (const item of results.value) {
+    if (item.type === 'object_add_search' && item.fields) {
+      for (const value of Object.values(item.fields)) {
+        const fieldKey = value?.key
+        const fieldValue = String(value?.value || '').trim()
+        if (!searchableFieldTypes.has(fieldKey) || !fieldValue) continue
+
+        const uniqueKey = `${fieldKey}:${fieldValue}`
+        if (seen.has(uniqueKey) || currentQueryValues.has(uniqueKey)) continue
+
+        seen.add(uniqueKey)
+        suggestions.push({
+          fieldKey,
+          fieldValue,
+          preload: { [fieldKey]: { key: fieldKey, value: fieldValue } },
+        })
+      }
+      continue
+    }
+
+    if (item.type !== 'object_data' || !Array.isArray(item.fields)) continue
+
+    for (const [fieldKey, rawValue] of item.fields) {
+      const fieldValue = String(rawValue || '').trim()
+      if (!searchableFieldTypes.has(fieldKey) || !fieldValue) continue
+
+      const uniqueKey = `${fieldKey}:${fieldValue}`
+      if (seen.has(uniqueKey) || currentQueryValues.has(uniqueKey)) continue
+
+      seen.add(uniqueKey)
+      suggestions.push({
+        fieldKey,
+        fieldValue,
+        preload: { [fieldKey]: { key: fieldKey, value: fieldValue } },
+      })
+    }
+  }
+
+  return suggestions.slice(0, 24)
+})
 
 const preparedResults = computed(() => {
-  const recommended = []
   const basesMap = {}
 
   results.value.forEach((item) => {
-    if (item.type === 'object_add_search') {
-      recommended.push(item)
-      return
-    }
-
     if (item.type === 'object_data_base') {
       const key = item.source
       if (!basesMap[key]) basesMap[key] = { ...item, data: [] }
@@ -51,13 +101,13 @@ const preparedResults = computed(() => {
     }
   })
 
-  return [...recommended, ...Object.values(basesMap)]
+  return Object.values(basesMap)
 })
 
 function onClickFind(preload, type) {
   if (type === 0) {
-    tabStore.addTab()
-    searchUI.quickSearch(activeTabId.value, preload)
+    const newTabId = tabStore.addTab()
+    searchUI.quickSearch(newTabId, preload)
     return
   }
 
@@ -119,7 +169,29 @@ async function saveBaseToNotes(base) {
       Загрузка результатов...
     </div>
 
-    <div v-if="!loading && preparedResults.length === 0" class="text-center text-neutral-400 py-10 text-sm">
+    <div v-if="!loading && recommendedSearches.length" class="bg-gray-850 rounded-2xl p-4 shadow-md">
+      <div class="flex flex-col gap-3">
+        <h4 class="font-semibold text-green-400 text-base">Дополнительный поиск по найденным данным</h4>
+        <div class="flex flex-wrap gap-2">
+          <button
+            v-for="item in recommendedSearches"
+            :key="`${item.fieldKey}:${item.fieldValue}`"
+            @click.left="onClickFind(item.preload, 1)"
+            @click.right.prevent="onClickFind(item.preload, 0)"
+            class="px-3 py-2 text-sm font-medium text-white bg-neutral-800 rounded-xl hover:bg-green-700 active:bg-green-600 transition-colors duration-150 shadow-sm text-left"
+            title="ЛКМ - поиск здесь, ПКМ - поиск в новой вкладке"
+          >
+            <span class="text-gray-400">{{ searchUI.getFieldLabel(item.fieldKey) }}:</span>
+            <span class="ml-1">{{ item.fieldValue }}</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div
+      v-if="!loading && preparedResults.length === 0 && recommendedSearches.length === 0"
+      class="text-center text-neutral-400 py-10 text-sm"
+    >
       Ничего не найдено по этому запросу.
     </div>
 
@@ -133,29 +205,7 @@ async function saveBaseToNotes(base) {
           'border-2 border-green-500': item.type === 'object_data_base' && activeBase === item.name,
         }"
       >
-        <div v-if="item.type === 'object_add_search'" class="flex flex-col gap-3">
-          <h4 class="font-semibold text-green-400 text-base">Рекомендованный поиск</h4>
-          <div
-            v-for="(val, key) in item.fields"
-            :key="key"
-            class="flex items-center justify-between p-3 bg-neutral-800 rounded-xl hover:bg-neutral-700 transition-colors duration-200 shadow-inner"
-          >
-            <div class="flex-1 min-w-0">
-              <span class="text-gray-400 font-medium">{{ searchUI.getFieldLabel(val.key) }}:</span>
-              <span class="text-white ml-1 truncate break-all">{{ val.value }}</span>
-            </div>
-            <button
-              @click.left="onClickFind({ [key]: val }, 1)"
-              @click.right.prevent="onClickFind({ [key]: val }, 0)"
-              class="px-3 py-1 text-sm font-medium text-white bg-gray-700 rounded-lg hover:bg-green-700 active:bg-green-600 transition-colors duration-150 shadow-sm"
-              title="ЛКМ - поиск здесь, ПКМ - поиск в новой вкладке"
-            >
-              Найти
-            </button>
-          </div>
-        </div>
-
-        <div v-else-if="item.type === 'object_data_base'" class="flex flex-col gap-3">
+        <div v-if="item.type === 'object_data_base'" class="flex flex-col gap-3">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-2" title="Сохранить в заметки">
               <h3 class="font-semibold text-lg text-white">{{ item.name }}</h3>
