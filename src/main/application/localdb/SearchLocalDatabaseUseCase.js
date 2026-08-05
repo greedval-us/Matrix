@@ -1,4 +1,13 @@
-import { INDEXABLE_FIELDS, SEARCH_STREAM_CHUNK_SIZE } from "../../localdb/constants.js";
+import { performance } from "node:perf_hooks";
+import {
+  INDEXABLE_FIELDS,
+  LEGACY_INDEX_BUCKET_LAYOUT_VERSION,
+  SEARCH_STREAM_CHUNK_SIZE,
+} from "../../localdb/constants.js";
+import {
+  getBucketLayout,
+  normalizeBucketLayoutMap,
+} from "../../localdb/indexBucketLayouts.js";
 import { LocalDatabasePaths } from "../../localdb/LocalDatabasePaths.js";
 import { localDbMessages } from "../../localdb/messages.js";
 
@@ -17,12 +26,16 @@ export class SearchLocalDatabaseUseCase {
   }
 
   async execute(payload, options = {}) {
+    const profile = this.createProfile(options);
+    const executeStartedAt = performance.now();
     const rootPath = this.localDatabaseService.getStoredRootPath();
     if (!rootPath) {
       throw new Error(localDbMessages.databaseNotInitialized);
     }
 
-    await this.localDatabaseService.ensureReady(rootPath);
+    await this.measureStep(profile, "ensureReadyMs", async () => {
+      await this.localDatabaseService.ensureReady(rootPath);
+    });
 
     const searchToken = { cancelled: false };
     this.currentSearchToken = searchToken;
@@ -33,6 +46,7 @@ export class SearchLocalDatabaseUseCase {
         .map(([field, value]) => ({
           field,
           term: this.termService.buildQueryTerm(field, value),
+          bucketLayoutVersion: LEGACY_INDEX_BUCKET_LAYOUT_VERSION,
         }))
         .filter((entry) => entry.term);
 
@@ -41,28 +55,57 @@ export class SearchLocalDatabaseUseCase {
       }
 
       const paths = new LocalDatabasePaths(rootPath);
+      const bucketLayoutVersions = await this.measureStep(profile, "loadMetaMs", async () => {
+        const meta = await this.stateRepository.readJson(paths.databaseMetaPath, null);
+        return normalizeBucketLayoutMap(meta?.indexes || {});
+      });
+
+      for (const queryEntry of queryEntries) {
+        queryEntry.bucketLayoutVersion =
+          bucketLayoutVersions[queryEntry.field] || LEGACY_INDEX_BUCKET_LAYOUT_VERSION;
+      }
+
       const docIdSets = [];
 
       for (const queryEntry of queryEntries) {
         if (searchToken.cancelled) return [];
-        const docIds = await this.findDocIdsByTerm(
-          paths,
-          queryEntry.field,
-          queryEntry.term,
-          searchToken
+        const docIds = await this.measureFieldLookup(profile, queryEntry, async () =>
+          await this.findDocIdsByTerm(
+            paths,
+            queryEntry.field,
+            queryEntry.term,
+            searchToken,
+            profile,
+            queryEntry.bucketLayoutVersion
+          )
         );
         docIdSets.push(docIds);
       }
 
       if (searchToken.cancelled) return [];
 
-      const matchedDocIds = this.intersectDocIdSets(docIdSets);
+      const matchedDocIds = await this.measureStep(profile, "intersectMs", async () =>
+        this.intersectDocIdSets(docIdSets)
+      );
+      if (profile) {
+        profile.matchedDocIds = matchedDocIds.length;
+      }
       if (matchedDocIds.length === 0) {
+        if (profile) {
+          profile.totalMs = performance.now() - executeStartedAt;
+        }
         return [];
       }
 
-      const documents = await this.loadDocumentsByIds(paths, matchedDocIds, searchToken);
-      const sourceMetaMap = await this.loadSourceMeta(paths);
+      const documents = await this.measureStep(profile, "loadDocumentsMs", async () =>
+        await this.loadDocumentsByIds(paths, matchedDocIds, searchToken, profile)
+      );
+      if (profile) {
+        profile.loadedDocuments = documents.length;
+      }
+      const sourceMetaMap = await this.measureStep(profile, "loadSourceMetaMs", async () =>
+        await this.loadSourceMeta(paths)
+      );
 
       if (searchToken.cancelled) return [];
 
@@ -85,6 +128,7 @@ export class SearchLocalDatabaseUseCase {
         chunkBuffer = [];
       };
 
+      const buildResultsStartedAt = performance.now();
       for (const document of documents) {
         if (searchToken.cancelled) return [];
 
@@ -112,6 +156,10 @@ export class SearchLocalDatabaseUseCase {
       }
 
       await flushChunk();
+      if (profile) {
+        profile.buildResultsMs = performance.now() - buildResultsStartedAt;
+        profile.totalMs = performance.now() - executeStartedAt;
+      }
 
       return useStreaming
         ? {
@@ -133,17 +181,75 @@ export class SearchLocalDatabaseUseCase {
     }
   }
 
-  async findDocIdsByTerm(paths, field, term, searchToken) {
-    if (this.termService.hasWildcards(term)) {
-      return await this.findDocIdsByWildcard(paths, field, term, searchToken);
+  createProfile(options) {
+    if (!options?.profile) return null;
+
+    return Object.assign(options.profile, {
+      queryFields: [],
+      lookupBuckets: [],
+      wildcardBuckets: [],
+    });
+  }
+
+  async measureStep(profile, key, callback) {
+    if (!profile) {
+      return await callback();
     }
 
-    const bucketPath = paths.getIndexBucketPath(field, this.termService.getBucketName(term));
+    const startedAt = performance.now();
+    const result = await callback();
+    profile[key] = (profile[key] || 0) + (performance.now() - startedAt);
+    return result;
+  }
+
+  async measureFieldLookup(profile, queryEntry, callback) {
+    if (!profile) {
+      return await callback();
+    }
+
+    const startedAt = performance.now();
+    const result = await callback();
+    profile.queryFields.push({
+      field: queryEntry.field,
+      term: queryEntry.term,
+      bucketLayoutVersion: queryEntry.bucketLayoutVersion,
+      matchedDocIds: result.length,
+      durationMs: performance.now() - startedAt,
+    });
+    return result;
+  }
+
+  async findDocIdsByTerm(
+    paths,
+    field,
+    term,
+    searchToken,
+    profile = null,
+    bucketLayoutVersion = LEGACY_INDEX_BUCKET_LAYOUT_VERSION
+  ) {
+    if (this.termService.hasWildcards(term)) {
+      return await this.findDocIdsByWildcard(
+        paths,
+        field,
+        term,
+        searchToken,
+        profile,
+        bucketLayoutVersion
+      );
+    }
+
+    const bucketPath = paths.getIndexBucketPath(
+      field,
+      this.termService.getIndexBucketName(field, term, bucketLayoutVersion)
+    );
     const matches = [];
+    const startedAt = performance.now();
+    let scannedEntries = 0;
 
     try {
       for await (const entry of this.jsonLinesRepository.iterateJson(bucketPath)) {
         if (searchToken.cancelled) return [];
+        scannedEntries += 1;
         if (entry.term === term) {
           matches.push(entry.docId);
         }
@@ -152,20 +258,47 @@ export class SearchLocalDatabaseUseCase {
       return [];
     }
 
+    if (profile) {
+      profile.lookupBuckets.push({
+        kind: "index",
+        field,
+        bucketPath,
+        scannedEntries,
+        matchedDocIds: matches.length,
+        durationMs: performance.now() - startedAt,
+      });
+    }
+
     return matches;
   }
 
-  async findDocIdsByWildcard(paths, field, term, searchToken) {
-    const bucketFiles = await this.resolveWildcardBuckets(paths, field, term);
+  async findDocIdsByWildcard(
+    paths,
+    field,
+    term,
+    searchToken,
+    profile = null,
+    bucketLayoutVersion = LEGACY_INDEX_BUCKET_LAYOUT_VERSION
+  ) {
+    const bucketFiles = await this.resolveWildcardBuckets(
+      paths,
+      field,
+      term,
+      bucketLayoutVersion
+    );
     if (bucketFiles.length === 0) return [];
 
     const regex = this.termService.buildWildcardRegex(term);
     const matches = new Set();
 
     for (const bucketPath of bucketFiles) {
+      const startedAt = performance.now();
+      let scannedEntries = 0;
+
       try {
         for await (const entry of this.jsonLinesRepository.iterateJson(bucketPath)) {
           if (searchToken.cancelled) return [];
+          scannedEntries += 1;
           if (regex.test(entry.term)) {
             matches.add(entry.docId);
           }
@@ -173,16 +306,49 @@ export class SearchLocalDatabaseUseCase {
       } catch {
         continue;
       }
+
+      if (profile) {
+        profile.wildcardBuckets.push({
+          field,
+          bucketPath,
+          scannedEntries,
+          matchedDocIds: matches.size,
+          durationMs: performance.now() - startedAt,
+        });
+      }
     }
 
     return [...matches];
   }
 
-  async resolveWildcardBuckets(paths, field, term) {
+  async resolveWildcardBuckets(
+    paths,
+    field,
+    term,
+    bucketLayoutVersion = LEGACY_INDEX_BUCKET_LAYOUT_VERSION
+  ) {
     try {
       const prefix = this.termService.getWildcardPrefix(term);
+      const normalizedPrefix = this.termService.normalizeBucketTerm(field, prefix);
+      const { prefixLength } = getBucketLayout(field, bucketLayoutVersion);
+
       if (prefix) {
-        return [paths.getIndexBucketPath(field, this.termService.getBucketName(prefix))];
+        if (normalizedPrefix.length >= prefixLength) {
+          return [
+            paths.getIndexBucketPath(
+              field,
+              this.termService.getIndexBucketName(field, normalizedPrefix, bucketLayoutVersion)
+            ),
+          ];
+        }
+
+        const fileNames = await this.jsonLinesRepository.listFiles(
+          paths.getIndexFieldDir(field),
+          ".jsonl"
+        );
+        return fileNames
+          .filter((fileName) => fileName.slice(0, -6).startsWith(normalizedPrefix))
+          .map((fileName) => paths.getIndexBucketPath(field, fileName.slice(0, -6)));
       }
 
       const fileNames = await this.jsonLinesRepository.listFiles(
@@ -203,7 +369,7 @@ export class SearchLocalDatabaseUseCase {
     return [...firstSet].filter((docId) => restSets.every((set) => set.has(docId)));
   }
 
-  async loadDocumentsByIds(paths, docIds, searchToken) {
+  async loadDocumentsByIds(paths, docIds, searchToken, profile = null) {
     const targetDocIds = new Set(docIds);
     const documents = [];
     const bucketMap = new Map();
@@ -218,21 +384,39 @@ export class SearchLocalDatabaseUseCase {
     for (const [bucket, bucketDocIds] of bucketMap.entries()) {
       const bucketPath = paths.getDocumentLookupBucketPath(bucket);
       const bucketSet = new Set(bucketDocIds);
+      const startedAt = performance.now();
+      let scannedEntries = 0;
+      let resolvedDocuments = 0;
 
       try {
         for await (const entry of this.jsonLinesRepository.iterateJson(bucketPath)) {
           if (searchToken.cancelled) return [];
+          scannedEntries += 1;
           if (bucketSet.has(entry.docId) && targetDocIds.has(entry.docId)) {
             const document = await this.resolveDocumentLookupEntry(paths, entry);
             if (!document) continue;
 
             documents.push(document);
+            resolvedDocuments += 1;
             targetDocIds.delete(entry.docId);
             if (targetDocIds.size === 0) break;
           }
         }
       } catch {
         continue;
+      }
+
+      if (profile) {
+        profile.lookupBuckets.push({
+          kind: "documentLookup",
+          bucket,
+          bucketPath,
+          requestedDocIds: bucketDocIds.length,
+          scannedEntries,
+          resolvedDocuments,
+          remainingDocIds: targetDocIds.size,
+          durationMs: performance.now() - startedAt,
+        });
       }
 
       if (targetDocIds.size === 0) break;

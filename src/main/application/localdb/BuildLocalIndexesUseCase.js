@@ -4,9 +4,11 @@ import {
   INDEXABLE_FIELDS,
   INDEX_BACKUP_TEMP_PREFIX,
   INDEX_BUILD_TEMP_PREFIX,
+  LEGACY_INDEX_BUCKET_LAYOUT_VERSION,
   PROGRESS_EMIT_INTERVAL,
   PROGRESS_SAVE_INTERVAL,
 } from "../../localdb/constants.js";
+import { buildLegacyBucketLayoutMap } from "../../localdb/indexBucketLayouts.js";
 import { LocalDatabasePaths } from "../../localdb/LocalDatabasePaths.js";
 import { localDbMessages } from "../../localdb/messages.js";
 import { ProgressReporter } from "../../localdb/ProgressReporter.js";
@@ -462,6 +464,8 @@ export class BuildLocalIndexesUseCase {
         builtAt: summary.completedAt,
         fields: INDEXABLE_FIELDS,
         lookupFormatVersion: DOCUMENT_LOOKUP_FORMAT_VERSION,
+        bucketLayoutVersion: LEGACY_INDEX_BUCKET_LAYOUT_VERSION,
+        bucketLayouts: buildLegacyBucketLayoutMap(),
       },
     }));
     log.info(
@@ -619,7 +623,7 @@ export class BuildLocalIndexesUseCase {
     for (const field of INDEXABLE_FIELDS) {
       const terms = this.collectDocumentIndexTerms(document, field);
       for (const term of terms) {
-        const bucket = this.termService.getBucketName(term);
+        const bucket = this.termService.getIndexBucketName(field, term);
         const bucketFile = paths.getIndexBucketPath(field, bucket, indexesDir);
         const entry = JSON.stringify({
           term,

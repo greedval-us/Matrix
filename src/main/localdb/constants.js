@@ -49,3 +49,5 @@ export const IMPORT_WRITE_BATCH_SIZE = 500;
 export const INDEX_BUILD_TEMP_PREFIX = "index-build";
 export const INDEX_BACKUP_TEMP_PREFIX = "index-backup";
 export const SEARCH_STREAM_CHUNK_SIZE = 200;
+export const LEGACY_INDEX_BUCKET_LAYOUT_VERSION = 1;
+export const OPTIMIZED_INDEX_BUCKET_LAYOUT_VERSION = 2;

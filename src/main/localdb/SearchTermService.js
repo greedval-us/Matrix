@@ -1,3 +1,5 @@
+import { getBucketLayout } from "./indexBucketLayouts.js";
+
 export class SearchTermService {
   formatDateOfBirth(date) {
     if (/^\d{2}\.\d{2}\.\d{4}$/.test(date)) return date;
@@ -95,8 +97,31 @@ export class SearchTermService {
     return `${parts.join("%")}%`;
   }
 
+  normalizeBucketTerm(field, term) {
+    const stringValue = String(term).trim();
+    if (!stringValue) return "";
+
+    if (field === "number") {
+      return stringValue.replace(/[^\d]/g, "");
+    }
+
+    return stringValue.toLowerCase().replace(/[^a-zа-яё0-9]/giu, "");
+  }
+
+  getIndexBucketName(field, term, bucketLayoutVersion = 1) {
+    const normalized = this.normalizeBucketTerm(field, term);
+    const { prefixLength } = getBucketLayout(field, bucketLayoutVersion);
+    if (!normalized) {
+      return "_".repeat(prefixLength);
+    }
+
+    return normalized.slice(0, prefixLength).padEnd(prefixLength, "_");
+  }
+
   getBucketName(term) {
-    const normalized = term.toLowerCase().replace(/[^a-zа-яё0-9]/giu, "");
+    const normalized = String(term)
+      .toLowerCase()
+      .replace(/[^a-zа-яё0-9]/giu, "");
     if (!normalized) return "__";
     return normalized.slice(0, 2).padEnd(2, "_");
   }

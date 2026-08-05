@@ -12,6 +12,10 @@
     "build:linux": "cross-env ELECTRON_CACHE=.electron-cache vite build && cross-env ELECTRON_CACHE=.electron-cache electron-builder --linux AppImage",
     "build:win": "cross-env ELECTRON_CACHE=.electron-cache vite build && cross-env ELECTRON_CACHE=.electron-cache electron-builder --win nsis portable",
     "index:cli": "node scripts/buildLocalIndexesCli.mjs",
+    "index:analyze": "node scripts/analyzeIndexBucketsCli.mjs",
+    "index:rebucket": "node scripts/rebucketIndexCli.mjs",
+    "index:rebucket:number": "node scripts/rebucketNumberIndexCli.mjs",
+    "search:bench": "node scripts/benchmarkLocalSearchCli.mjs",
     "test": "node --test tests/main/localdb/*.test.js",
     "postinstall": "electron-builder install-app-deps"
   },

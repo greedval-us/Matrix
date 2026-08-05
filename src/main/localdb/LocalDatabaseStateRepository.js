@@ -5,6 +5,7 @@ import {
   LOCAL_DATABASE_FORMAT,
   LOCAL_DATABASE_VERSION,
 } from "./constants.js";
+import { buildLegacyBucketLayoutMap } from "./indexBucketLayouts.js";
 
 export class LocalDatabaseStateRepository {
   async readJson(filePath, fallbackValue = null) {
@@ -75,6 +76,8 @@ export class LocalDatabaseStateRepository {
         version: 1,
         fields: INDEXABLE_FIELDS,
         lookupFormatVersion: DOCUMENT_LOOKUP_FORMAT_VERSION,
+        bucketLayoutVersion: 1,
+        bucketLayouts: buildLegacyBucketLayoutMap(),
       },
     };
   }
