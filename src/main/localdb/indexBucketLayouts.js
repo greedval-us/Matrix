@@ -9,6 +9,10 @@ const DEFAULT_LAYOUTS = {
     1: { prefixLength: 2 },
     2: { prefixLength: 4 },
   },
+  mail: {
+    1: { prefixLength: 2 },
+    2: { prefixLength: 4 },
+  },
   passport: {
     1: { prefixLength: 2 },
     2: { prefixLength: 4 },
