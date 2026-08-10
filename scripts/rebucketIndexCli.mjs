@@ -158,7 +158,7 @@ async function rebucketField({
   const rebuildId = new Date().toISOString().replace(/[:.]/g, "-");
   const tempFieldDir = paths.getTempPath(`${field}-rebucket-${rebuildId}`);
   const backupFieldDir = paths.getTempPath(`${field}-rebucket-backup-${rebuildId}`);
-  const bucketFiles = await jsonLinesRepository.listFiles(fieldDir, ".jsonl");
+  const bucketFiles = await jsonLinesRepository.listFilesRecursive(fieldDir, ".jsonl");
   const bufferMap = new Map();
   let scannedEntries = 0;
 
@@ -173,7 +173,10 @@ async function rebucketField({
     for await (const entry of jsonLinesRepository.iterateJson(sourcePath)) {
       scannedEntries += 1;
       const targetBucket = termService.getIndexBucketName(field, entry.term, targetVersion);
-      const targetPath = path.join(tempFieldDir, `${targetBucket}.jsonl`);
+      const targetPath =
+        targetBucket.length <= 2
+          ? path.join(tempFieldDir, `${targetBucket}.jsonl`)
+          : path.join(tempFieldDir, targetBucket.slice(0, 2), `${targetBucket}.jsonl`);
       const lines = bufferMap.get(targetPath) || [];
       lines.push(JSON.stringify(entry));
       bufferMap.set(targetPath, lines);

@@ -11,6 +11,7 @@
     "build": "cross-env ELECTRON_CACHE=.electron-cache vite build && cross-env ELECTRON_CACHE=.electron-cache electron-builder",
     "build:linux": "cross-env ELECTRON_CACHE=.electron-cache vite build && cross-env ELECTRON_CACHE=.electron-cache electron-builder --linux AppImage",
     "build:win": "cross-env ELECTRON_CACHE=.electron-cache vite build && cross-env ELECTRON_CACHE=.electron-cache electron-builder --win nsis portable",
+    "documents:split": "node scripts/splitDocumentsCli.mjs",
     "index:cli": "node scripts/buildLocalIndexesCli.mjs",
     "index:analyze": "node scripts/analyzeIndexBucketsCli.mjs",
     "index:rebucket": "node scripts/rebucketIndexCli.mjs",

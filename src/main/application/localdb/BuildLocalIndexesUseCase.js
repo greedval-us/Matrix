@@ -1,3 +1,4 @@
+import path from "path";
 import {
   BUFFER_FLUSH_SIZE,
   DOCUMENT_LOOKUP_FORMAT_VERSION,
@@ -8,7 +9,11 @@ import {
   PROGRESS_EMIT_INTERVAL,
   PROGRESS_SAVE_INTERVAL,
 } from "../../localdb/constants.js";
-import { buildLegacyBucketLayoutMap } from "../../localdb/indexBucketLayouts.js";
+import {
+  buildRecommendedBucketLayoutMap,
+  normalizeBucketLayoutMap,
+  resolveGlobalBucketLayoutVersion,
+} from "../../localdb/indexBucketLayouts.js";
 import { LocalDatabasePaths } from "../../localdb/LocalDatabasePaths.js";
 import { localDbMessages } from "../../localdb/messages.js";
 import { ProgressReporter } from "../../localdb/ProgressReporter.js";
@@ -59,6 +64,11 @@ export class BuildLocalIndexesUseCase {
       const documentFiles = await this.jsonLinesRepository.listFiles(paths.documentsDir, ".jsonl");
       const hasExistingIndexes = await this.hasPublishedIndexes(paths);
       const previousState = await this.stateRepository.readIndexState(paths);
+      const databaseMeta = await this.stateRepository.readJson(paths.databaseMetaPath, null);
+      const existingBucketStats = await this.stateRepository.readIndexBucketStats(paths);
+      const activeBucketLayouts = hasExistingIndexes
+        ? normalizeBucketLayoutMap(databaseMeta?.indexes || {})
+        : buildRecommendedBucketLayoutMap();
       log.info(
         `[Index] discovered documentFiles=${documentFiles.length} previousStatus=${previousState?.status || "<none>"} documentsDir=${paths.documentsDir}`
       );
@@ -80,6 +90,8 @@ export class BuildLocalIndexesUseCase {
           paths,
           documentFiles,
           previousState,
+          activeBucketLayouts,
+          existingBucketStats,
           hasExistingIndexes,
           buildToken,
         });
@@ -104,6 +116,8 @@ export class BuildLocalIndexesUseCase {
     paths,
     documentFiles,
     previousState,
+    activeBucketLayouts,
+    existingBucketStats,
     hasExistingIndexes,
     buildToken,
   }) {
@@ -123,6 +137,12 @@ export class BuildLocalIndexesUseCase {
         workingIndexesDir: resumableSession.workingIndexesDir,
         backupIndexesDir: resumableSession.backupIndexesDir,
         canPublishPartially: !hasExistingIndexes,
+        activeBucketLayouts,
+        activeBucketStats: this.createWorkingBucketStats({
+          buildMode: previousState?.buildMode || "full",
+          hasExistingIndexes,
+          existingBucketStats,
+        }),
         buildToken,
       });
     }
@@ -151,6 +171,7 @@ export class BuildLocalIndexesUseCase {
       workingIndexesDir,
       backupIndexesDir,
       filePlans: buildPlan.filePlans,
+      activeBucketLayouts,
     });
 
     await this.jsonLinesRepository.remove(workingIndexesDir);
@@ -170,6 +191,12 @@ export class BuildLocalIndexesUseCase {
       filePlans: buildPlan.filePlans,
       workingIndexesDir,
       backupIndexesDir,
+      activeBucketLayouts,
+      activeBucketStats: this.createWorkingBucketStats({
+        buildMode: buildPlan.mode,
+        hasExistingIndexes,
+        existingBucketStats,
+      }),
       canPublishPartially: buildPlan.mode === "incremental" || !hasExistingIndexes,
       buildToken,
     });
@@ -220,6 +247,8 @@ export class BuildLocalIndexesUseCase {
     filePlans,
     workingIndexesDir,
     backupIndexesDir,
+    activeBucketLayouts,
+    activeBucketStats,
     canPublishPartially,
     buildToken,
   }) {
@@ -233,6 +262,8 @@ export class BuildLocalIndexesUseCase {
       filePlans,
       workingIndexesDir,
       backupIndexesDir,
+      activeBucketLayouts,
+      activeBucketStats,
       canPublishPartially,
       buildToken,
     });
@@ -245,6 +276,7 @@ export class BuildLocalIndexesUseCase {
     workingIndexesDir,
     backupIndexesDir,
     filePlans,
+    activeBucketLayouts,
   }) {
     return {
       status: "running",
@@ -261,6 +293,8 @@ export class BuildLocalIndexesUseCase {
       indexedEntries: 0,
       lookupEntries: 0,
       lookupFormatVersion: DOCUMENT_LOOKUP_FORMAT_VERSION,
+      bucketLayoutVersion: resolveGlobalBucketLayoutVersion(activeBucketLayouts),
+      bucketLayouts: activeBucketLayouts,
       reusedFiles: buildPlan.reusedFiles,
       reusedDocuments: buildPlan.reusedDocuments,
       currentFile: null,
@@ -295,6 +329,10 @@ export class BuildLocalIndexesUseCase {
       filesTotal: resumePlan.filePlans.length,
       documentsTotal: resumePlan.documentsTotal,
       lookupFormatVersion: DOCUMENT_LOOKUP_FORMAT_VERSION,
+      bucketLayoutVersion:
+        Number(previousState.bucketLayoutVersion || previousState.lookupFormatVersion) ||
+        LEGACY_INDEX_BUCKET_LAYOUT_VERSION,
+      bucketLayouts: previousState.bucketLayouts || null,
       session: {
         ...previousState.session,
         lookupFormatVersion: DOCUMENT_LOOKUP_FORMAT_VERSION,
@@ -351,6 +389,8 @@ export class BuildLocalIndexesUseCase {
     filePlans,
     workingIndexesDir,
     backupIndexesDir,
+    activeBucketLayouts,
+    activeBucketStats,
     canPublishPartially,
     buildToken,
   }) {
@@ -362,6 +402,8 @@ export class BuildLocalIndexesUseCase {
         filePlans,
         workingIndexesDir,
         backupIndexesDir,
+        activeBucketLayouts,
+        activeBucketStats,
         canPublishPartially,
         buildToken,
       });
@@ -386,6 +428,8 @@ export class BuildLocalIndexesUseCase {
     filePlans,
     workingIndexesDir,
     backupIndexesDir,
+    activeBucketLayouts,
+    activeBucketStats,
     canPublishPartially,
     buildToken,
   }) {
@@ -407,6 +451,8 @@ export class BuildLocalIndexesUseCase {
           filePlan,
           paths,
           indexesDir: fileWorkDir,
+          activeBucketLayouts,
+          activeBucketStats,
           summary,
           progress,
           buildToken,
@@ -441,10 +487,16 @@ export class BuildLocalIndexesUseCase {
     }
 
     await this.replaceIndexesAtomically(paths, workingIndexesDir, backupIndexesDir);
-    return await this.completeBuild(paths, summary, progress);
+    return await this.completeBuild(
+      paths,
+      summary,
+      progress,
+      activeBucketLayouts,
+      activeBucketStats
+    );
   }
 
-  async completeBuild(paths, summary, progress) {
+  async completeBuild(paths, summary, progress, activeBucketLayouts, activeBucketStats) {
     summary.status = "completed";
     summary.currentFile = null;
     summary.currentFileDocumentsProcessed = 0;
@@ -455,6 +507,10 @@ export class BuildLocalIndexesUseCase {
     summary.session = null;
 
     await this.stateRepository.writeIndexState(paths, summary);
+    await this.stateRepository.writeIndexBucketStats(
+      paths,
+      this.buildPersistedBucketStats(activeBucketStats, summary.completedAt)
+    );
     await this.stateRepository.updateDatabaseMeta(paths, (meta) => ({
       ...meta,
       updatedAt: summary.completedAt,
@@ -464,8 +520,8 @@ export class BuildLocalIndexesUseCase {
         builtAt: summary.completedAt,
         fields: INDEXABLE_FIELDS,
         lookupFormatVersion: DOCUMENT_LOOKUP_FORMAT_VERSION,
-        bucketLayoutVersion: LEGACY_INDEX_BUCKET_LAYOUT_VERSION,
-        bucketLayouts: buildLegacyBucketLayoutMap(),
+        bucketLayoutVersion: resolveGlobalBucketLayoutVersion(activeBucketLayouts),
+        bucketLayouts: activeBucketLayouts,
       },
     }));
     log.info(
@@ -559,6 +615,8 @@ export class BuildLocalIndexesUseCase {
     filePlan,
     paths,
     indexesDir,
+    activeBucketLayouts,
+    activeBucketStats,
     summary,
     progress,
     buildToken,
@@ -591,9 +649,18 @@ export class BuildLocalIndexesUseCase {
           document,
           indexedDocument,
           bufferMap,
-          fileResult
+          fileResult,
+          activeBucketStats
         );
-        await this.bufferFieldIndexes(paths, indexesDir, document, bufferMap, fileResult);
+        await this.bufferFieldIndexes(
+          paths,
+          indexesDir,
+          document,
+          bufferMap,
+          fileResult,
+          activeBucketLayouts,
+          activeBucketStats
+        );
 
         if (documentsSinceLastSave >= PROGRESS_SAVE_INTERVAL && summary) {
           await this.flushAllBuffers(bufferMap);
@@ -619,11 +686,23 @@ export class BuildLocalIndexesUseCase {
     return fileResult;
   }
 
-  async bufferFieldIndexes(paths, indexesDir, document, bufferMap, fileResult) {
+  async bufferFieldIndexes(
+    paths,
+    indexesDir,
+    document,
+    bufferMap,
+    fileResult,
+    activeBucketLayouts,
+    activeBucketStats
+  ) {
     for (const field of INDEXABLE_FIELDS) {
       const terms = this.collectDocumentIndexTerms(document, field);
       for (const term of terms) {
-        const bucket = this.termService.getIndexBucketName(field, term);
+        const bucket = this.termService.getIndexBucketName(
+          field,
+          term,
+          activeBucketLayouts[field] || LEGACY_INDEX_BUCKET_LAYOUT_VERSION
+        );
         const bucketFile = paths.getIndexBucketPath(field, bucket, indexesDir);
         const entry = JSON.stringify({
           term,
@@ -633,6 +712,7 @@ export class BuildLocalIndexesUseCase {
         });
 
         await this.pushBufferedLine(bufferMap, bucketFile, entry);
+        this.incrementBucketStat(activeBucketStats.fields, field, bucket);
         fileResult.indexedEntries += 1;
         fileResult.fields[field] += 1;
       }
@@ -668,7 +748,8 @@ export class BuildLocalIndexesUseCase {
     document,
     indexedDocument,
     bufferMap,
-    fileResult
+    fileResult,
+    activeBucketStats
   ) {
     const lookupBucket = this.termService.getDocumentBucketName(document.docId);
     const lookupFile = paths.getDocumentLookupBucketPath(lookupBucket, indexesDir);
@@ -680,7 +761,50 @@ export class BuildLocalIndexesUseCase {
     });
 
     await this.pushBufferedLine(bufferMap, lookupFile, entry);
+    this.incrementBucketStat(activeBucketStats.documentLookup, lookupBucket);
     fileResult.lookupEntries += 1;
+  }
+
+  createWorkingBucketStats({ buildMode, hasExistingIndexes, existingBucketStats }) {
+    if (buildMode === "incremental" && hasExistingIndexes && existingBucketStats) {
+      return this.cloneBucketStats(existingBucketStats);
+    }
+
+    return {
+      fields: {},
+      documentLookup: {},
+    };
+  }
+
+  cloneBucketStats(existingBucketStats) {
+    const fields = {};
+    for (const [field, buckets] of Object.entries(existingBucketStats?.fields || {})) {
+      fields[field] = { ...buckets };
+    }
+
+    return {
+      fields,
+      documentLookup: { ...(existingBucketStats?.documentLookup || {}) },
+    };
+  }
+
+  incrementBucketStat(target, key, bucketName = null) {
+    if (bucketName === null) {
+      target[key] = Number(target[key] || 0) + 1;
+      return;
+    }
+
+    const bucketMap = target[key] || {};
+    bucketMap[bucketName] = Number(bucketMap[bucketName] || 0) + 1;
+    target[key] = bucketMap;
+  }
+
+  buildPersistedBucketStats(activeBucketStats, builtAt) {
+    return {
+      builtAt,
+      fields: activeBucketStats.fields,
+      documentLookup: activeBucketStats.documentLookup,
+    };
   }
 
   async pushBufferedLine(bufferMap, filePath, line) {
@@ -712,20 +836,24 @@ export class BuildLocalIndexesUseCase {
       const sourceFieldDir = paths.getIndexFieldDir(field, sourceIndexesDir);
       if (!(await this.jsonLinesRepository.exists(sourceFieldDir))) continue;
 
-      const bucketFiles = await this.jsonLinesRepository.listFiles(sourceFieldDir, ".jsonl");
+      const bucketFiles = await this.jsonLinesRepository.listFilesRecursive(
+        sourceFieldDir,
+        ".jsonl"
+      );
       for (const bucketFile of bucketFiles) {
-        const sourcePath = paths.getIndexBucketPath(field, bucketFile.slice(0, -6), sourceIndexesDir);
-        const targetPath = paths.getIndexBucketPath(field, bucketFile.slice(0, -6), targetIndexesDir);
+        const bucketName = path.basename(bucketFile, ".jsonl");
+        const sourcePath = path.join(sourceFieldDir, bucketFile);
+        const targetPath = paths.getIndexBucketPath(field, bucketName, targetIndexesDir);
         await this.copyJsonLines(sourcePath, targetPath);
       }
     }
 
     const sourceLookupDir = paths.getDocumentLookupDir(sourceIndexesDir);
     if (await this.jsonLinesRepository.exists(sourceLookupDir)) {
-      const bucketFiles = await this.jsonLinesRepository.listFiles(sourceLookupDir, ".jsonl");
+      const bucketFiles = await this.jsonLinesRepository.listFilesRecursive(sourceLookupDir, ".jsonl");
       for (const bucketFile of bucketFiles) {
-        const sourcePath = paths.getDocumentLookupBucketPath(bucketFile.slice(0, -6), sourceIndexesDir);
-        const targetPath = paths.getDocumentLookupBucketPath(bucketFile.slice(0, -6), targetIndexesDir);
+        const sourcePath = path.join(sourceLookupDir, bucketFile);
+        const targetPath = path.join(paths.getDocumentLookupDir(targetIndexesDir), bucketFile);
         await this.copyJsonLines(sourcePath, targetPath);
       }
     }
@@ -859,7 +987,7 @@ export class BuildLocalIndexesUseCase {
     for (const field of INDEXABLE_FIELDS) {
       const fieldDir = paths.getIndexFieldDir(field);
       if (!(await this.jsonLinesRepository.exists(fieldDir))) continue;
-      if ((await this.jsonLinesRepository.listFiles(fieldDir, ".jsonl")).length > 0) {
+      if ((await this.jsonLinesRepository.listFilesRecursive(fieldDir, ".jsonl")).length > 0) {
         return true;
       }
     }
@@ -869,7 +997,7 @@ export class BuildLocalIndexesUseCase {
       return false;
     }
 
-    return (await this.jsonLinesRepository.listFiles(lookupDir, ".jsonl")).length > 0;
+    return (await this.jsonLinesRepository.listFilesRecursive(lookupDir, ".jsonl")).length > 0;
   }
 
   async replaceIndexesAtomically(paths, tempIndexesDir, backupIndexesDir) {

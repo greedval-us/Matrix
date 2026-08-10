@@ -5,7 +5,10 @@ import {
   LOCAL_DATABASE_FORMAT,
   LOCAL_DATABASE_VERSION,
 } from "./constants.js";
-import { buildLegacyBucketLayoutMap } from "./indexBucketLayouts.js";
+import {
+  buildRecommendedBucketLayoutMap,
+  resolveGlobalBucketLayoutVersion,
+} from "./indexBucketLayouts.js";
 
 export class LocalDatabaseStateRepository {
   async readJson(filePath, fallbackValue = null) {
@@ -54,6 +57,14 @@ export class LocalDatabaseStateRepository {
     await this.writeJson(paths.indexStatePath, summary);
   }
 
+  async readIndexBucketStats(paths) {
+    return await this.readJson(paths.indexBucketStatsPath, null);
+  }
+
+  async writeIndexBucketStats(paths, stats) {
+    await this.writeJson(paths.indexBucketStatsPath, stats);
+  }
+
   async updateDatabaseMeta(paths, updater) {
     const meta = await this.readJson(paths.databaseMetaPath, null);
     if (!meta) return;
@@ -63,6 +74,8 @@ export class LocalDatabaseStateRepository {
   }
 
   buildDatabaseMeta(now) {
+    const bucketLayouts = buildRecommendedBucketLayoutMap();
+
     return {
       format: LOCAL_DATABASE_FORMAT,
       version: LOCAL_DATABASE_VERSION,
@@ -76,8 +89,8 @@ export class LocalDatabaseStateRepository {
         version: 1,
         fields: INDEXABLE_FIELDS,
         lookupFormatVersion: DOCUMENT_LOOKUP_FORMAT_VERSION,
-        bucketLayoutVersion: 1,
-        bucketLayouts: buildLegacyBucketLayoutMap(),
+        bucketLayoutVersion: resolveGlobalBucketLayoutVersion(bucketLayouts),
+        bucketLayouts,
       },
     };
   }

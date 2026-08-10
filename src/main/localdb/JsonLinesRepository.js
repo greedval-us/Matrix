@@ -123,6 +123,29 @@ export class JsonLinesRepository {
     }
   }
 
+  async readChunks(filePath, chunks) {
+    if (!Array.isArray(chunks) || chunks.length === 0) {
+      return [];
+    }
+
+    const handle = await fsPromises.open(filePath, "r");
+
+    try {
+      const results = [];
+      for (const chunk of chunks) {
+        const byteOffset = Number(chunk?.byteOffset);
+        const byteLength = Number(chunk?.byteLength);
+        const buffer = Buffer.alloc(byteLength);
+        const { bytesRead } = await handle.read(buffer, 0, byteLength, byteOffset);
+        results.push(buffer.toString("utf8", 0, bytesRead));
+      }
+
+      return results;
+    } finally {
+      await handle.close();
+    }
+  }
+
   async countLines(filePath) {
     let count = 0;
 
@@ -140,5 +163,30 @@ export class JsonLinesRepository {
       .filter((entry) => entry.isFile() && path.extname(entry.name).toLowerCase() === extension)
       .map((entry) => entry.name)
       .sort((left, right) => left.localeCompare(right));
+  }
+
+  async listFilesRecursive(directoryPath, extension) {
+    const results = [];
+
+    const walk = async (currentPath, relativeBase = "") => {
+      const entries = await fsPromises.readdir(currentPath, { withFileTypes: true });
+
+      for (const entry of entries) {
+        const entryPath = path.join(currentPath, entry.name);
+        const relativePath = relativeBase ? path.join(relativeBase, entry.name) : entry.name;
+
+        if (entry.isDirectory()) {
+          await walk(entryPath, relativePath);
+          continue;
+        }
+
+        if (entry.isFile() && path.extname(entry.name).toLowerCase() === extension) {
+          results.push(relativePath);
+        }
+      }
+    };
+
+    await walk(directoryPath);
+    return results.sort((left, right) => left.localeCompare(right));
   }
 }

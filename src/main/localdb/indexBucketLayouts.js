@@ -8,34 +8,52 @@ const DEFAULT_LAYOUTS = {
   number: {
     1: { prefixLength: 2 },
     2: { prefixLength: 4 },
+    3: { prefixLength: 4, hashLength: 2 },
   },
   mail: {
     1: { prefixLength: 2 },
     2: { prefixLength: 4 },
+    3: { prefixLength: 4, hashLength: 1 },
   },
   passport: {
     1: { prefixLength: 2 },
     2: { prefixLength: 4 },
+    3: { prefixLength: 4, hashLength: 1 },
   },
   inn: {
     1: { prefixLength: 2 },
     2: { prefixLength: 4 },
+    3: { prefixLength: 4, hashLength: 1 },
   },
   snils: {
     1: { prefixLength: 2 },
     2: { prefixLength: 4 },
+    3: { prefixLength: 4, hashLength: 1 },
   },
   telegram: {
     1: { prefixLength: 2 },
     2: { prefixLength: 4 },
+    3: { prefixLength: 4, hashLength: 1 },
   },
   vk: {
     1: { prefixLength: 2 },
     2: { prefixLength: 4 },
+    3: { prefixLength: 4, hashLength: 1 },
   },
   facebook: {
     1: { prefixLength: 2 },
     2: { prefixLength: 4 },
+    3: { prefixLength: 4, hashLength: 1 },
+  },
+  fio: {
+    1: { prefixLength: 2 },
+    2: { prefixLength: 3 },
+    3: { prefixLength: 4 },
+  },
+  date_of_birth: {
+    1: { prefixLength: 2 },
+    2: { prefixLength: 3 },
+    3: { prefixLength: 4, hashLength: 1 },
   },
 };
 
@@ -61,6 +79,21 @@ export function buildLegacyBucketLayoutMap() {
   return Object.fromEntries(
     INDEXABLE_FIELDS.map((field) => [field, LEGACY_INDEX_BUCKET_LAYOUT_VERSION])
   );
+}
+
+export function buildRecommendedBucketLayoutMap() {
+  return Object.fromEntries(
+    INDEXABLE_FIELDS.map((field) => [field, getLatestBucketLayoutVersion(field)])
+  );
+}
+
+export function resolveGlobalBucketLayoutVersion(bucketLayouts = {}) {
+  const versions = Object.values(bucketLayouts).map((value) => Number(value));
+  if (versions.length === 0) {
+    return LEGACY_INDEX_BUCKET_LAYOUT_VERSION;
+  }
+
+  return Math.max(...versions);
 }
 
 export function normalizeBucketLayoutMap(metaIndexes = {}) {

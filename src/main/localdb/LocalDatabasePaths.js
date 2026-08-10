@@ -34,6 +34,10 @@ export class LocalDatabasePaths {
     return path.join(this.metaDir, "sources.json");
   }
 
+  get indexBucketStatsPath() {
+    return path.join(this.metaDir, "index_bucket_stats.json");
+  }
+
   get importStatePath() {
     return path.join(this.stateDir, "import_state.json");
   }
@@ -59,7 +63,18 @@ export class LocalDatabasePaths {
   }
 
   getIndexBucketPath(field, bucketName, indexesDir = this.indexesDir) {
-    return path.join(this.getIndexFieldDir(field, indexesDir), `${bucketName}.jsonl`);
+    const normalizedBucketName = String(bucketName).trim();
+    const fieldDir = this.getIndexFieldDir(field, indexesDir);
+
+    if (normalizedBucketName.length <= 2) {
+      return path.join(fieldDir, `${normalizedBucketName}.jsonl`);
+    }
+
+    return path.join(
+      fieldDir,
+      normalizedBucketName.slice(0, 2),
+      `${normalizedBucketName}.jsonl`
+    );
   }
 
   getDocumentLookupDir(indexesDir = this.indexesDir) {
@@ -67,7 +82,18 @@ export class LocalDatabasePaths {
   }
 
   getDocumentLookupBucketPath(bucketName, indexesDir = this.indexesDir) {
-    return path.join(this.getDocumentLookupDir(indexesDir), `${bucketName}.jsonl`);
+    const normalizedBucketName = String(bucketName).trim().toLowerCase();
+    const lookupDir = this.getDocumentLookupDir(indexesDir);
+
+    if (normalizedBucketName.length <= 2) {
+      return path.join(lookupDir, `${normalizedBucketName}.jsonl`);
+    }
+
+    return path.join(
+      lookupDir,
+      normalizedBucketName.slice(0, 2),
+      `${normalizedBucketName}.jsonl`
+    );
   }
 
   getImportOutputPath(importId) {

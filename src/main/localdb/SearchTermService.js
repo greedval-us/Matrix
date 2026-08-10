@@ -1,4 +1,7 @@
+import { createHash } from "node:crypto";
 import { getBucketLayout } from "./indexBucketLayouts.js";
+
+const INDEX_BUCKET_HASH_SEPARATOR = "~";
 
 export class SearchTermService {
   formatDateOfBirth(date) {
@@ -105,10 +108,30 @@ export class SearchTermService {
       return stringValue.replace(/[^\d]/g, "");
     }
 
-    return stringValue.toLowerCase().replace(/[^a-zа-яё0-9]/giu, "");
+    return stringValue.toLowerCase().replace(/[^a-zР°-СЏС‘0-9]/giu, "");
   }
 
   getIndexBucketName(field, term, bucketLayoutVersion = 1) {
+    const normalized = this.normalizeBucketTerm(field, term);
+    const { prefixLength, hashLength = 0 } = getBucketLayout(field, bucketLayoutVersion);
+    if (!normalized) {
+      return "_".repeat(prefixLength);
+    }
+
+    const prefix = normalized.slice(0, prefixLength).padEnd(prefixLength, "_");
+    if (hashLength <= 0) {
+      return prefix;
+    }
+
+    const hashSuffix = createHash("md5")
+      .update(`${field}:${normalized}`, "utf8")
+      .digest("hex")
+      .slice(0, hashLength);
+
+    return `${prefix}${INDEX_BUCKET_HASH_SEPARATOR}${hashSuffix}`;
+  }
+
+  getIndexBucketPrefix(field, term, bucketLayoutVersion = 1) {
     const normalized = this.normalizeBucketTerm(field, term);
     const { prefixLength } = getBucketLayout(field, bucketLayoutVersion);
     if (!normalized) {
@@ -118,21 +141,39 @@ export class SearchTermService {
     return normalized.slice(0, prefixLength).padEnd(prefixLength, "_");
   }
 
+  matchesWildcardBucketName(field, bucketName, normalizedPrefix, bucketLayoutVersion = 1) {
+    const { prefixLength, hashLength = 0 } = getBucketLayout(field, bucketLayoutVersion);
+    if (!normalizedPrefix) {
+      return true;
+    }
+
+    if (normalizedPrefix.length >= prefixLength) {
+      const bucketPrefix = this.getIndexBucketPrefix(field, normalizedPrefix, bucketLayoutVersion);
+      if (hashLength <= 0) {
+        return bucketName === bucketPrefix;
+      }
+
+      return (
+        bucketName === bucketPrefix ||
+        bucketName.startsWith(`${bucketPrefix}${INDEX_BUCKET_HASH_SEPARATOR}`)
+      );
+    }
+
+    return bucketName.startsWith(normalizedPrefix);
+  }
+
   getBucketName(term) {
     const normalized = String(term)
       .toLowerCase()
-      .replace(/[^a-zа-яё0-9]/giu, "");
+      .replace(/[^a-zР°-СЏС‘0-9]/giu, "");
     if (!normalized) return "__";
     return normalized.slice(0, 2).padEnd(2, "_");
   }
 
   getDocumentBucketName(docId) {
-    const normalized = String(docId)
-      .toLowerCase()
-      .replace(/[^a-zа-яё0-9]/giu, "");
-
-    if (!normalized) return "__";
-    return normalized.slice(0, 2).padEnd(2, "_");
+    const stringValue = String(docId).trim();
+    if (!stringValue) return "___";
+    return createHash("md5").update(stringValue, "utf8").digest("hex").slice(0, 3);
   }
 
   hasWildcards(term) {

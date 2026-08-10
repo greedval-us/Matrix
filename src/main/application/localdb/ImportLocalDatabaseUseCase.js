@@ -1,5 +1,6 @@
 import path from "path";
 import {
+  DEFAULT_DOCUMENT_SEGMENT_SIZE_BYTES,
   IMPORT_PROGRESS_INTERVAL,
   IMPORT_WRITE_BATCH_SIZE,
   MAX_IMPORT_FILES,
@@ -65,12 +66,12 @@ export class ImportLocalDatabaseUseCase {
       );
       const importStartedAt = new Date().toISOString();
       const importId = importStartedAt.replace(/[:.]/g, "-");
-      const outputPath = paths.getImportOutputPath(importId);
-      const tempOutputPath = paths.getTempPath(`import-${importId}.jsonl`);
+      const maxDocumentSegmentSizeBytes = this.resolveDocumentSegmentSize(options);
       const summary = {
         importId,
         folderPath: checkedPaths.sourceFolderPath,
-        outputPath,
+        outputPath: null,
+        outputPaths: [],
         importedAt: importStartedAt,
         filesProcessed: 0,
         filesTotal: jsonFiles.length,
@@ -91,6 +92,12 @@ export class ImportLocalDatabaseUseCase {
       });
       await this.stateRepository.writeImportState(paths, summary);
 
+      const segmentWriter = this.createDocumentSegmentWriter({
+        paths,
+        importId,
+        maxDocumentSegmentSizeBytes,
+      });
+
       try {
         for (const filePlan of filePlans) {
           const sourceTable = this.resolveSourceTableName(filePlan.fileName, usedSourceTables);
@@ -99,12 +106,12 @@ export class ImportLocalDatabaseUseCase {
             fileName: filePlan.fileName,
             sourceTable,
             importedAt: importStartedAt,
-            tempOutputPath,
             summary,
             progress,
             importId,
             recordsTotal: documentsTotal,
             recordsInFile: filePlan.recordsTotal,
+            segmentWriter,
           });
 
           summary.filesProcessed += 1;
@@ -132,7 +139,9 @@ export class ImportLocalDatabaseUseCase {
           });
         }
 
-        await this.jsonLinesRepository.move(tempOutputPath, outputPath);
+        await segmentWriter.finalize();
+        summary.outputPaths = segmentWriter.outputPaths;
+        summary.outputPath = segmentWriter.outputPaths[0] || null;
         summary.status = "completed";
         await this.stateRepository.mergeSources(paths, sourceMetaMap);
         await this.stateRepository.writeImportState(paths, summary);
@@ -149,7 +158,8 @@ export class ImportLocalDatabaseUseCase {
           filesProcessed: summary.filesProcessed,
           filesTotal: jsonFiles.length,
           documentsImported: summary.documentsImported,
-          outputPath,
+          outputPath: summary.outputPath,
+          outputPaths: summary.outputPaths,
         });
 
         return summary;
@@ -157,7 +167,7 @@ export class ImportLocalDatabaseUseCase {
         summary.status = "failed";
         summary.error = error.message;
         await this.stateRepository.writeImportState(paths, summary);
-        await this.jsonLinesRepository.remove(tempOutputPath);
+        await segmentWriter.cleanup();
         progress.emit("failed", {
           importId,
           error: error.message,
@@ -244,6 +254,15 @@ export class ImportLocalDatabaseUseCase {
     return value.trim();
   }
 
+  resolveDocumentSegmentSize(options = {}) {
+    const requestedSize = Number(options.maxDocumentSegmentSizeBytes);
+    if (Number.isFinite(requestedSize) && requestedSize > 0) {
+      return requestedSize;
+    }
+
+    return DEFAULT_DOCUMENT_SEGMENT_SIZE_BYTES;
+  }
+
   async buildFilePlans(sourceFolderPath, jsonFiles) {
     const filePlans = [];
 
@@ -265,12 +284,12 @@ export class ImportLocalDatabaseUseCase {
     fileName,
     sourceTable,
     importedAt,
-    tempOutputPath,
     summary,
     progress,
     importId,
     recordsTotal,
     recordsInFile,
+    segmentWriter,
   }) {
     const lines = [];
     let sourceCount = 0;
@@ -292,7 +311,7 @@ export class ImportLocalDatabaseUseCase {
       emittedSinceLastProgress += 1;
 
       if (lines.length >= IMPORT_WRITE_BATCH_SIZE) {
-        await this.jsonLinesRepository.appendLines(tempOutputPath, lines);
+        await segmentWriter.appendLines(lines);
         lines.length = 0;
       }
 
@@ -312,7 +331,7 @@ export class ImportLocalDatabaseUseCase {
     }
 
     if (lines.length > 0) {
-      await this.jsonLinesRepository.appendLines(tempOutputPath, lines);
+      await segmentWriter.appendLines(lines);
     }
 
     progress.emit("progress", {
@@ -327,5 +346,97 @@ export class ImportLocalDatabaseUseCase {
     });
 
     return sourceCount;
+  }
+
+  createDocumentSegmentWriter({ paths, importId, maxDocumentSegmentSizeBytes }) {
+    const repository = this.jsonLinesRepository;
+    const writerState = {
+      activeTempPath: null,
+      activeOutputPath: null,
+      activeBytes: 0,
+      segmentIndex: 0,
+      tempPaths: [],
+      outputPaths: [],
+    };
+
+    const ensureSegment = async () => {
+      if (writerState.activeTempPath) {
+        return;
+      }
+
+      writerState.segmentIndex += 1;
+      const suffix = String(writerState.segmentIndex).padStart(4, "0");
+      const fileName = `import_${importId}_part_${suffix}.jsonl`;
+      writerState.activeOutputPath = paths.getDocumentPath(fileName);
+      writerState.activeTempPath = paths.getTempPath(fileName);
+      writerState.activeBytes = 0;
+      writerState.tempPaths.push(writerState.activeTempPath);
+      writerState.outputPaths.push(writerState.activeOutputPath);
+    };
+
+    const rotateSegment = async () => {
+      writerState.activeTempPath = null;
+      writerState.activeOutputPath = null;
+      writerState.activeBytes = 0;
+      await ensureSegment();
+    };
+
+    return {
+      get outputPaths() {
+        return [...writerState.outputPaths];
+      },
+
+      async appendLines(lines) {
+        if (!lines.length) return;
+
+        await ensureSegment();
+        let chunk = [];
+        let chunkBytes = 0;
+
+        const flushChunk = async () => {
+          if (!chunk.length) return;
+          await repository.appendLines(writerState.activeTempPath, chunk);
+          writerState.activeBytes += chunkBytes;
+          chunk = [];
+          chunkBytes = 0;
+        };
+
+        for (const line of lines) {
+          const lineBytes = Buffer.byteLength(line, "utf8") + 1;
+          const wouldExceedCurrentSegment =
+            writerState.activeBytes > 0 &&
+            writerState.activeBytes + chunkBytes + lineBytes > maxDocumentSegmentSizeBytes;
+
+          if (wouldExceedCurrentSegment) {
+            await flushChunk();
+            await rotateSegment();
+          }
+
+          const wouldExceedChunkOnly =
+            chunkBytes > 0 &&
+            writerState.activeBytes + chunkBytes + lineBytes > maxDocumentSegmentSizeBytes;
+          if (wouldExceedChunkOnly) {
+            await flushChunk();
+          }
+
+          chunk.push(line);
+          chunkBytes += lineBytes;
+        }
+
+        await flushChunk();
+      },
+
+      async finalize() {
+        for (let index = 0; index < writerState.tempPaths.length; index += 1) {
+          await repository.move(writerState.tempPaths[index], writerState.outputPaths[index]);
+        }
+      },
+
+      async cleanup() {
+        for (const tempPath of writerState.tempPaths) {
+          await repository.remove(tempPath);
+        }
+      },
+    };
   }
 }

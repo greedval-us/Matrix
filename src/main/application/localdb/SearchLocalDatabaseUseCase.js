@@ -1,3 +1,4 @@
+import path from "path";
 import { performance } from "node:perf_hooks";
 import {
   INDEXABLE_FIELDS,
@@ -56,14 +57,33 @@ export class SearchLocalDatabaseUseCase {
 
       const paths = new LocalDatabasePaths(rootPath);
       const bucketLayoutVersions = await this.measureStep(profile, "loadMetaMs", async () => {
-        const meta = await this.stateRepository.readJson(paths.databaseMetaPath, null);
+        const [meta, indexState] = await Promise.all([
+          this.stateRepository.readJson(paths.databaseMetaPath, null),
+          this.stateRepository.readIndexState(paths),
+        ]);
+
+        if (indexState?.status === "running" && indexState?.bucketLayouts) {
+          return normalizeBucketLayoutMap({
+            bucketLayoutVersion: indexState.bucketLayoutVersion,
+            bucketLayouts: indexState.bucketLayouts,
+          });
+        }
+
         return normalizeBucketLayoutMap(meta?.indexes || {});
+      });
+      const bucketStats = await this.measureStep(profile, "loadBucketStatsMs", async () => {
+        return await this.stateRepository.readIndexBucketStats(paths);
       });
 
       for (const queryEntry of queryEntries) {
         queryEntry.bucketLayoutVersion =
           bucketLayoutVersions[queryEntry.field] || LEGACY_INDEX_BUCKET_LAYOUT_VERSION;
+        queryEntry.estimatedBucketEntries = this.estimateBucketEntries(queryEntry, bucketStats);
       }
+
+      queryEntries.sort((left, right) => {
+        return left.estimatedBucketEntries - right.estimatedBucketEntries;
+      });
 
       const docIdSets = [];
 
@@ -213,6 +233,7 @@ export class SearchLocalDatabaseUseCase {
       field: queryEntry.field,
       term: queryEntry.term,
       bucketLayoutVersion: queryEntry.bucketLayoutVersion,
+      estimatedBucketEntries: queryEntry.estimatedBucketEntries,
       matchedDocIds: result.length,
       durationMs: performance.now() - startedAt,
     });
@@ -330,10 +351,10 @@ export class SearchLocalDatabaseUseCase {
     try {
       const prefix = this.termService.getWildcardPrefix(term);
       const normalizedPrefix = this.termService.normalizeBucketTerm(field, prefix);
-      const { prefixLength } = getBucketLayout(field, bucketLayoutVersion);
+      const { prefixLength, hashLength = 0 } = getBucketLayout(field, bucketLayoutVersion);
 
       if (prefix) {
-        if (normalizedPrefix.length >= prefixLength) {
+        if (normalizedPrefix.length >= prefixLength && hashLength <= 0) {
           return [
             paths.getIndexBucketPath(
               field,
@@ -342,23 +363,46 @@ export class SearchLocalDatabaseUseCase {
           ];
         }
 
-        const fileNames = await this.jsonLinesRepository.listFiles(
+        const fileNames = await this.jsonLinesRepository.listFilesRecursive(
           paths.getIndexFieldDir(field),
           ".jsonl"
         );
         return fileNames
-          .filter((fileName) => fileName.slice(0, -6).startsWith(normalizedPrefix))
-          .map((fileName) => paths.getIndexBucketPath(field, fileName.slice(0, -6)));
+          .filter((fileName) =>
+            this.termService.matchesWildcardBucketName(
+              field,
+              path.basename(fileName, ".jsonl"),
+              normalizedPrefix,
+              bucketLayoutVersion
+            )
+          )
+          .map((fileName) => paths.getIndexBucketPath(field, path.basename(fileName, ".jsonl")));
       }
 
-      const fileNames = await this.jsonLinesRepository.listFiles(
+      const fileNames = await this.jsonLinesRepository.listFilesRecursive(
         paths.getIndexFieldDir(field),
         ".jsonl"
       );
-      return fileNames.map((fileName) => paths.getIndexBucketPath(field, fileName.slice(0, -6)));
+      return fileNames.map((fileName) =>
+        paths.getIndexBucketPath(field, path.basename(fileName, ".jsonl"))
+      );
     } catch {
       return [];
     }
+  }
+
+  estimateBucketEntries(queryEntry, bucketStats) {
+    if (!bucketStats?.fields || this.termService.hasWildcards(queryEntry.term)) {
+      return Number.MAX_SAFE_INTEGER;
+    }
+
+    const bucketName = this.termService.getIndexBucketName(
+      queryEntry.field,
+      queryEntry.term,
+      queryEntry.bucketLayoutVersion
+    );
+
+    return Number(bucketStats.fields?.[queryEntry.field]?.[bucketName] || Number.MAX_SAFE_INTEGER);
   }
 
   intersectDocIdSets(docIdSets) {
@@ -371,7 +415,9 @@ export class SearchLocalDatabaseUseCase {
 
   async loadDocumentsByIds(paths, docIds, searchToken, profile = null) {
     const targetDocIds = new Set(docIds);
-    const documents = [];
+    const docOrder = new Map(docIds.map((docId, index) => [docId, index]));
+    const embeddedDocuments = [];
+    const compactLookupEntries = [];
     const bucketMap = new Map();
 
     for (const docId of docIds) {
@@ -393,10 +439,17 @@ export class SearchLocalDatabaseUseCase {
           if (searchToken.cancelled) return [];
           scannedEntries += 1;
           if (bucketSet.has(entry.docId) && targetDocIds.has(entry.docId)) {
-            const document = await this.resolveDocumentLookupEntry(paths, entry);
-            if (!document) continue;
+            if (this.isEmbeddedDocumentLookupEntry(entry)) {
+              embeddedDocuments.push({
+                docId: entry.docId,
+                document: entry,
+              });
+            } else if (this.isCompactDocumentLookupEntry(entry)) {
+              compactLookupEntries.push(entry);
+            } else {
+              continue;
+            }
 
-            documents.push(document);
             resolvedDocuments += 1;
             targetDocIds.delete(entry.docId);
             if (targetDocIds.size === 0) break;
@@ -422,28 +475,78 @@ export class SearchLocalDatabaseUseCase {
       if (targetDocIds.size === 0) break;
     }
 
-    return documents;
+    const compactDocuments = await this.loadDocumentsFromLookupEntries(
+      paths,
+      compactLookupEntries,
+      searchToken
+    );
+
+    return [...embeddedDocuments, ...compactDocuments]
+      .sort((left, right) => {
+        return (docOrder.get(left.docId) ?? Number.MAX_SAFE_INTEGER) -
+          (docOrder.get(right.docId) ?? Number.MAX_SAFE_INTEGER);
+      })
+      .map((entry) => entry.document);
   }
 
-  async resolveDocumentLookupEntry(paths, entry) {
-    if (entry?.fields || entry?.invalidFields) {
-      return entry;
+  isEmbeddedDocumentLookupEntry(entry) {
+    return Boolean(entry?.fields || entry?.invalidFields);
+  }
+
+  isCompactDocumentLookupEntry(entry) {
+    return Boolean(
+      entry?.fileName &&
+      Number.isFinite(entry?.byteOffset) &&
+      Number.isFinite(entry?.byteLength)
+    );
+  }
+
+  async loadDocumentsFromLookupEntries(paths, lookupEntries, searchToken) {
+    if (lookupEntries.length === 0) {
+      return [];
     }
 
-    if (!entry?.fileName || !Number.isFinite(entry.byteOffset) || !Number.isFinite(entry.byteLength)) {
-      return null;
+    const entriesByFile = new Map();
+    for (const entry of lookupEntries) {
+      const fileEntries = entriesByFile.get(entry.fileName) || [];
+      fileEntries.push(entry);
+      entriesByFile.set(entry.fileName, fileEntries);
     }
 
-    try {
-      const rawDocument = await this.jsonLinesRepository.readChunk(
-        paths.getDocumentPath(entry.fileName),
-        entry.byteOffset,
-        entry.byteLength
-      );
-      return JSON.parse(rawDocument);
-    } catch {
-      return null;
+    const documents = [];
+
+    for (const [fileName, fileEntries] of entriesByFile.entries()) {
+      if (searchToken.cancelled) {
+        return [];
+      }
+
+      const sortedEntries = [...fileEntries].sort((left, right) => left.byteOffset - right.byteOffset);
+
+      try {
+        const rawDocuments = await this.jsonLinesRepository.readChunks(
+          paths.getDocumentPath(fileName),
+          sortedEntries.map((entry) => ({
+            byteOffset: entry.byteOffset,
+            byteLength: entry.byteLength,
+          }))
+        );
+
+        for (let index = 0; index < sortedEntries.length; index += 1) {
+          if (searchToken.cancelled) {
+            return [];
+          }
+
+          documents.push({
+            docId: sortedEntries[index].docId,
+            document: JSON.parse(rawDocuments[index]),
+          });
+        }
+      } catch {
+        continue;
+      }
     }
+
+    return documents;
   }
 
   async loadSourceMeta(paths) {

@@ -1,4 +1,9 @@
-import { INDEXABLE_FIELDS, LOCAL_DATABASE_FORMAT, LOCAL_DATABASE_VERSION } from "./constants.js";
+import {
+  INDEXABLE_FIELDS,
+  LEGACY_INDEX_BUCKET_LAYOUT_VERSION,
+  LOCAL_DATABASE_FORMAT,
+  LOCAL_DATABASE_VERSION,
+} from "./constants.js";
 
 export class LocalDatabaseMigrationService {
   constructor({ stateRepository }) {
@@ -33,6 +38,18 @@ export class LocalDatabaseMigrationService {
 
   normalizeMeta(meta) {
     const now = new Date().toISOString();
+    const fallbackBucketLayoutVersion = Number(
+      meta.indexes?.bucketLayoutVersion ||
+      meta.indexes?.lookupFormatVersion ||
+      meta.indexes?.version ||
+      LEGACY_INDEX_BUCKET_LAYOUT_VERSION
+    );
+    const bucketLayouts = Object.fromEntries(
+      INDEXABLE_FIELDS.map((field) => [
+        field,
+        Number(meta.indexes?.bucketLayouts?.[field] || fallbackBucketLayoutVersion),
+      ])
+    );
 
     return {
       format: LOCAL_DATABASE_FORMAT,
@@ -50,6 +67,8 @@ export class LocalDatabaseMigrationService {
         lookupFormatVersion: Number(
           meta.indexes?.lookupFormatVersion || meta.indexes?.version || 1
         ),
+        bucketLayoutVersion: fallbackBucketLayoutVersion,
+        bucketLayouts,
       },
     };
   }
@@ -60,6 +79,10 @@ export class LocalDatabaseMigrationService {
       meta.version === LOCAL_DATABASE_VERSION &&
       Array.isArray(meta.indexes?.fields) &&
       Number(meta.indexes?.lookupFormatVersion || meta.indexes?.version || 1) >= 1 &&
+      Number(
+        meta.indexes?.bucketLayoutVersion || LEGACY_INDEX_BUCKET_LAYOUT_VERSION
+      ) >= LEGACY_INDEX_BUCKET_LAYOUT_VERSION &&
+      INDEXABLE_FIELDS.every((field) => Number(meta.indexes?.bucketLayouts?.[field] || 0) >= 1) &&
       meta.storage?.engine
     );
   }

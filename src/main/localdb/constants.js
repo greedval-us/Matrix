@@ -33,7 +33,7 @@ export const SEARCHABLE_KEYS = [
 ];
 
 export const DOCUMENT_LOOKUP_DIRNAME = "_documents";
-export const DOCUMENT_LOOKUP_FORMAT_VERSION = 2;
+export const DOCUMENT_LOOKUP_FORMAT_VERSION = 6;
 export const DEFAULT_DATABASE_FOLDER_NAME = "MatrixData";
 export const STORAGE_KEY = "databaseRootPath";
 export const LOCAL_DATABASE_FORMAT = "matrix-local-db";
@@ -46,6 +46,7 @@ export const IMPORT_PROGRESS_INTERVAL = 250;
 export const MAX_IMPORT_FILES = 1000;
 export const MAX_IMPORT_FILE_SIZE_BYTES = 50 * 1024 * 1024;
 export const IMPORT_WRITE_BATCH_SIZE = 500;
+export const DEFAULT_DOCUMENT_SEGMENT_SIZE_BYTES = 1024 * 1024 * 1024;
 export const INDEX_BUILD_TEMP_PREFIX = "index-build";
 export const INDEX_BACKUP_TEMP_PREFIX = "index-backup";
 export const SEARCH_STREAM_CHUNK_SIZE = 200;

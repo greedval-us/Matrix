@@ -11,6 +11,7 @@ import { LocalDatabaseStateRepository } from "../../../src/main/localdb/LocalDat
 import { OperationCoordinator } from "../../../src/main/localdb/OperationCoordinator.js";
 import { SearchTermService } from "../../../src/main/localdb/SearchTermService.js";
 import { DOCUMENT_LOOKUP_FORMAT_VERSION } from "../../../src/main/localdb/constants.js";
+import { getLatestBucketLayoutVersion } from "../../../src/main/localdb/indexBucketLayouts.js";
 
 function createUseCase({ dbRoot, stateRepository, jsonLinesRepository }) {
   const fakeLocalDatabaseService = {
@@ -32,6 +33,18 @@ function createUseCase({ dbRoot, stateRepository, jsonLinesRepository }) {
       jsonLinesRepository,
     }),
   });
+}
+
+function getLookupBucketPath(paths, docId) {
+  return paths.getDocumentLookupBucketPath(new SearchTermService().getDocumentBucketName(docId));
+}
+
+function getNumberBucketName(term) {
+  return new SearchTermService().getIndexBucketName(
+    "number",
+    term,
+    getLatestBucketLayoutVersion("number")
+  );
 }
 
 test("BuildLocalIndexesUseCase builds indexes and emits progress", async () => {
@@ -75,13 +88,18 @@ test("BuildLocalIndexesUseCase builds indexes and emits progress", async () => {
   assert.ok(progressEvents.some((event) => event.stage === "progress"));
   assert.ok(progressEvents.some((event) => event.stage === "file-completed"));
   assert.ok(progressEvents.some((event) => event.stage === "completed"));
-  assert.equal(await jsonLinesRepository.exists(paths.getIndexBucketPath("number", "79")), true);
+  const numberBucketName = getNumberBucketName("79991234567");
+  assert.equal(
+    await jsonLinesRepository.exists(paths.getIndexBucketPath("number", numberBucketName)),
+    true
+  );
   assert.equal(summary.lookupFormatVersion, DOCUMENT_LOOKUP_FORMAT_VERSION);
 
   const lookupEntries = [];
-  for await (const entry of jsonLinesRepository.iterateJson(paths.getDocumentLookupBucketPath("pe"))) {
+  for await (const entry of jsonLinesRepository.iterateJson(getLookupBucketPath(paths, "people:1"))) {
     lookupEntries.push(entry);
   }
+  const bucketStats = await stateRepository.readIndexBucketStats(paths);
 
   assert.deepEqual(Object.keys(lookupEntries[0]).sort(), [
     "byteLength",
@@ -101,6 +119,11 @@ test("BuildLocalIndexesUseCase builds indexes and emits progress", async () => {
   assert.equal(storedDocument.rowId, 1);
   assert.equal(storedDocument.fields.number, "79991234567");
   assert.deepEqual(storedDocument.invalidFields, {});
+  assert.equal(bucketStats.fields.number[numberBucketName], 1);
+  assert.equal(
+    bucketStats.documentLookup[new SearchTermService().getDocumentBucketName("people:1")],
+    1
+  );
 
   await fs.rm(tempRoot, { recursive: true, force: true });
 });
@@ -139,16 +162,25 @@ test("BuildLocalIndexesUseCase indexes valid numbers extracted from no_valid_num
 
   await useCase.execute();
 
-  const bucketPath = paths.getIndexBucketPath("number", "79");
-  const indexedEntries = [];
-  for await (const entry of jsonLinesRepository.iterateJson(bucketPath)) {
-    indexedEntries.push(entry);
+  const firstBucketEntries = [];
+  for await (const entry of jsonLinesRepository.iterateJson(
+    paths.getIndexBucketPath("number", getNumberBucketName("79274279737"))
+  )) {
+    firstBucketEntries.push(entry);
   }
 
-  assert.ok(indexedEntries.some((entry) => entry.term === "79274279737"));
-  assert.ok(indexedEntries.some((entry) => entry.term === "79274279747"));
+  assert.ok(firstBucketEntries.some((entry) => entry.term === "79274279737"));
 
-  const secondBucketPath = paths.getIndexBucketPath("number", "84");
+  const secondSamePrefixBucketEntries = [];
+  for await (const entry of jsonLinesRepository.iterateJson(
+    paths.getIndexBucketPath("number", getNumberBucketName("79274279747"))
+  )) {
+    secondSamePrefixBucketEntries.push(entry);
+  }
+
+  assert.ok(secondSamePrefixBucketEntries.some((entry) => entry.term === "79274279747"));
+
+  const secondBucketPath = paths.getIndexBucketPath("number", getNumberBucketName("8434125131"));
   const secondBucketEntries = [];
   for await (const entry of jsonLinesRepository.iterateJson(secondBucketPath)) {
     secondBucketEntries.push(entry);
@@ -212,13 +244,17 @@ test("BuildLocalIndexesUseCase incrementally indexes only new document files", a
   assert.equal(secondSummary.indexedDocuments, 1);
 
   const bucket79 = [];
-  for await (const entry of jsonLinesRepository.iterateJson(paths.getIndexBucketPath("number", "79"))) {
+  for await (const entry of jsonLinesRepository.iterateJson(
+    paths.getIndexBucketPath("number", getNumberBucketName("79991234567"))
+  )) {
     bucket79.push(entry);
   }
   assert.ok(bucket79.some((entry) => entry.docId === "people:1"));
 
   const bucket78 = [];
-  for await (const entry of jsonLinesRepository.iterateJson(paths.getIndexBucketPath("number", "78"))) {
+  for await (const entry of jsonLinesRepository.iterateJson(
+    paths.getIndexBucketPath("number", getNumberBucketName("78889990000"))
+  )) {
     bucket78.push(entry);
   }
   assert.ok(bucket78.some((entry) => entry.docId === "clients:1"));
@@ -291,7 +327,7 @@ test("BuildLocalIndexesUseCase publishes incremental indexes after each processe
           (async () => {
             const bucket71 = [];
             for await (const entry of jsonLinesRepository.iterateJson(
-              paths.getIndexBucketPath("number", "71")
+              paths.getIndexBucketPath("number", getNumberBucketName("71110000001"))
             )) {
               bucket71.push(entry);
             }
@@ -364,7 +400,7 @@ test("BuildLocalIndexesUseCase publishes full rebuild indexes after each file wh
           (async () => {
             const bucket71 = [];
             for await (const entry of jsonLinesRepository.iterateJson(
-              paths.getIndexBucketPath("number", "71")
+              paths.getIndexBucketPath("number", getNumberBucketName("71110000001"))
             )) {
               bucket71.push(entry);
             }
@@ -438,7 +474,7 @@ test("BuildLocalIndexesUseCase treats an empty indexes directory as missing publ
           (async () => {
             const bucket71 = [];
             for await (const entry of jsonLinesRepository.iterateJson(
-              paths.getIndexBucketPath("number", "71")
+              paths.getIndexBucketPath("number", getNumberBucketName("71110000001"))
             )) {
               bucket71.push(entry);
             }
@@ -548,13 +584,22 @@ test("BuildLocalIndexesUseCase falls back to full rebuild when an indexed file c
   assert.equal(rebuiltSummary.filesTotal, 1);
   assert.equal(rebuiltSummary.indexedDocuments, 2);
 
-  const bucket79 = [];
-  for await (const entry of jsonLinesRepository.iterateJson(paths.getIndexBucketPath("number", "79"))) {
-    bucket79.push(entry);
+  const firstBucketEntries = [];
+  for await (const entry of jsonLinesRepository.iterateJson(
+    paths.getIndexBucketPath("number", getNumberBucketName("79991234567"))
+  )) {
+    firstBucketEntries.push(entry);
   }
 
-  assert.equal(bucket79.filter((entry) => entry.docId === "people:1").length, 1);
-  assert.equal(bucket79.filter((entry) => entry.docId === "people:2").length, 1);
+  const secondBucketEntries = [];
+  for await (const entry of jsonLinesRepository.iterateJson(
+    paths.getIndexBucketPath("number", getNumberBucketName("79991230000"))
+  )) {
+    secondBucketEntries.push(entry);
+  }
+
+  assert.equal(firstBucketEntries.filter((entry) => entry.docId === "people:1").length, 1);
+  assert.equal(secondBucketEntries.filter((entry) => entry.docId === "people:2").length, 1);
 
   await fs.rm(tempRoot, { recursive: true, force: true });
 });
@@ -615,13 +660,20 @@ test("BuildLocalIndexesUseCase can cancel and resume unfinished indexing", async
   assert.equal(resumedSummary.status, "completed");
   assert.equal(resumedSummary.indexedDocuments, 5200);
 
-  const bucketPath = paths.getIndexBucketPath("number", "79");
-  const indexedEntries = [];
-  for await (const entry of jsonLinesRepository.iterateJson(bucketPath)) {
-    indexedEntries.push(entry);
+  const bucketFiles = await jsonLinesRepository.listFilesRecursive(
+    paths.getIndexFieldDir("number"),
+    ".jsonl"
+  );
+  let indexedEntries = 0;
+  for (const bucketFile of bucketFiles) {
+    for await (const _entry of jsonLinesRepository.iterateJson(
+      paths.getIndexBucketPath("number", path.basename(bucketFile, ".jsonl"))
+    )) {
+      indexedEntries += 1;
+    }
   }
 
-  assert.equal(indexedEntries.length, 5200);
+  assert.equal(indexedEntries, 5200);
 
   await fs.rm(tempRoot, { recursive: true, force: true });
 });

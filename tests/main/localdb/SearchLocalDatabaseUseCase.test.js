@@ -8,6 +8,15 @@ import { JsonLinesRepository } from "../../../src/main/localdb/JsonLinesReposito
 import { LocalDatabasePaths } from "../../../src/main/localdb/LocalDatabasePaths.js";
 import { LocalDatabaseStateRepository } from "../../../src/main/localdb/LocalDatabaseStateRepository.js";
 import { SearchTermService } from "../../../src/main/localdb/SearchTermService.js";
+import { getLatestBucketLayoutVersion } from "../../../src/main/localdb/indexBucketLayouts.js";
+
+function getFieldBucketName(field, term) {
+  return new SearchTermService().getIndexBucketName(
+    field,
+    term,
+    getLatestBucketLayoutVersion(field)
+  );
+}
 
 function buildCompactLookupEntries(fileName, records) {
   let byteOffset = 0;
@@ -48,30 +57,45 @@ async function seedCompactLookup({
   await fs.mkdir(paths.documentLookupDir, { recursive: true });
   await fs.mkdir(paths.documentsDir, { recursive: true });
   await fs.mkdir(paths.metaDir, { recursive: true });
+  await stateRepository.writeJson(
+    paths.databaseMetaPath,
+    stateRepository.buildDatabaseMeta("2026-07-20T10:00:00.000Z")
+  );
 
   await stateRepository.writeJson(paths.sourcesMetaPath, [
     {
       sourceTable: "people",
       fileName: "people.json",
       importedAt: "2026-07-20T10:00:00.000Z",
-      name: "Р›СЋРґРё",
-      description: "РўРµСЃС‚РѕРІР°СЏ Р»РѕРєР°Р»СЊРЅР°СЏ Р±Р°Р·Р°",
-      type: "РљРѕРЅС‚Р°РєС‚С‹",
+      name: "Люди",
+      description: "Тестовая локальная база",
+      type: "Контакты",
     },
   ]);
 
   await jsonLinesRepository.appendLines(
-    paths.getIndexBucketPath("number", termService.getBucketName(sharedNumber)),
+    paths.getIndexBucketPath("number", getFieldBucketName("number", sharedNumber)),
     indexEntries
   );
   await jsonLinesRepository.appendLines(
     paths.getDocumentPath(fileName),
     compactLookupEntries.map(({ line }) => line)
   );
-  await jsonLinesRepository.appendLines(
-    paths.getDocumentLookupBucketPath(termService.getDocumentBucketName(records[0].docId)),
-    compactLookupEntries.map(({ entry }) => JSON.stringify(entry))
-  );
+
+  const lookupBuckets = new Map();
+  for (const { entry } of compactLookupEntries) {
+    const bucketName = termService.getDocumentBucketName(entry.docId);
+    const bucketEntries = lookupBuckets.get(bucketName) || [];
+    bucketEntries.push(JSON.stringify(entry));
+    lookupBuckets.set(bucketName, bucketEntries);
+  }
+
+  for (const [bucketName, bucketEntries] of lookupBuckets.entries()) {
+    await jsonLinesRepository.appendLines(
+      paths.getDocumentLookupBucketPath(bucketName),
+      bucketEntries
+    );
+  }
 }
 
 test("SearchLocalDatabaseUseCase returns matching local source and records", async () => {
@@ -82,6 +106,8 @@ test("SearchLocalDatabaseUseCase returns matching local source and records", asy
   const jsonLinesRepository = new JsonLinesRepository();
   const termService = new SearchTermService();
   const sharedNumber = "79991234567";
+
+  await fs.mkdir(paths.stateDir, { recursive: true });
 
   await seedCompactLookup({
     paths,
@@ -95,7 +121,7 @@ test("SearchLocalDatabaseUseCase returns matching local source and records", asy
         docId: "people:1",
         sourceTable: "people",
         rowId: 1,
-        fields: { number: sharedNumber, fio: "РР’РђРќРћР’ РР’РђРќ" },
+        fields: { number: sharedNumber, fio: "ИВАНОВ ИВАН" },
         invalidFields: {},
       },
     ],
@@ -121,9 +147,9 @@ test("SearchLocalDatabaseUseCase returns matching local source and records", asy
 
   assert.equal(results.length, 2);
   assert.equal(results[0].object_data_base.name_table, "people");
-  assert.equal(results[0].object_data_base.name, "Р›СЋРґРё");
-  assert.equal(results[0].object_data_base.info, "РўРµСЃС‚РѕРІР°СЏ Р»РѕРєР°Р»СЊРЅР°СЏ Р±Р°Р·Р°");
-  assert.equal(results[0].object_data_base.type, "РљРѕРЅС‚Р°РєС‚С‹");
+  assert.equal(results[0].object_data_base.name, "Люди");
+  assert.equal(results[0].object_data_base.info, "Тестовая локальная база");
+  assert.equal(results[0].object_data_base.type, "Контакты");
   assert.equal(results[1].object_data.source_name, "people");
 
   await fs.rm(tempRoot, { recursive: true, force: true });
@@ -152,7 +178,7 @@ test("SearchLocalDatabaseUseCase returns all matching records without truncation
       rowId: index + 1,
       fields: {
         number: sharedNumber,
-        fio: `РРІР°РЅРѕРІ РРІР°РЅ ${index + 1}`,
+        fio: `ИВАНОВ ИВАН ${index + 1}`,
       },
       invalidFields: {},
     })),
@@ -209,7 +235,7 @@ test("SearchLocalDatabaseUseCase streams matched records in chunks and returns m
       rowId: index + 1,
       fields: {
         number: sharedNumber,
-        fio: `Иванов Иван ${index + 1}`,
+        fio: `ИВАНОВ ИВАН ${index + 1}`,
       },
       invalidFields: {},
     })),
@@ -261,34 +287,44 @@ test("SearchLocalDatabaseUseCase still supports legacy embedded lookup entries",
   const paths = new LocalDatabasePaths(dbRoot);
   const stateRepository = new LocalDatabaseStateRepository();
   const jsonLinesRepository = new JsonLinesRepository();
+  const termService = new SearchTermService();
 
   await fs.mkdir(paths.getIndexFieldDir("number"), { recursive: true });
   await fs.mkdir(paths.documentLookupDir, { recursive: true });
   await fs.mkdir(paths.metaDir, { recursive: true });
+  await stateRepository.writeJson(
+    paths.databaseMetaPath,
+    stateRepository.buildDatabaseMeta("2026-07-20T10:00:00.000Z")
+  );
 
   await stateRepository.writeJson(paths.sourcesMetaPath, [
     {
       sourceTable: "people",
       fileName: "people.json",
       importedAt: "2026-07-20T10:00:00.000Z",
-      name: "Р›СЋРґРё",
-      description: "РўРµСЃС‚РѕРІР°СЏ Р»РѕРєР°Р»СЊРЅР°СЏ Р±Р°Р·Р°",
-      type: "РљРѕРЅС‚Р°РєС‚С‹",
+      name: "Люди",
+      description: "Тестовая локальная база",
+      type: "Контакты",
     },
   ]);
   await jsonLinesRepository.appendLines(
-    paths.getIndexBucketPath("number", "79"),
-    [JSON.stringify({ term: "79991234567", docId: "people:1" })]
+    paths.getIndexBucketPath("number", getFieldBucketName("number", "79991234567")),
+    [
+    JSON.stringify({ term: "79991234567", docId: "people:1" }),
+    ]
   );
-  await jsonLinesRepository.appendLines(paths.getDocumentLookupBucketPath("pe"), [
-    JSON.stringify({
-      docId: "people:1",
-      sourceTable: "people",
-      rowId: 1,
-      fields: { number: "79991234567", fio: "РР’РђРќРћР’ РР’РђРќ" },
-      invalidFields: {},
-    }),
-  ]);
+  await jsonLinesRepository.appendLines(
+    paths.getDocumentLookupBucketPath(termService.getDocumentBucketName("people:1")),
+    [
+      JSON.stringify({
+        docId: "people:1",
+        sourceTable: "people",
+        rowId: 1,
+        fields: { number: "79991234567", fio: "ИВАНОВ ИВАН" },
+        invalidFields: {},
+      }),
+    ]
+  );
 
   const fakeLocalDatabaseService = {
     getStoredRootPath() {
@@ -303,13 +339,250 @@ test("SearchLocalDatabaseUseCase still supports legacy embedded lookup entries",
     localDatabaseService: fakeLocalDatabaseService,
     stateRepository,
     jsonLinesRepository,
-    termService: new SearchTermService(),
+    termService,
   });
 
   const results = await useCase.execute({ number: "+7 (999) 123-45-67" });
 
   assert.equal(results.length, 2);
   assert.equal(results[1].object_data.fields.number, "79991234567");
+
+  await fs.rm(tempRoot, { recursive: true, force: true });
+});
+
+test("SearchLocalDatabaseUseCase prioritizes the narrowest indexed bucket first", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "matrix-search-order-"));
+  const dbRoot = path.join(tempRoot, "db");
+  const paths = new LocalDatabasePaths(dbRoot);
+  const stateRepository = new LocalDatabaseStateRepository();
+  const jsonLinesRepository = new JsonLinesRepository();
+  const termService = new SearchTermService();
+  const profile = {};
+
+  await seedCompactLookup({
+    paths,
+    stateRepository,
+    jsonLinesRepository,
+    termService,
+    fileName: "import_people.jsonl",
+    sharedNumber: "79991234567",
+    records: [
+      {
+        docId: "people:1",
+        sourceTable: "people",
+        rowId: 1,
+        fields: {
+          number: "79991234567",
+          mail: "test@example.com",
+        },
+        invalidFields: {},
+      },
+    ],
+  });
+
+  await fs.mkdir(paths.getIndexFieldDir("mail"), { recursive: true });
+  await jsonLinesRepository.appendLines(
+    paths.getIndexBucketPath("mail", getFieldBucketName("mail", "test@example.com")),
+    [
+      JSON.stringify({
+        term: "test@example.com",
+        docId: "people:1",
+        sourceTable: "people",
+        rowId: 1,
+      }),
+    ]
+  );
+  await stateRepository.writeIndexBucketStats(paths, {
+    builtAt: "2026-08-10T09:00:00.000Z",
+    fields: {
+      number: { [getFieldBucketName("number", "79991234567")]: 500000 },
+      mail: { [getFieldBucketName("mail", "test@example.com")]: 1 },
+    },
+    documentLookup: {},
+  });
+
+  const fakeLocalDatabaseService = {
+    getStoredRootPath() {
+      return dbRoot;
+    },
+    async ensureReady() {
+      return { initialized: true, rootPath: dbRoot };
+    },
+  };
+
+  const useCase = new SearchLocalDatabaseUseCase({
+    localDatabaseService: fakeLocalDatabaseService,
+    stateRepository,
+    jsonLinesRepository,
+    termService,
+  });
+
+  const results = await useCase.execute(
+    { number: "+7 (999) 123-45-67", mail: "test@example.com" },
+    { profile }
+  );
+
+  assert.equal(results.length, 2);
+  assert.equal(profile.queryFields[0].field, "mail");
+  assert.equal(profile.queryFields[1].field, "number");
+
+  await fs.rm(tempRoot, { recursive: true, force: true });
+});
+
+test("SearchLocalDatabaseUseCase uses running index state bucket layouts during active rebuild", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "matrix-search-running-state-"));
+  const dbRoot = path.join(tempRoot, "db");
+  const paths = new LocalDatabasePaths(dbRoot);
+  const stateRepository = new LocalDatabaseStateRepository();
+  const jsonLinesRepository = new JsonLinesRepository();
+  const termService = new SearchTermService();
+  const sharedNumber = "79991234567";
+  await fs.mkdir(paths.stateDir, { recursive: true });
+
+  await seedCompactLookup({
+    paths,
+    stateRepository,
+    jsonLinesRepository,
+    termService,
+    fileName: "import_people.jsonl",
+    sharedNumber,
+    records: [
+      {
+        docId: "people:1",
+        sourceTable: "people",
+        rowId: 1,
+        fields: { number: sharedNumber, fio: "ИВАНОВ ИВАН" },
+        invalidFields: {},
+      },
+    ],
+  });
+
+  await stateRepository.writeJson(paths.databaseMetaPath, {
+    ...(await stateRepository.readJson(paths.databaseMetaPath, {})),
+    indexes: {
+      version: 1,
+      fields: ["number", "mail", "fio"],
+      lookupFormatVersion: 1,
+      bucketLayoutVersion: 1,
+      bucketLayouts: {
+        number: 1,
+        mail: 1,
+        fio: 1,
+      },
+    },
+  });
+
+  await stateRepository.writeIndexState(paths, {
+    status: "running",
+    lookupFormatVersion: 5,
+    bucketLayoutVersion: 3,
+    bucketLayouts: {
+      number: 3,
+      mail: 3,
+      fio: 3,
+      passport: 3,
+      inn: 3,
+      snils: 3,
+      telegram: 3,
+      vk: 3,
+      facebook: 3,
+      grz: 2,
+      vin: 2,
+      date_of_birth: 3,
+    },
+  });
+
+  const fakeLocalDatabaseService = {
+    getStoredRootPath() {
+      return dbRoot;
+    },
+    async ensureReady() {
+      return { initialized: true, rootPath: dbRoot };
+    },
+  };
+
+  const useCase = new SearchLocalDatabaseUseCase({
+    localDatabaseService: fakeLocalDatabaseService,
+    stateRepository,
+    jsonLinesRepository,
+    termService,
+  });
+
+  const results = await useCase.execute({ number: "+7 (999) 123-45-67" });
+
+  assert.equal(results.length, 2);
+  assert.equal(results[1].object_data.fields.number, sharedNumber);
+
+  await fs.rm(tempRoot, { recursive: true, force: true });
+});
+
+test("SearchLocalDatabaseUseCase resolves wildcard lookups across hashed number buckets", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "matrix-search-wildcard-hash-"));
+  const dbRoot = path.join(tempRoot, "db");
+  const paths = new LocalDatabasePaths(dbRoot);
+  const stateRepository = new LocalDatabaseStateRepository();
+  const jsonLinesRepository = new JsonLinesRepository();
+  const termService = new SearchTermService();
+
+  await fs.mkdir(paths.stateDir, { recursive: true });
+
+  await seedCompactLookup({
+    paths,
+    stateRepository,
+    jsonLinesRepository,
+    termService,
+    fileName: "import_people.jsonl",
+    sharedNumber: "79991234567",
+    records: [
+      {
+        docId: "people:1",
+        sourceTable: "people",
+        rowId: 1,
+        fields: { number: "79991234567", fio: "ИВАНОВ ИВАН" },
+        invalidFields: {},
+      },
+      {
+        docId: "people:2",
+        sourceTable: "people",
+        rowId: 2,
+        fields: { number: "79991230000", fio: "ПЕТРОВ ПЕТР" },
+        invalidFields: {},
+      },
+    ],
+  });
+
+  await jsonLinesRepository.appendLines(
+    paths.getIndexBucketPath("number", getFieldBucketName("number", "79991230000")),
+    [
+      JSON.stringify({
+        term: "79991230000",
+        docId: "people:2",
+        sourceTable: "people",
+        rowId: 2,
+      }),
+    ]
+  );
+
+  const fakeLocalDatabaseService = {
+    getStoredRootPath() {
+      return dbRoot;
+    },
+    async ensureReady() {
+      return { initialized: true, rootPath: dbRoot };
+    },
+  };
+
+  const useCase = new SearchLocalDatabaseUseCase({
+    localDatabaseService: fakeLocalDatabaseService,
+    stateRepository,
+    jsonLinesRepository,
+    termService,
+  });
+
+  const results = await useCase.execute({ number: "7999%" });
+  const recordResults = results.filter((item) => item.object_data);
+
+  assert.equal(recordResults.length, 2);
 
   await fs.rm(tempRoot, { recursive: true, force: true });
 });
