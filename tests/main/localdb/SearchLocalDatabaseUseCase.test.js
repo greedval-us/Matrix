@@ -475,11 +475,11 @@ test("SearchLocalDatabaseUseCase uses running index state bucket layouts during 
   await stateRepository.writeIndexState(paths, {
     status: "running",
     lookupFormatVersion: 5,
-    bucketLayoutVersion: 3,
+    bucketLayoutVersion: 4,
     bucketLayouts: {
       number: 3,
       mail: 3,
-      fio: 3,
+      fio: 4,
       passport: 3,
       inn: 3,
       snils: 3,
@@ -580,6 +580,101 @@ test("SearchLocalDatabaseUseCase resolves wildcard lookups across hashed number 
   });
 
   const results = await useCase.execute({ number: "7999%" });
+  const recordResults = results.filter((item) => item.object_data);
+
+  assert.equal(recordResults.length, 2);
+
+  await fs.rm(tempRoot, { recursive: true, force: true });
+});
+
+test("SearchLocalDatabaseUseCase resolves wildcard lookups across hashed fio buckets", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "matrix-search-fio-wildcard-hash-"));
+  const dbRoot = path.join(tempRoot, "db");
+  const paths = new LocalDatabasePaths(dbRoot);
+  const stateRepository = new LocalDatabaseStateRepository();
+  const jsonLinesRepository = new JsonLinesRepository();
+  const termService = new SearchTermService();
+
+  await fs.mkdir(paths.documentsDir, { recursive: true });
+  await fs.mkdir(paths.metaDir, { recursive: true });
+  await fs.mkdir(paths.stateDir, { recursive: true });
+  await fs.mkdir(paths.getIndexFieldDir("fio"), { recursive: true });
+  await stateRepository.writeJson(
+    paths.databaseMetaPath,
+    stateRepository.buildDatabaseMeta("2026-08-10T12:00:00.000Z")
+  );
+  await stateRepository.writeJson(paths.sourcesMetaPath, [
+    {
+      sourceTable: "people",
+      fileName: "people.json",
+      importedAt: "2026-08-10T12:00:00.000Z",
+      name: "Люди",
+      description: "Тестовая локальная база",
+      type: "Контакты",
+    },
+  ]);
+
+  const records = [
+    {
+      docId: "people:1",
+      sourceTable: "people",
+      rowId: 1,
+      fields: { fio: "АЛЕКСЕЕВ АЛЕКСЕЙ" },
+      invalidFields: {},
+    },
+    {
+      docId: "people:2",
+      sourceTable: "people",
+      rowId: 2,
+      fields: { fio: "АЛЕКСАНДРОВ АЛЕКСАНДР" },
+      invalidFields: {},
+    },
+  ];
+
+  const compactLookupEntries = buildCompactLookupEntries("import_people.jsonl", records);
+  await jsonLinesRepository.appendLines(
+    paths.getDocumentPath("import_people.jsonl"),
+    compactLookupEntries.map(({ line }) => line)
+  );
+
+  for (const record of records) {
+    await jsonLinesRepository.appendLines(
+      paths.getIndexBucketPath("fio", getFieldBucketName("fio", record.fields.fio)),
+      [
+        JSON.stringify({
+          term: termService.normalizeIndexTerm("fio", record.fields.fio),
+          docId: record.docId,
+          sourceTable: record.sourceTable,
+          rowId: record.rowId,
+        }),
+      ]
+    );
+  }
+
+  for (const { entry } of compactLookupEntries) {
+    await jsonLinesRepository.appendLines(
+      paths.getDocumentLookupBucketPath(termService.getDocumentBucketName(entry.docId)),
+      [JSON.stringify(entry)]
+    );
+  }
+
+  const fakeLocalDatabaseService = {
+    getStoredRootPath() {
+      return dbRoot;
+    },
+    async ensureReady() {
+      return { initialized: true, rootPath: dbRoot };
+    },
+  };
+
+  const useCase = new SearchLocalDatabaseUseCase({
+    localDatabaseService: fakeLocalDatabaseService,
+    stateRepository,
+    jsonLinesRepository,
+    termService,
+  });
+
+  const results = await useCase.execute({ fio: "АЛЕКС%" });
   const recordResults = results.filter((item) => item.object_data);
 
   assert.equal(recordResults.length, 2);

@@ -49,6 +49,7 @@ const DEFAULT_LAYOUTS = {
     1: { prefixLength: 2 },
     2: { prefixLength: 3 },
     3: { prefixLength: 4 },
+    4: { prefixLength: 4, hashLength: 1 },
   },
   date_of_birth: {
     1: { prefixLength: 2 },

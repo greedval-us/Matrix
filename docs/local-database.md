@@ -231,14 +231,15 @@ Important current layouts:
 - `vk`: `4-char prefix + 1-char md5 hash suffix`
 - `facebook`: `4-char prefix + 1-char md5 hash suffix`
 - `date_of_birth`: `4-char prefix + 1-char md5 hash suffix`
-- `fio`: `4-char prefix`
+- `fio`: `4-char prefix + 1-char md5 hash suffix`
 - `grz`, `vin`, and most other fields: `3-char prefix`
 
 Reason:
 
 - dense exact-match fields need both prefix sharding and hash sub-buckets
 - this prevents a few hot prefixes from growing into giant files again
-- wildcard-capable fields such as `fio` stay prefix-based so partial search remains predictable
+- wildcard-capable fields such as `fio` still resolve by prefix during search, but exact bucket files
+  are additionally hash-sharded to avoid huge hot-name files
 - field buckets are also split into subdirectories, so one field directory does not accumulate
   tens of thousands of files in a single folder
 
@@ -247,7 +248,7 @@ Bucket file examples:
 ```text
 number/7999~6a.jsonl
 mail/test~f.jsonl
-fio/ИВАН.jsonl
+fio/ив/иван~c.jsonl
 ```
 
 ### 5.2 `_documents`
@@ -426,7 +427,7 @@ If you change field bucket layout strategy:
 As of 2026-08-10:
 
 - `documents` segmented to about `1-2 GB`
-- dense field bucket layout version `3`
+- dense field bucket layout version `3`, with `fio` additionally moved to layout version `4`
 - lighter prefix-only fields remain on version `2` or `3` depending on field
 - `_documents` lookup format version `6`
 - `_documents` sharding: `md5(docId).slice(0, 3)` with tree layout `ab/abc.jsonl`
