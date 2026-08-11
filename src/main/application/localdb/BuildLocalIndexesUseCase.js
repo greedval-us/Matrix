@@ -131,6 +131,10 @@ export class BuildLocalIndexesUseCase {
     });
 
     if (resumableSession) {
+      const canPublishPartially = this.shouldPublishPartiallyDuringResume(
+        previousState,
+        hasExistingIndexes
+      );
       return await this.resumeBuild({
         options,
         progress,
@@ -140,7 +144,7 @@ export class BuildLocalIndexesUseCase {
         filePlans: resumableSession.filePlans,
         workingIndexesDir: resumableSession.workingIndexesDir,
         backupIndexesDir: resumableSession.backupIndexesDir,
-        canPublishPartially: !hasExistingIndexes,
+        canPublishPartially,
         activeBucketLayouts,
         activeBucketStats: this.createWorkingBucketStats({
           buildMode: previousState?.buildMode || "full",
@@ -260,6 +264,9 @@ export class BuildLocalIndexesUseCase {
     buildToken,
   }) {
     summary.workerCount = workerCount;
+    if (canPublishPartially) {
+      await this.syncWorkingIndexesToPublished(paths, workingIndexesDir, summary);
+    }
     await this.stateRepository.writeIndexState(paths, summary);
     progress.emit("started", this.buildStartedPayload(summary));
 
@@ -339,8 +346,10 @@ export class BuildLocalIndexesUseCase {
       currentFile: null,
       currentFileDocumentsProcessed: 0,
       currentFileDocumentsTotal: 0,
-      filesTotal: resumePlan.filePlans.length,
-      documentsTotal: resumePlan.documentsTotal,
+      filesTotal: Number(previousState.filesTotal || previousState.documentFiles?.length || 0),
+      documentsTotal: Number(
+        previousState.documentsTotal || previousState.indexedDocuments || resumePlan.documentsTotal
+      ),
       lookupFormatVersion: DOCUMENT_LOOKUP_FORMAT_VERSION,
       bucketLayoutVersion:
         Number(previousState.bucketLayoutVersion || previousState.lookupFormatVersion) ||
@@ -747,6 +756,31 @@ export class BuildLocalIndexesUseCase {
     }
 
     await this.mergeIndexedFile(paths, fileWorkDir, paths.indexesDir);
+  }
+
+  shouldPublishPartiallyDuringResume(previousState, hasExistingIndexes) {
+    if (!previousState) {
+      return !hasExistingIndexes;
+    }
+
+    if (previousState.buildMode === "incremental") {
+      return true;
+    }
+
+    return previousState.buildReason === "initial-build";
+  }
+
+  async syncWorkingIndexesToPublished(paths, workingIndexesDir, summary) {
+    const publishSnapshotDir = paths.getTempPath(
+      `${INDEX_BUILD_TEMP_PREFIX}-${summary.session.buildId}-publish`
+    );
+    await this.jsonLinesRepository.remove(publishSnapshotDir);
+    await this.jsonLinesRepository.copy(workingIndexesDir, publishSnapshotDir);
+    await this.replaceIndexesAtomically(
+      paths,
+      publishSnapshotDir,
+      paths.getTempPath(`${INDEX_BACKUP_TEMP_PREFIX}-${summary.session.buildId}-publish`)
+    );
   }
 
   async handleCancellation({ error, progress, paths, summary, filePlan = null, activeFiles = [] }) {

@@ -753,6 +753,226 @@ test("BuildLocalIndexesUseCase can cancel and resume unfinished indexing", async
   await fs.rm(tempRoot, { recursive: true, force: true });
 });
 
+test("BuildLocalIndexesUseCase republishes completed working snapshot into indexes when resuming initial build", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "matrix-index-resume-publish-snapshot-"));
+  const dbRoot = path.join(tempRoot, "db");
+  const paths = new LocalDatabasePaths(dbRoot);
+  const stateRepository = new LocalDatabaseStateRepository();
+  const jsonLinesRepository = new JsonLinesRepository();
+
+  await fs.mkdir(paths.documentsDir, { recursive: true });
+  await fs.mkdir(paths.metaDir, { recursive: true });
+  await fs.mkdir(paths.stateDir, { recursive: true });
+  await fs.mkdir(paths.tempDir, { recursive: true });
+  await stateRepository.writeJson(
+    paths.databaseMetaPath,
+    stateRepository.buildDatabaseMeta("2026-08-11T09:00:00.000Z")
+  );
+
+  const docFiles = [
+    ["import_alpha.jsonl", "alpha:1", "71110000001"],
+    ["import_beta.jsonl", "beta:1", "72220000001"],
+    ["import_gamma.jsonl", "gamma:1", "73330000001"],
+  ];
+
+  for (const [fileName, docId, number] of docFiles) {
+    await jsonLinesRepository.appendLines(path.join(paths.documentsDir, fileName), [
+      JSON.stringify({
+        docId,
+        sourceTable: docId.split(":")[0],
+        rowId: 1,
+        fields: { number },
+        invalidFields: {},
+      }),
+    ]);
+  }
+
+  const workingIndexesDir = paths.getTempPath("index-build-resume-publish-snapshot");
+  await fs.mkdir(workingIndexesDir, { recursive: true });
+
+  const alphaBucketPath = paths.getIndexBucketPath(
+    "number",
+    getNumberBucketName("71110000001"),
+    workingIndexesDir
+  );
+  const betaBucketPath = paths.getIndexBucketPath(
+    "number",
+    getNumberBucketName("72220000001"),
+    workingIndexesDir
+  );
+  const gammaBucketPath = paths.getIndexBucketPath(
+    "number",
+    getNumberBucketName("73330000001")
+  );
+
+  await jsonLinesRepository.appendLines(alphaBucketPath, [
+    JSON.stringify({ term: "71110000001", docId: "alpha:1", sourceTable: "alpha", rowId: 1 }),
+  ]);
+  await jsonLinesRepository.appendLines(betaBucketPath, [
+    JSON.stringify({ term: "72220000001", docId: "beta:1", sourceTable: "beta", rowId: 1 }),
+  ]);
+  await jsonLinesRepository.appendLines(paths.getIndexBucketPath("number", getNumberBucketName("71110000001")), [
+    JSON.stringify({ term: "71110000001", docId: "alpha:1", sourceTable: "alpha", rowId: 1 }),
+  ]);
+
+  const manifest = {};
+  for (const [fileName] of docFiles) {
+    const stat = await jsonLinesRepository.stat(path.join(paths.documentsDir, fileName));
+    manifest[fileName] = {
+      size: stat.size,
+      modifiedAtMs: stat.mtimeMs,
+      documentsTotal: 1,
+    };
+  }
+
+  await stateRepository.writeIndexState(paths, {
+    status: "cancelled",
+    buildMode: "full",
+    buildReason: "initial-build",
+    indexedAt: "2026-08-11T09:00:00.000Z",
+    startedAt: "2026-08-11T09:00:00.000Z",
+    filesTotal: 3,
+    filesProcessed: 2,
+    indexedDocuments: 2,
+    documentsTotal: 0,
+    indexedEntries: 2,
+    lookupEntries: 0,
+    lookupFormatVersion: DOCUMENT_LOOKUP_FORMAT_VERSION,
+    fileManifest: manifest,
+    fields: { number: 2, mail: 0, fio: 0, passport: 0, inn: 0, snils: 0, telegram: 0, vk: 0, facebook: 0, grz: 0, vin: 0, date_of_birth: 0 },
+    session: {
+      resumable: true,
+      buildId: "resume-publish-snapshot",
+      workingIndexesDir,
+      backupIndexesDir: paths.getTempPath("index-backup-resume-publish-snapshot"),
+      completedFiles: ["import_alpha.jsonl", "import_beta.jsonl"],
+      pendingFiles: ["import_gamma.jsonl"],
+    },
+  });
+
+  const useCase = createUseCase({ dbRoot, stateRepository, jsonLinesRepository });
+  let betaPublishedAtStart = false;
+
+  const summary = await useCase.execute({
+    onProgress: (event) => {
+      if (event.stage === "started") {
+        betaPublishedAtStart = true;
+      }
+    },
+  });
+
+  const betaEntries = [];
+  for await (const entry of jsonLinesRepository.iterateJson(
+    paths.getIndexBucketPath("number", getNumberBucketName("72220000001"))
+  )) {
+    betaEntries.push(entry);
+  }
+
+  const gammaEntries = [];
+  for await (const entry of jsonLinesRepository.iterateJson(gammaBucketPath)) {
+    gammaEntries.push(entry);
+  }
+
+  assert.equal(summary.status, "completed");
+  assert.equal(summary.filesTotal, 3);
+  assert.equal(betaPublishedAtStart, true);
+  assert.ok(betaEntries.some((entry) => entry.docId === "beta:1"));
+  assert.ok(gammaEntries.some((entry) => entry.docId === "gamma:1"));
+
+  await fs.rm(tempRoot, { recursive: true, force: true });
+});
+
+test("BuildLocalIndexesUseCase publishes remaining files into indexes during resumed initial build", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "matrix-index-resume-publish-flow-"));
+  const dbRoot = path.join(tempRoot, "db");
+  const paths = new LocalDatabasePaths(dbRoot);
+  const stateRepository = new LocalDatabaseStateRepository();
+  const jsonLinesRepository = new JsonLinesRepository();
+
+  await fs.mkdir(paths.documentsDir, { recursive: true });
+  await fs.mkdir(paths.metaDir, { recursive: true });
+  await fs.mkdir(paths.stateDir, { recursive: true });
+  await fs.mkdir(paths.tempDir, { recursive: true });
+  await stateRepository.writeJson(
+    paths.databaseMetaPath,
+    stateRepository.buildDatabaseMeta("2026-08-11T10:00:00.000Z")
+  );
+
+  const files = [
+    ["import_alpha.jsonl", "alpha:1", "71110000001"],
+    ["import_beta.jsonl", "beta:1", "72220000001"],
+    ["import_gamma.jsonl", "gamma:1", "73330000001"],
+  ];
+
+  for (const [fileName, docId, number] of files) {
+    await jsonLinesRepository.appendLines(path.join(paths.documentsDir, fileName), [
+      JSON.stringify({
+        docId,
+        sourceTable: docId.split(":")[0],
+        rowId: 1,
+        fields: { number },
+        invalidFields: {},
+      }),
+    ]);
+  }
+
+  const useCase = createUseCase({ dbRoot, stateRepository, jsonLinesRepository });
+  const originalIterateJsonWithMetadata =
+    jsonLinesRepository.iterateJsonWithMetadata.bind(jsonLinesRepository);
+  let seenDocuments = 0;
+  jsonLinesRepository.iterateJsonWithMetadata = async function* (...args) {
+    for await (const entry of originalIterateJsonWithMetadata(...args)) {
+      seenDocuments += 1;
+      if (seenDocuments === 2) {
+        useCase.cancel("manual-stop");
+      }
+      yield entry;
+    }
+  };
+
+  const cancelledSummary = await useCase.execute();
+  assert.equal(cancelledSummary.status, "cancelled");
+
+  jsonLinesRepository.iterateJsonWithMetadata = originalIterateJsonWithMetadata;
+
+  let betaPublishedBeforeCompleted = false;
+  let completedSeen = false;
+  const checks = [];
+
+  const resumedSummary = await useCase.execute({
+    onProgress: (event) => {
+      if (event.stage === "completed") {
+        completedSeen = true;
+        return;
+      }
+
+      if (event.stage === "file-completed" && event.currentFile === "import_beta.jsonl") {
+        betaPublishedBeforeCompleted = !completedSeen;
+        checks.push(
+          (async () => {
+            const bucketEntries = [];
+            for await (const entry of jsonLinesRepository.iterateJson(
+              paths.getIndexBucketPath("number", getNumberBucketName("72220000001"))
+            )) {
+              bucketEntries.push(entry);
+            }
+
+            assert.ok(bucketEntries.some((item) => item.docId === "beta:1"));
+          })()
+        );
+      }
+    },
+  });
+
+  await Promise.all(checks);
+
+  assert.equal(resumedSummary.status, "completed");
+  assert.equal(resumedSummary.filesTotal, 3);
+  assert.equal(betaPublishedBeforeCompleted, true);
+
+  await fs.rm(tempRoot, { recursive: true, force: true });
+});
+
 test("BuildLocalIndexesUseCase can cancel and resume unfinished indexing in parallel mode", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "matrix-index-resume-parallel-"));
   const dbRoot = path.join(tempRoot, "db");
