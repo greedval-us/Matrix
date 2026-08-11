@@ -516,6 +516,96 @@ test("SearchLocalDatabaseUseCase uses running index state bucket layouts during 
   await fs.rm(tempRoot, { recursive: true, force: true });
 });
 
+test("SearchLocalDatabaseUseCase uses cancelled resumable index state bucket layouts after stop", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "matrix-search-cancelled-state-"));
+  const dbRoot = path.join(tempRoot, "db");
+  const paths = new LocalDatabasePaths(dbRoot);
+  const stateRepository = new LocalDatabaseStateRepository();
+  const jsonLinesRepository = new JsonLinesRepository();
+  const termService = new SearchTermService();
+  const sharedNumber = "79991234567";
+  await fs.mkdir(paths.stateDir, { recursive: true });
+
+  await seedCompactLookup({
+    paths,
+    stateRepository,
+    jsonLinesRepository,
+    termService,
+    fileName: "import_people.jsonl",
+    sharedNumber,
+    records: [
+      {
+        docId: "people:1",
+        sourceTable: "people",
+        rowId: 1,
+        fields: { number: sharedNumber, fio: "РР’РђРќРћР’ РР’РђРќ" },
+        invalidFields: {},
+      },
+    ],
+  });
+
+  await stateRepository.writeJson(paths.databaseMetaPath, {
+    ...(await stateRepository.readJson(paths.databaseMetaPath, {})),
+    indexes: {
+      version: 1,
+      fields: ["number", "mail", "fio"],
+      lookupFormatVersion: 1,
+      bucketLayoutVersion: 1,
+      bucketLayouts: {
+        number: 1,
+        mail: 1,
+        fio: 1,
+      },
+    },
+  });
+
+  await stateRepository.writeIndexState(paths, {
+    status: "cancelled",
+    lookupFormatVersion: 5,
+    bucketLayoutVersion: 4,
+    bucketLayouts: {
+      number: 3,
+      mail: 3,
+      fio: 4,
+      passport: 3,
+      inn: 3,
+      snils: 3,
+      telegram: 3,
+      vk: 3,
+      facebook: 3,
+      grz: 2,
+      vin: 2,
+      date_of_birth: 3,
+    },
+    session: {
+      resumable: true,
+    },
+  });
+
+  const fakeLocalDatabaseService = {
+    getStoredRootPath() {
+      return dbRoot;
+    },
+    async ensureReady() {
+      return { initialized: true, rootPath: dbRoot };
+    },
+  };
+
+  const useCase = new SearchLocalDatabaseUseCase({
+    localDatabaseService: fakeLocalDatabaseService,
+    stateRepository,
+    jsonLinesRepository,
+    termService,
+  });
+
+  const results = await useCase.execute({ number: "+7 (999) 123-45-67" });
+
+  assert.equal(results.length, 2);
+  assert.equal(results[1].object_data.fields.number, sharedNumber);
+
+  await fs.rm(tempRoot, { recursive: true, force: true });
+});
+
 test("SearchLocalDatabaseUseCase resolves wildcard lookups across hashed number buckets", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "matrix-search-wildcard-hash-"));
   const dbRoot = path.join(tempRoot, "db");

@@ -62,7 +62,10 @@ export class SearchLocalDatabaseUseCase {
           this.stateRepository.readIndexState(paths),
         ]);
 
-        if (indexState?.status === "running" && indexState?.bucketLayouts) {
+        if (
+          ["running", "cancelled"].includes(indexState?.status) &&
+          indexState?.bucketLayouts
+        ) {
           return normalizeBucketLayoutMap({
             bucketLayoutVersion: indexState.bucketLayoutVersion,
             bucketLayouts: indexState.bucketLayouts,

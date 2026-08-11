@@ -47,6 +47,7 @@ export class BuildLocalIndexesUseCase {
 
   async execute(options = {}) {
     const progress = new ProgressReporter(options.onProgress);
+    const workerCount = this.normalizeWorkerCount(options.workerCount);
 
     return await this.operationCoordinator.runExclusive("local-db-index", async () => {
       const databaseRootPath = this.localDatabaseService.getStoredRootPath();
@@ -87,6 +88,7 @@ export class BuildLocalIndexesUseCase {
         return await this.runBuild({
           options,
           progress,
+          workerCount,
           paths,
           documentFiles,
           previousState,
@@ -113,6 +115,7 @@ export class BuildLocalIndexesUseCase {
   async runBuild({
     options,
     progress,
+    workerCount,
     paths,
     documentFiles,
     previousState,
@@ -131,6 +134,7 @@ export class BuildLocalIndexesUseCase {
       return await this.resumeBuild({
         options,
         progress,
+        workerCount,
         paths,
         summary: resumableSession.summary,
         filePlans: resumableSession.filePlans,
@@ -168,6 +172,7 @@ export class BuildLocalIndexesUseCase {
       buildPlan,
       buildId,
       startedAt,
+      workerCount,
       workingIndexesDir,
       backupIndexesDir,
       filePlans: buildPlan.filePlans,
@@ -186,6 +191,7 @@ export class BuildLocalIndexesUseCase {
     return await this.processFilePlans({
       options,
       progress,
+      workerCount,
       paths,
       summary,
       filePlans: buildPlan.filePlans,
@@ -242,6 +248,7 @@ export class BuildLocalIndexesUseCase {
   async resumeBuild({
     options,
     progress,
+    workerCount,
     paths,
     summary,
     filePlans,
@@ -252,11 +259,14 @@ export class BuildLocalIndexesUseCase {
     canPublishPartially,
     buildToken,
   }) {
+    summary.workerCount = workerCount;
+    await this.stateRepository.writeIndexState(paths, summary);
     progress.emit("started", this.buildStartedPayload(summary));
 
     return await this.processFilePlans({
       options,
       progress,
+      workerCount,
       paths,
       summary,
       filePlans,
@@ -273,6 +283,7 @@ export class BuildLocalIndexesUseCase {
     buildPlan,
     buildId,
     startedAt,
+    workerCount,
     workingIndexesDir,
     backupIndexesDir,
     filePlans,
@@ -302,6 +313,8 @@ export class BuildLocalIndexesUseCase {
       currentFileDocumentsTotal: 0,
       completedAt: null,
       error: null,
+      workerCount,
+      activeFiles: [],
       fileManifest: buildPlan.fileManifest,
       fields: Object.fromEntries(INDEXABLE_FIELDS.map((field) => [field, 0])),
       session: {
@@ -333,6 +346,8 @@ export class BuildLocalIndexesUseCase {
         Number(previousState.bucketLayoutVersion || previousState.lookupFormatVersion) ||
         LEGACY_INDEX_BUCKET_LAYOUT_VERSION,
       bucketLayouts: previousState.bucketLayouts || null,
+      workerCount: Number(previousState.workerCount || 1),
+      activeFiles: [],
       session: {
         ...previousState.session,
         lookupFormatVersion: DOCUMENT_LOOKUP_FORMAT_VERSION,
@@ -384,6 +399,7 @@ export class BuildLocalIndexesUseCase {
 
   async processFilePlans({
     progress,
+    workerCount,
     paths,
     summary,
     filePlans,
@@ -395,8 +411,25 @@ export class BuildLocalIndexesUseCase {
     buildToken,
   }) {
     try {
-      return await this.processFilePlansSequential({
+      const effectiveWorkerCount = this.normalizeWorkerCount(workerCount);
+      if (effectiveWorkerCount <= 1 || filePlans.length <= 1) {
+        return await this.processFilePlansSequential({
+          progress,
+          paths,
+          summary,
+          filePlans,
+          workingIndexesDir,
+          backupIndexesDir,
+          activeBucketLayouts,
+          activeBucketStats,
+          canPublishPartially,
+          buildToken,
+        });
+      }
+
+      return await this.processFilePlansParallel({
         progress,
+        workerCount: effectiveWorkerCount,
         paths,
         summary,
         filePlans,
@@ -496,6 +529,160 @@ export class BuildLocalIndexesUseCase {
     );
   }
 
+  async processFilePlansParallel({
+    progress,
+    workerCount,
+    paths,
+    summary,
+    filePlans,
+    workingIndexesDir,
+    backupIndexesDir,
+    activeBucketLayouts,
+    activeBucketStats,
+    canPublishPartially,
+    buildToken,
+  }) {
+    let nextFileIndex = 0;
+    let fatalError = null;
+    const activeFiles = new Set();
+    const aggregateProgress = new Map();
+    let commitChain = Promise.resolve();
+
+    const emitAggregateProgress = async (filePlan, fileDocumentsProcessed, fileResult) => {
+      aggregateProgress.set(filePlan.fileName, {
+        indexedDocuments: fileResult.indexedDocuments,
+        indexedEntries: fileResult.indexedEntries,
+      });
+      summary.currentFile = filePlan.fileName;
+      summary.currentFileDocumentsProcessed = fileDocumentsProcessed;
+      summary.currentFileDocumentsTotal = Math.max(
+        filePlan.documentsTotal || 0,
+        fileResult.indexedDocuments
+      );
+      summary.activeFiles = [...activeFiles];
+      progress.emit("progress", {
+        currentFile: filePlan.fileName,
+        activeFiles: summary.activeFiles,
+        filesProcessed: summary.filesProcessed,
+        filesTotal: summary.filesTotal,
+        indexedDocuments:
+          summary.indexedDocuments +
+          [...aggregateProgress.values()].reduce(
+            (total, entry) => total + Number(entry.indexedDocuments || 0),
+            0
+          ),
+        documentsTotal: summary.documentsTotal,
+        indexedEntries:
+          summary.indexedEntries +
+          [...aggregateProgress.values()].reduce(
+            (total, entry) => total + Number(entry.indexedEntries || 0),
+            0
+          ),
+        fileDocumentsProcessed,
+        fileDocumentsTotal: summary.currentFileDocumentsTotal,
+        buildMode: summary.buildMode,
+        workerCount: summary.workerCount || workerCount,
+        resumable: Boolean(summary.session?.resumable),
+      });
+    };
+
+    const commitIndexedFile = async (filePlan, fileWorkDir, fileResult) => {
+      await this.mergeIndexedFile(paths, fileWorkDir, workingIndexesDir);
+      await this.publishIndexedFileAfterCommit(paths, fileWorkDir, canPublishPartially);
+      await this.jsonLinesRepository.remove(fileWorkDir);
+      this.commitFileResult(summary, filePlan, fileResult);
+      summary.activeFiles = [...activeFiles];
+      await this.stateRepository.writeIndexState(paths, summary);
+      log.info(
+        `[Index] file committed file=${filePlan.fileName} filesProcessed=${summary.filesProcessed}/${summary.filesTotal} indexedDocuments=${summary.indexedDocuments}`
+      );
+      progress.emit("file-completed", this.buildFileCompletedPayload(summary, filePlan));
+    };
+
+    const runWorker = async () => {
+      while (true) {
+        if (fatalError) return;
+
+        const currentIndex = nextFileIndex;
+        nextFileIndex += 1;
+        if (currentIndex >= filePlans.length) {
+          return;
+        }
+
+        const filePlan = filePlans[currentIndex];
+        const fileWorkDir = this.getFileWorkDir(paths, summary, filePlan.fileName);
+        activeFiles.add(filePlan.fileName);
+        summary.activeFiles = [...activeFiles];
+
+        await this.jsonLinesRepository.remove(fileWorkDir);
+        await this.prepareIndexDirectories(paths, fileWorkDir);
+
+        try {
+          const fileResult = await this.indexDocumentFile({
+            filePath: filePlan.filePath,
+            filePlan,
+            paths,
+            indexesDir: fileWorkDir,
+            activeBucketLayouts,
+            activeBucketStats,
+            summary: null,
+            progress: null,
+            buildToken,
+            onFileProgress: async ({ fileDocumentsProcessed, fileResult: currentFileResult }) => {
+              await emitAggregateProgress(filePlan, fileDocumentsProcessed, currentFileResult);
+            },
+          });
+
+          commitChain = commitChain.then(() =>
+            commitIndexedFile(filePlan, fileWorkDir, fileResult)
+          );
+          await commitChain;
+        } catch (error) {
+          await this.jsonLinesRepository.remove(fileWorkDir);
+          if (!fatalError) {
+            fatalError = error;
+            if (!(error instanceof IndexBuildCancelledError)) {
+              buildToken.cancelled = true;
+              buildToken.reason = buildToken.reason || "worker-error";
+            }
+          }
+        } finally {
+          activeFiles.delete(filePlan.fileName);
+          aggregateProgress.delete(filePlan.fileName);
+          summary.activeFiles = [...activeFiles];
+        }
+      }
+    };
+
+    const workers = Array.from({ length: Math.min(workerCount, filePlans.length) }, () =>
+      runWorker()
+    );
+    await Promise.all(workers);
+    await commitChain;
+
+    if (fatalError) {
+      if (fatalError instanceof IndexBuildCancelledError) {
+        return await this.handleCancellation({
+          error: fatalError,
+          progress,
+          paths,
+          summary,
+          activeFiles: [...activeFiles],
+        });
+      }
+      throw fatalError;
+    }
+
+    await this.replaceIndexesAtomically(paths, workingIndexesDir, backupIndexesDir);
+    return await this.completeBuild(
+      paths,
+      summary,
+      progress,
+      activeBucketLayouts,
+      activeBucketStats
+    );
+  }
+
   async completeBuild(paths, summary, progress, activeBucketLayouts, activeBucketStats) {
     summary.status = "completed";
     summary.currentFile = null;
@@ -562,17 +749,21 @@ export class BuildLocalIndexesUseCase {
     await this.mergeIndexedFile(paths, fileWorkDir, paths.indexesDir);
   }
 
-  async handleCancellation({ error, progress, paths, summary, filePlan = null }) {
+  async handleCancellation({ error, progress, paths, summary, filePlan = null, activeFiles = [] }) {
     summary.status = "cancelled";
     summary.error = null;
     summary.completedAt = new Date().toISOString();
-    summary.currentFile = filePlan?.fileName || summary.currentFile;
+    summary.currentFile = filePlan?.fileName || activeFiles[0] || summary.currentFile;
     summary.currentFileDocumentsProcessed = 0;
     summary.currentFileDocumentsTotal = 0;
+    summary.activeFiles = activeFiles;
     if (summary.session) {
       const pendingFiles = new Set(summary.session.pendingFiles || []);
       if (summary.currentFile) {
         pendingFiles.add(summary.currentFile);
+      }
+      for (const activeFile of activeFiles) {
+        pendingFiles.add(activeFile);
       }
       summary.session.pendingFiles = [...pendingFiles];
     }
@@ -620,6 +811,7 @@ export class BuildLocalIndexesUseCase {
     summary,
     progress,
     buildToken,
+    onFileProgress = null,
   }) {
     const bufferMap = new Map();
     let documentsSinceLastSave = 0;
@@ -662,16 +854,24 @@ export class BuildLocalIndexesUseCase {
           activeBucketStats
         );
 
-        if (documentsSinceLastSave >= PROGRESS_SAVE_INTERVAL && summary) {
+        if (documentsSinceLastSave >= PROGRESS_SAVE_INTERVAL) {
           await this.flushAllBuffers(bufferMap);
-          summary.currentFileDocumentsProcessed = fileDocumentsProcessed;
-          await this.stateRepository.writeIndexState(paths, summary);
+          if (summary) {
+            summary.currentFileDocumentsProcessed = fileDocumentsProcessed;
+            await this.stateRepository.writeIndexState(paths, summary);
+          }
           documentsSinceLastSave = 0;
         }
 
         if (documentsSinceLastProgress >= PROGRESS_EMIT_INTERVAL && summary && progress) {
           summary.currentFileDocumentsProcessed = fileDocumentsProcessed;
           progress.emit("progress", this.buildProgressPayload(summary, filePlan, fileResult));
+          documentsSinceLastProgress = 0;
+        } else if (documentsSinceLastProgress >= PROGRESS_EMIT_INTERVAL && onFileProgress) {
+          await onFileProgress({
+            fileDocumentsProcessed,
+            fileResult,
+          });
           documentsSinceLastProgress = 0;
         }
       }
@@ -682,6 +882,11 @@ export class BuildLocalIndexesUseCase {
     if (summary && progress) {
       summary.currentFileDocumentsProcessed = fileDocumentsProcessed;
       progress.emit("progress", this.buildProgressPayload(summary, filePlan, fileResult));
+    } else if (onFileProgress) {
+      await onFileProgress({
+        fileDocumentsProcessed,
+        fileResult,
+      });
     }
     return fileResult;
   }
@@ -822,7 +1027,7 @@ export class BuildLocalIndexesUseCase {
     if (!lines || lines.length === 0) return;
 
     await this.jsonLinesRepository.appendLines(filePath, lines);
-    bufferMap.set(filePath, []);
+    bufferMap.delete(filePath);
   }
 
   async flushAllBuffers(bufferMap) {
@@ -903,6 +1108,7 @@ export class BuildLocalIndexesUseCase {
       indexedDocuments: summary.indexedDocuments,
       documentsTotal: summary.documentsTotal,
       buildMode: summary.buildMode,
+      workerCount: summary.workerCount || 1,
       reusedFiles: summary.reusedFiles,
       reusedDocuments: summary.reusedDocuments,
       resumable: Boolean(summary.session?.resumable),
@@ -920,6 +1126,7 @@ export class BuildLocalIndexesUseCase {
       fileDocumentsProcessed: summary.currentFileDocumentsProcessed,
       fileDocumentsTotal: Math.max(filePlan.documentsTotal || 0, fileResult.indexedDocuments),
       buildMode: summary.buildMode,
+      workerCount: summary.workerCount || 1,
       resumable: Boolean(summary.session?.resumable),
     };
   }
@@ -935,6 +1142,7 @@ export class BuildLocalIndexesUseCase {
       fileDocumentsProcessed: filePlan.documentsTotal || summary.currentFileDocumentsProcessed,
       fileDocumentsTotal: filePlan.documentsTotal || summary.currentFileDocumentsTotal,
       buildMode: summary.buildMode,
+      workerCount: summary.workerCount || 1,
       resumable: Boolean(summary.session?.resumable),
     };
   }
@@ -946,6 +1154,7 @@ export class BuildLocalIndexesUseCase {
       indexedDocuments: summary.indexedDocuments,
       indexedEntries: summary.indexedEntries,
       buildMode: summary.buildMode,
+      workerCount: summary.workerCount || 1,
       reusedFiles: summary.reusedFiles,
       reusedDocuments: summary.reusedDocuments,
       resumable: false,
@@ -1016,5 +1225,14 @@ export class BuildLocalIndexesUseCase {
       }
       throw error;
     }
+  }
+
+  normalizeWorkerCount(value) {
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue)) {
+      return 1;
+    }
+
+    return Math.min(4, Math.max(1, Math.floor(numericValue)));
   }
 }

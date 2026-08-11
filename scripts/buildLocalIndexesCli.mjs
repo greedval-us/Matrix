@@ -95,11 +95,12 @@ function printUsage() {
   console.log(
     [
       "Usage:",
-      "  node scripts/buildLocalIndexesCli.mjs --db-root /path/to/MatrixData [--clean]",
+      "  node scripts/buildLocalIndexesCli.mjs --db-root /path/to/MatrixData [--clean] [--workers 2]",
       "",
       "Examples:",
       "  node scripts/buildLocalIndexesCli.mjs --db-root /srv/data/MatrixData",
       "  node scripts/buildLocalIndexesCli.mjs --db-root /srv/data/MatrixData --clean",
+      "  node scripts/buildLocalIndexesCli.mjs --db-root /srv/data/MatrixData --workers 2",
       "  npm run index:cli -- --db-root /srv/data/MatrixData --clean",
     ].join("\n")
   );
@@ -109,6 +110,7 @@ function parseArgs(argv) {
   const args = {
     dbRoot: "",
     clean: false,
+    workers: 1,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -130,6 +132,12 @@ function parseArgs(argv) {
       continue;
     }
 
+    if (current === "--workers") {
+      args.workers = Number(argv[index + 1] || 1);
+      index += 1;
+      continue;
+    }
+
   }
 
   return args;
@@ -139,9 +147,10 @@ function formatProgress(payload) {
   const stage = payload.stage || "progress";
   const files = `${payload.filesProcessed ?? 0}/${payload.filesTotal ?? 0}`;
   const docs = `${payload.indexedDocuments ?? 0}/${payload.documentsTotal ?? 0}`;
+  const workers = payload.workerCount ? ` workers=${payload.workerCount}` : "";
   const fileName = payload.currentFile ? ` file=${payload.currentFile}` : "";
   const mode = payload.buildMode ? ` mode=${payload.buildMode}` : "";
-  return `[index:${stage}] files=${files} docs=${docs}${mode}${fileName}`;
+  return `[index:${stage}] files=${files} docs=${docs}${workers}${mode}${fileName}`;
 }
 
 async function main() {
@@ -195,6 +204,7 @@ async function main() {
   console.log(`Starting local index build for: ${localDatabaseService.getStoredRootPath()}`);
 
   const summary = await useCase.execute({
+    workerCount: args.workers,
     onProgress: (payload) => {
       console.log(formatProgress(payload));
     },
