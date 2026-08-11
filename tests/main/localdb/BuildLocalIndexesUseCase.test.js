@@ -495,6 +495,302 @@ test("BuildLocalIndexesUseCase publishes full rebuild indexes after each file in
   await fs.rm(tempRoot, { recursive: true, force: true });
 });
 
+test("BuildLocalIndexesUseCase can stage file indexes without publishing them", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "matrix-index-stage-only-"));
+  const dbRoot = path.join(tempRoot, "db");
+  const paths = new LocalDatabasePaths(dbRoot);
+  const stateRepository = new LocalDatabaseStateRepository();
+  const jsonLinesRepository = new JsonLinesRepository();
+
+  await fs.mkdir(paths.documentsDir, { recursive: true });
+  await fs.mkdir(paths.metaDir, { recursive: true });
+  await fs.mkdir(paths.stateDir, { recursive: true });
+  await fs.mkdir(paths.tempDir, { recursive: true });
+  await stateRepository.writeJson(
+    paths.databaseMetaPath,
+    stateRepository.buildDatabaseMeta("2026-08-11T11:00:00.000Z")
+  );
+
+  await jsonLinesRepository.appendLines(path.join(paths.documentsDir, "import_alpha.jsonl"), [
+    JSON.stringify({
+      docId: "alpha:1",
+      sourceTable: "alpha",
+      rowId: 1,
+      fields: { number: "71110000001" },
+      invalidFields: {},
+    }),
+  ]);
+
+  const useCase = createUseCase({ dbRoot, stateRepository, jsonLinesRepository });
+  const summary = await useCase.execute({ stageOnly: true });
+
+  assert.equal(summary.status, "staged");
+  assert.equal(
+    await jsonLinesRepository.exists(
+      paths.getIndexBucketPath("number", getNumberBucketName("71110000001"))
+    ),
+    false
+  );
+  assert.equal(
+    await jsonLinesRepository.exists(
+      path.join(
+        paths.tempDir,
+        `index-build-${summary.session.buildId}-file-${encodeURIComponent("import_alpha.jsonl")}`
+      )
+    ),
+    true
+  );
+
+  await fs.rm(tempRoot, { recursive: true, force: true });
+});
+
+test("BuildLocalIndexesUseCase can merge staged file indexes into published indexes", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "matrix-index-merge-staged-"));
+  const dbRoot = path.join(tempRoot, "db");
+  const paths = new LocalDatabasePaths(dbRoot);
+  const stateRepository = new LocalDatabaseStateRepository();
+  const jsonLinesRepository = new JsonLinesRepository();
+
+  await fs.mkdir(paths.documentsDir, { recursive: true });
+  await fs.mkdir(paths.metaDir, { recursive: true });
+  await fs.mkdir(paths.stateDir, { recursive: true });
+  await fs.mkdir(paths.tempDir, { recursive: true });
+  await stateRepository.writeJson(
+    paths.databaseMetaPath,
+    stateRepository.buildDatabaseMeta("2026-08-11T11:05:00.000Z")
+  );
+
+  await jsonLinesRepository.appendLines(path.join(paths.documentsDir, "import_alpha.jsonl"), [
+    JSON.stringify({
+      docId: "alpha:1",
+      sourceTable: "alpha",
+      rowId: 1,
+      fields: { number: "71110000001" },
+      invalidFields: {},
+    }),
+  ]);
+  await jsonLinesRepository.appendLines(path.join(paths.documentsDir, "import_beta.jsonl"), [
+    JSON.stringify({
+      docId: "beta:1",
+      sourceTable: "beta",
+      rowId: 1,
+      fields: { number: "72220000001" },
+      invalidFields: {},
+    }),
+  ]);
+
+  const useCase = createUseCase({ dbRoot, stateRepository, jsonLinesRepository });
+  const stagedSummary = await useCase.execute({ stageOnly: true, workerCount: 2 });
+  assert.equal(stagedSummary.status, "staged");
+
+  const mergedSummary = await useCase.execute({ mergeStaged: true });
+  assert.equal(mergedSummary.status, "completed");
+
+  const bucket71 = [];
+  for await (const entry of jsonLinesRepository.iterateJson(
+    paths.getIndexBucketPath("number", getNumberBucketName("71110000001"))
+  )) {
+    bucket71.push(entry);
+  }
+  const bucket72 = [];
+  for await (const entry of jsonLinesRepository.iterateJson(
+    paths.getIndexBucketPath("number", getNumberBucketName("72220000001"))
+  )) {
+    bucket72.push(entry);
+  }
+
+  assert.ok(bucket71.some((entry) => entry.docId === "alpha:1"));
+  assert.ok(bucket72.some((entry) => entry.docId === "beta:1"));
+
+  await fs.rm(tempRoot, { recursive: true, force: true });
+});
+
+test("BuildLocalIndexesUseCase blocks normal resume when cancelled staged-only session exists", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "matrix-index-stage-resume-guard-"));
+  const dbRoot = path.join(tempRoot, "db");
+  const paths = new LocalDatabasePaths(dbRoot);
+  const stateRepository = new LocalDatabaseStateRepository();
+  const jsonLinesRepository = new JsonLinesRepository();
+
+  await fs.mkdir(paths.documentsDir, { recursive: true });
+  await fs.mkdir(paths.metaDir, { recursive: true });
+  await fs.mkdir(paths.stateDir, { recursive: true });
+  await fs.mkdir(paths.tempDir, { recursive: true });
+  await stateRepository.writeJson(
+    paths.databaseMetaPath,
+    stateRepository.buildDatabaseMeta("2026-08-11T11:10:00.000Z")
+  );
+
+  for (let index = 1; index <= 2; index += 1) {
+    await jsonLinesRepository.appendLines(path.join(paths.documentsDir, `import_${index}.jsonl`), [
+      JSON.stringify({
+        docId: `stage:${index}`,
+        sourceTable: "stage",
+        rowId: index,
+        fields: { number: `7999000000${index}` },
+        invalidFields: {},
+      }),
+    ]);
+  }
+
+  const useCase = createUseCase({ dbRoot, stateRepository, jsonLinesRepository });
+  const cancelledSummary = await useCase.execute({
+    stageOnly: true,
+    onProgress: (event) => {
+      if (event.stage === "file-completed") {
+        useCase.cancel("manual-stop");
+      }
+    },
+  });
+
+  assert.equal(cancelledSummary.status, "cancelled");
+  assert.equal(cancelledSummary.session.stagedOnly, true);
+
+  await assert.rejects(
+    () => useCase.execute(),
+    /staged-only indexing session already exists/i
+  );
+
+  await fs.rm(tempRoot, { recursive: true, force: true });
+});
+
+test("BuildLocalIndexesUseCase fails merge when staged file data is missing", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "matrix-index-merge-missing-"));
+  const dbRoot = path.join(tempRoot, "db");
+  const paths = new LocalDatabasePaths(dbRoot);
+  const stateRepository = new LocalDatabaseStateRepository();
+  const jsonLinesRepository = new JsonLinesRepository();
+
+  await fs.mkdir(paths.documentsDir, { recursive: true });
+  await fs.mkdir(paths.metaDir, { recursive: true });
+  await fs.mkdir(paths.stateDir, { recursive: true });
+  await fs.mkdir(paths.tempDir, { recursive: true });
+  await stateRepository.writeJson(
+    paths.databaseMetaPath,
+    stateRepository.buildDatabaseMeta("2026-08-11T11:15:00.000Z")
+  );
+
+  await jsonLinesRepository.appendLines(path.join(paths.documentsDir, "import_alpha.jsonl"), [
+    JSON.stringify({
+      docId: "alpha:1",
+      sourceTable: "alpha",
+      rowId: 1,
+      fields: { number: "71110000001" },
+      invalidFields: {},
+    }),
+  ]);
+
+  const useCase = createUseCase({ dbRoot, stateRepository, jsonLinesRepository });
+  const stagedSummary = await useCase.execute({ stageOnly: true });
+  await fs.rm(
+    path.join(
+      paths.tempDir,
+      `index-build-${stagedSummary.session.buildId}-file-${encodeURIComponent("import_alpha.jsonl")}`
+    ),
+    { recursive: true, force: true }
+  );
+
+  await assert.rejects(
+    () => useCase.execute({ mergeStaged: true }),
+    /staged index data is missing/i
+  );
+
+  await fs.rm(tempRoot, { recursive: true, force: true });
+});
+
+test("BuildLocalIndexesUseCase fails merge when document manifest changed after staging", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "matrix-index-merge-manifest-"));
+  const dbRoot = path.join(tempRoot, "db");
+  const paths = new LocalDatabasePaths(dbRoot);
+  const stateRepository = new LocalDatabaseStateRepository();
+  const jsonLinesRepository = new JsonLinesRepository();
+
+  await fs.mkdir(paths.documentsDir, { recursive: true });
+  await fs.mkdir(paths.metaDir, { recursive: true });
+  await fs.mkdir(paths.stateDir, { recursive: true });
+  await fs.mkdir(paths.tempDir, { recursive: true });
+  await stateRepository.writeJson(
+    paths.databaseMetaPath,
+    stateRepository.buildDatabaseMeta("2026-08-11T11:20:00.000Z")
+  );
+
+  const filePath = path.join(paths.documentsDir, "import_alpha.jsonl");
+  await jsonLinesRepository.appendLines(filePath, [
+    JSON.stringify({
+      docId: "alpha:1",
+      sourceTable: "alpha",
+      rowId: 1,
+      fields: { number: "71110000001" },
+      invalidFields: {},
+    }),
+  ]);
+
+  const useCase = createUseCase({ dbRoot, stateRepository, jsonLinesRepository });
+  await useCase.execute({ stageOnly: true });
+  await jsonLinesRepository.appendLines(filePath, [
+    JSON.stringify({
+      docId: "alpha:2",
+      sourceTable: "alpha",
+      rowId: 2,
+      fields: { number: "71110000002" },
+      invalidFields: {},
+    }),
+  ]);
+
+  await assert.rejects(
+    () => useCase.execute({ mergeStaged: true }),
+    /document files changed after staged indexing/i
+  );
+
+  await fs.rm(tempRoot, { recursive: true, force: true });
+});
+
+test("BuildLocalIndexesUseCase can cancel merge-staged without corrupting staged state", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "matrix-index-merge-cancel-"));
+  const dbRoot = path.join(tempRoot, "db");
+  const paths = new LocalDatabasePaths(dbRoot);
+  const stateRepository = new LocalDatabaseStateRepository();
+  const jsonLinesRepository = new JsonLinesRepository();
+
+  await fs.mkdir(paths.documentsDir, { recursive: true });
+  await fs.mkdir(paths.metaDir, { recursive: true });
+  await fs.mkdir(paths.stateDir, { recursive: true });
+  await fs.mkdir(paths.tempDir, { recursive: true });
+  await stateRepository.writeJson(
+    paths.databaseMetaPath,
+    stateRepository.buildDatabaseMeta("2026-08-11T11:25:00.000Z")
+  );
+
+  for (let index = 1; index <= 2; index += 1) {
+    await jsonLinesRepository.appendLines(path.join(paths.documentsDir, `import_${index}.jsonl`), [
+      JSON.stringify({
+        docId: `merge:${index}`,
+        sourceTable: "merge",
+        rowId: index,
+        fields: { number: `7888000000${index}` },
+        invalidFields: {},
+      }),
+    ]);
+  }
+
+  const useCase = createUseCase({ dbRoot, stateRepository, jsonLinesRepository });
+  await useCase.execute({ stageOnly: true });
+  const cancelledSummary = await useCase.execute({
+    mergeStaged: true,
+    onProgress: (event) => {
+      if (event.stage === "started") {
+        useCase.cancel("manual-stop");
+      }
+    },
+  });
+
+  assert.equal(cancelledSummary.status, "cancelled");
+  assert.equal(cancelledSummary.session.stagedOnly, true);
+  assert.equal(await jsonLinesRepository.exists(paths.indexesDir), false);
+
+  await fs.rm(tempRoot, { recursive: true, force: true });
+});
+
 test("BuildLocalIndexesUseCase treats an empty indexes directory as missing published indexes", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "matrix-index-empty-dir-publish-"));
   const dbRoot = path.join(tempRoot, "db");
@@ -749,135 +1045,6 @@ test("BuildLocalIndexesUseCase can cancel and resume unfinished indexing", async
   }
 
   assert.equal(indexedEntries, 5200);
-
-  await fs.rm(tempRoot, { recursive: true, force: true });
-});
-
-test("BuildLocalIndexesUseCase republishes completed working snapshot into indexes when resuming initial build", async () => {
-  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "matrix-index-resume-publish-snapshot-"));
-  const dbRoot = path.join(tempRoot, "db");
-  const paths = new LocalDatabasePaths(dbRoot);
-  const stateRepository = new LocalDatabaseStateRepository();
-  const jsonLinesRepository = new JsonLinesRepository();
-
-  await fs.mkdir(paths.documentsDir, { recursive: true });
-  await fs.mkdir(paths.metaDir, { recursive: true });
-  await fs.mkdir(paths.stateDir, { recursive: true });
-  await fs.mkdir(paths.tempDir, { recursive: true });
-  await stateRepository.writeJson(
-    paths.databaseMetaPath,
-    stateRepository.buildDatabaseMeta("2026-08-11T09:00:00.000Z")
-  );
-
-  const docFiles = [
-    ["import_alpha.jsonl", "alpha:1", "71110000001"],
-    ["import_beta.jsonl", "beta:1", "72220000001"],
-    ["import_gamma.jsonl", "gamma:1", "73330000001"],
-  ];
-
-  for (const [fileName, docId, number] of docFiles) {
-    await jsonLinesRepository.appendLines(path.join(paths.documentsDir, fileName), [
-      JSON.stringify({
-        docId,
-        sourceTable: docId.split(":")[0],
-        rowId: 1,
-        fields: { number },
-        invalidFields: {},
-      }),
-    ]);
-  }
-
-  const workingIndexesDir = paths.getTempPath("index-build-resume-publish-snapshot");
-  await fs.mkdir(workingIndexesDir, { recursive: true });
-
-  const alphaBucketPath = paths.getIndexBucketPath(
-    "number",
-    getNumberBucketName("71110000001"),
-    workingIndexesDir
-  );
-  const betaBucketPath = paths.getIndexBucketPath(
-    "number",
-    getNumberBucketName("72220000001"),
-    workingIndexesDir
-  );
-  const gammaBucketPath = paths.getIndexBucketPath(
-    "number",
-    getNumberBucketName("73330000001")
-  );
-
-  await jsonLinesRepository.appendLines(alphaBucketPath, [
-    JSON.stringify({ term: "71110000001", docId: "alpha:1", sourceTable: "alpha", rowId: 1 }),
-  ]);
-  await jsonLinesRepository.appendLines(betaBucketPath, [
-    JSON.stringify({ term: "72220000001", docId: "beta:1", sourceTable: "beta", rowId: 1 }),
-  ]);
-  await jsonLinesRepository.appendLines(paths.getIndexBucketPath("number", getNumberBucketName("71110000001")), [
-    JSON.stringify({ term: "71110000001", docId: "alpha:1", sourceTable: "alpha", rowId: 1 }),
-  ]);
-
-  const manifest = {};
-  for (const [fileName] of docFiles) {
-    const stat = await jsonLinesRepository.stat(path.join(paths.documentsDir, fileName));
-    manifest[fileName] = {
-      size: stat.size,
-      modifiedAtMs: stat.mtimeMs,
-      documentsTotal: 1,
-    };
-  }
-
-  await stateRepository.writeIndexState(paths, {
-    status: "cancelled",
-    buildMode: "full",
-    buildReason: "initial-build",
-    indexedAt: "2026-08-11T09:00:00.000Z",
-    startedAt: "2026-08-11T09:00:00.000Z",
-    filesTotal: 3,
-    filesProcessed: 2,
-    indexedDocuments: 2,
-    documentsTotal: 0,
-    indexedEntries: 2,
-    lookupEntries: 0,
-    lookupFormatVersion: DOCUMENT_LOOKUP_FORMAT_VERSION,
-    fileManifest: manifest,
-    fields: { number: 2, mail: 0, fio: 0, passport: 0, inn: 0, snils: 0, telegram: 0, vk: 0, facebook: 0, grz: 0, vin: 0, date_of_birth: 0 },
-    session: {
-      resumable: true,
-      buildId: "resume-publish-snapshot",
-      workingIndexesDir,
-      backupIndexesDir: paths.getTempPath("index-backup-resume-publish-snapshot"),
-      completedFiles: ["import_alpha.jsonl", "import_beta.jsonl"],
-      pendingFiles: ["import_gamma.jsonl"],
-    },
-  });
-
-  const useCase = createUseCase({ dbRoot, stateRepository, jsonLinesRepository });
-  let betaPublishedAtStart = false;
-
-  const summary = await useCase.execute({
-    onProgress: (event) => {
-      if (event.stage === "started") {
-        betaPublishedAtStart = true;
-      }
-    },
-  });
-
-  const betaEntries = [];
-  for await (const entry of jsonLinesRepository.iterateJson(
-    paths.getIndexBucketPath("number", getNumberBucketName("72220000001"))
-  )) {
-    betaEntries.push(entry);
-  }
-
-  const gammaEntries = [];
-  for await (const entry of jsonLinesRepository.iterateJson(gammaBucketPath)) {
-    gammaEntries.push(entry);
-  }
-
-  assert.equal(summary.status, "completed");
-  assert.equal(summary.filesTotal, 3);
-  assert.equal(betaPublishedAtStart, true);
-  assert.ok(betaEntries.some((entry) => entry.docId === "beta:1"));
-  assert.ok(gammaEntries.some((entry) => entry.docId === "gamma:1"));
 
   await fs.rm(tempRoot, { recursive: true, force: true });
 });

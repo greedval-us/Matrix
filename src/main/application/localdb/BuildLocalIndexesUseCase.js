@@ -48,6 +48,8 @@ export class BuildLocalIndexesUseCase {
   async execute(options = {}) {
     const progress = new ProgressReporter(options.onProgress);
     const workerCount = this.normalizeWorkerCount(options.workerCount);
+    const stageOnly = Boolean(options.stageOnly);
+    const mergeStaged = Boolean(options.mergeStaged);
 
     return await this.operationCoordinator.runExclusive("local-db-index", async () => {
       const databaseRootPath = this.localDatabaseService.getStoredRootPath();
@@ -78,6 +80,10 @@ export class BuildLocalIndexesUseCase {
         throw new Error(localDbMessages.noIndexedDocuments);
       }
 
+      if (stageOnly && mergeStaged) {
+        throw new Error("Choose either stageOnly or mergeStaged, not both.");
+      }
+
       const buildToken = {
         cancelled: false,
         reason: null,
@@ -85,10 +91,21 @@ export class BuildLocalIndexesUseCase {
       this.currentBuildToken = buildToken;
 
       try {
+        if (mergeStaged) {
+          return await this.mergeStagedIndexes({
+            progress,
+            paths,
+            documentFiles,
+            previousState,
+            buildToken,
+          });
+        }
+
         return await this.runBuild({
           options,
           progress,
           workerCount,
+          stageOnly,
           paths,
           documentFiles,
           previousState,
@@ -116,6 +133,7 @@ export class BuildLocalIndexesUseCase {
     options,
     progress,
     workerCount,
+    stageOnly,
     paths,
     documentFiles,
     previousState,
@@ -124,6 +142,8 @@ export class BuildLocalIndexesUseCase {
     hasExistingIndexes,
     buildToken,
   }) {
+    this.assertStagedSessionMode(previousState, { stageOnly });
+
     const resumableSession = await this.tryCreateResumeSession({
       paths,
       documentFiles,
@@ -139,6 +159,7 @@ export class BuildLocalIndexesUseCase {
         options,
         progress,
         workerCount,
+        stageOnly,
         paths,
         summary: resumableSession.summary,
         filePlans: resumableSession.filePlans,
@@ -176,6 +197,7 @@ export class BuildLocalIndexesUseCase {
       buildPlan,
       buildId,
       startedAt,
+      stageOnly,
       workerCount,
       workingIndexesDir,
       backupIndexesDir,
@@ -196,6 +218,7 @@ export class BuildLocalIndexesUseCase {
       options,
       progress,
       workerCount,
+      stageOnly,
       paths,
       summary,
       filePlans: buildPlan.filePlans,
@@ -253,6 +276,7 @@ export class BuildLocalIndexesUseCase {
     options,
     progress,
     workerCount,
+    stageOnly,
     paths,
     summary,
     filePlans,
@@ -264,9 +288,6 @@ export class BuildLocalIndexesUseCase {
     buildToken,
   }) {
     summary.workerCount = workerCount;
-    if (canPublishPartially) {
-      await this.syncWorkingIndexesToPublished(paths, workingIndexesDir, summary);
-    }
     await this.stateRepository.writeIndexState(paths, summary);
     progress.emit("started", this.buildStartedPayload(summary));
 
@@ -274,6 +295,7 @@ export class BuildLocalIndexesUseCase {
       options,
       progress,
       workerCount,
+      stageOnly,
       paths,
       summary,
       filePlans,
@@ -290,6 +312,7 @@ export class BuildLocalIndexesUseCase {
     buildPlan,
     buildId,
     startedAt,
+    stageOnly,
     workerCount,
     workingIndexesDir,
     backupIndexesDir,
@@ -326,6 +349,7 @@ export class BuildLocalIndexesUseCase {
       fields: Object.fromEntries(INDEXABLE_FIELDS.map((field) => [field, 0])),
       session: {
         resumable: true,
+        stagedOnly: Boolean(stageOnly),
         buildId,
         lookupFormatVersion: DOCUMENT_LOOKUP_FORMAT_VERSION,
         workingIndexesDir,
@@ -409,6 +433,7 @@ export class BuildLocalIndexesUseCase {
   async processFilePlans({
     progress,
     workerCount,
+    stageOnly,
     paths,
     summary,
     filePlans,
@@ -424,6 +449,7 @@ export class BuildLocalIndexesUseCase {
       if (effectiveWorkerCount <= 1 || filePlans.length <= 1) {
         return await this.processFilePlansSequential({
           progress,
+          stageOnly,
           paths,
           summary,
           filePlans,
@@ -439,6 +465,7 @@ export class BuildLocalIndexesUseCase {
       return await this.processFilePlansParallel({
         progress,
         workerCount: effectiveWorkerCount,
+        stageOnly,
         paths,
         summary,
         filePlans,
@@ -465,6 +492,7 @@ export class BuildLocalIndexesUseCase {
 
   async processFilePlansSequential({
     progress,
+    stageOnly,
     paths,
     summary,
     filePlans,
@@ -500,13 +528,15 @@ export class BuildLocalIndexesUseCase {
           buildToken,
         });
 
-        await this.mergeIndexedFile(paths, fileWorkDir, workingIndexesDir);
-        await this.publishIndexedFileAfterCommit(
-          paths,
-          fileWorkDir,
-          canPublishPartially
-        );
-        await this.jsonLinesRepository.remove(fileWorkDir);
+        if (!stageOnly) {
+          await this.mergeIndexedFile(paths, fileWorkDir, workingIndexesDir);
+          await this.publishIndexedFileAfterCommit(
+            paths,
+            fileWorkDir,
+            canPublishPartially
+          );
+          await this.jsonLinesRepository.remove(fileWorkDir);
+        }
         this.commitFileResult(summary, filePlan, fileResult);
         await this.stateRepository.writeIndexState(paths, summary);
         log.info(
@@ -528,6 +558,10 @@ export class BuildLocalIndexesUseCase {
       }
     }
 
+    if (stageOnly) {
+      return await this.completeStagedBuild(paths, summary, progress, activeBucketStats);
+    }
+
     await this.replaceIndexesAtomically(paths, workingIndexesDir, backupIndexesDir);
     return await this.completeBuild(
       paths,
@@ -541,6 +575,7 @@ export class BuildLocalIndexesUseCase {
   async processFilePlansParallel({
     progress,
     workerCount,
+    stageOnly,
     paths,
     summary,
     filePlans,
@@ -596,9 +631,11 @@ export class BuildLocalIndexesUseCase {
     };
 
     const commitIndexedFile = async (filePlan, fileWorkDir, fileResult) => {
-      await this.mergeIndexedFile(paths, fileWorkDir, workingIndexesDir);
-      await this.publishIndexedFileAfterCommit(paths, fileWorkDir, canPublishPartially);
-      await this.jsonLinesRepository.remove(fileWorkDir);
+      if (!stageOnly) {
+        await this.mergeIndexedFile(paths, fileWorkDir, workingIndexesDir);
+        await this.publishIndexedFileAfterCommit(paths, fileWorkDir, canPublishPartially);
+        await this.jsonLinesRepository.remove(fileWorkDir);
+      }
       this.commitFileResult(summary, filePlan, fileResult);
       summary.activeFiles = [...activeFiles];
       await this.stateRepository.writeIndexState(paths, summary);
@@ -682,6 +719,10 @@ export class BuildLocalIndexesUseCase {
       throw fatalError;
     }
 
+    if (stageOnly) {
+      return await this.completeStagedBuild(paths, summary, progress, activeBucketStats);
+    }
+
     await this.replaceIndexesAtomically(paths, workingIndexesDir, backupIndexesDir);
     return await this.completeBuild(
       paths,
@@ -728,6 +769,191 @@ export class BuildLocalIndexesUseCase {
     return summary;
   }
 
+  async completeStagedBuild(paths, summary, progress, activeBucketStats) {
+    const completedAt = new Date().toISOString();
+    summary.status = "staged";
+    summary.currentFile = null;
+    summary.currentFileDocumentsProcessed = 0;
+    summary.currentFileDocumentsTotal = 0;
+    summary.documentsTotal = summary.indexedDocuments;
+    summary.completedAt = completedAt;
+    summary.error = null;
+    summary.session = {
+      ...(summary.session || {}),
+      stagedOnly: true,
+      bucketStatsPath: this.getStagedBucketStatsPath(paths, summary.session?.buildId),
+    };
+
+    await this.stateRepository.writeJson(
+      summary.session.bucketStatsPath,
+      this.buildPersistedBucketStats(activeBucketStats, completedAt)
+    );
+    await this.stateRepository.writeIndexState(paths, summary);
+    progress.emit("staged", {
+      filesProcessed: summary.filesProcessed,
+      filesTotal: summary.filesTotal,
+      indexedDocuments: summary.indexedDocuments,
+      indexedEntries: summary.indexedEntries,
+      buildMode: summary.buildMode,
+      workerCount: summary.workerCount || 1,
+      resumable: Boolean(summary.session?.resumable),
+    });
+
+    return summary;
+  }
+
+  async mergeStagedIndexes({ progress, paths, documentFiles, previousState, buildToken }) {
+    if (previousState?.status !== "staged" || !previousState?.session?.stagedOnly) {
+      throw new Error("No staged file indexes found to merge.");
+    }
+
+    const completedFiles = previousState.session.completedFiles || [];
+    if (completedFiles.length === 0) {
+      throw new Error("No staged file indexes found to merge.");
+    }
+
+    const manifestMatches = await this.isStateManifestCurrent(paths, documentFiles, previousState);
+    if (!manifestMatches) {
+      throw new Error(
+        "Document files changed after staged indexing. Rebuild staged indexes from scratch before merging."
+      );
+    }
+
+    const mergedIndexesDir = paths.getTempPath(
+      `${INDEX_BUILD_TEMP_PREFIX}-${previousState.session.buildId}-merged`
+    );
+    const backupIndexesDir = paths.getTempPath(
+      `${INDEX_BACKUP_TEMP_PREFIX}-${previousState.session.buildId}-merge`
+    );
+    await this.jsonLinesRepository.remove(mergedIndexesDir);
+    await this.prepareIndexDirectories(paths, mergedIndexesDir);
+
+    progress.emit("started", {
+      filesProcessed: 0,
+      filesTotal: completedFiles.length,
+      indexedDocuments: previousState.indexedDocuments,
+      documentsTotal: previousState.documentsTotal,
+      buildMode: previousState.buildMode,
+      workerCount: 1,
+      resumable: false,
+      mergeStaged: true,
+    });
+
+    let filesProcessed = 0;
+    try {
+      for (const fileName of completedFiles) {
+        this.throwIfCancelled(buildToken);
+        const fileWorkDir = this.getFileWorkDir(paths, previousState, fileName);
+        if (!(await this.jsonLinesRepository.exists(fileWorkDir))) {
+          throw new Error(`Staged index data is missing for file: ${fileName}`);
+        }
+
+        await this.mergeIndexedFile(paths, fileWorkDir, mergedIndexesDir);
+        filesProcessed += 1;
+        progress.emit("progress", {
+          currentFile: fileName,
+          filesProcessed,
+          filesTotal: completedFiles.length,
+          indexedDocuments: previousState.indexedDocuments,
+          documentsTotal: previousState.documentsTotal,
+          buildMode: previousState.buildMode,
+          workerCount: 1,
+          resumable: false,
+          mergeStaged: true,
+        });
+      }
+    } catch (error) {
+      await this.jsonLinesRepository.remove(mergedIndexesDir);
+      if (error instanceof IndexBuildCancelledError) {
+        return await this.handleMergeStagedCancellation({
+          error,
+          progress,
+          paths,
+          previousState,
+          filesProcessed,
+        });
+      }
+      throw error;
+    }
+
+    await this.replaceIndexesAtomically(paths, mergedIndexesDir, backupIndexesDir);
+    const bucketStats = await this.stateRepository.readJson(
+      previousState.session.bucketStatsPath,
+      null
+    );
+    if (bucketStats) {
+      await this.stateRepository.writeIndexBucketStats(paths, bucketStats);
+    }
+
+    const completedAt = new Date().toISOString();
+    const bucketLayouts = previousState.bucketLayouts || buildRecommendedBucketLayoutMap();
+    const summary = {
+      ...previousState,
+      status: "completed",
+      resumedAt: null,
+      completedAt,
+      currentFile: null,
+      currentFileDocumentsProcessed: 0,
+      currentFileDocumentsTotal: 0,
+      documentsTotal: previousState.indexedDocuments,
+      error: null,
+      session: null,
+    };
+
+    await this.stateRepository.updateDatabaseMeta(paths, (meta) => ({
+      ...meta,
+      updatedAt: completedAt,
+      indexes: {
+        ...(meta.indexes || {}),
+        version: 1,
+        builtAt: completedAt,
+        fields: INDEXABLE_FIELDS,
+        lookupFormatVersion: DOCUMENT_LOOKUP_FORMAT_VERSION,
+        bucketLayoutVersion: resolveGlobalBucketLayoutVersion(bucketLayouts),
+        bucketLayouts,
+      },
+    }));
+    await this.stateRepository.writeIndexState(paths, summary);
+    await this.cleanupStagedArtifacts(paths, previousState);
+    progress.emit("completed", this.buildCompletedPayload(summary));
+    return summary;
+  }
+
+  async handleMergeStagedCancellation({
+    error,
+    progress,
+    paths,
+    previousState,
+    filesProcessed,
+  }) {
+    const cancelledAt = new Date().toISOString();
+    const summary = {
+      ...previousState,
+      status: "cancelled",
+      completedAt: cancelledAt,
+      error: null,
+      currentFile: null,
+      currentFileDocumentsProcessed: 0,
+      currentFileDocumentsTotal: 0,
+    };
+
+    await this.stateRepository.writeIndexState(paths, summary);
+    log.warn(
+      `[Index] merge-staged cancelled filesProcessed=${filesProcessed}/${previousState.filesProcessed || previousState.filesTotal || 0} reason=${error.reason || "cancelled"}`
+    );
+    progress.emit("cancelled", {
+      filesProcessed,
+      filesTotal: previousState.filesProcessed || previousState.filesTotal || 0,
+      indexedDocuments: previousState.indexedDocuments,
+      documentsTotal: previousState.documentsTotal,
+      buildMode: previousState.buildMode,
+      reason: error.reason,
+      mergeStaged: true,
+    });
+
+    return summary;
+  }
+
   async failBuild(paths, summary, workingIndexesDir, progress, error) {
     summary.status = "failed";
     summary.error = error.message;
@@ -758,6 +984,10 @@ export class BuildLocalIndexesUseCase {
     await this.mergeIndexedFile(paths, fileWorkDir, paths.indexesDir);
   }
 
+  getStagedBucketStatsPath(paths, buildId) {
+    return paths.getTempPath(`${INDEX_BUILD_TEMP_PREFIX}-${buildId}-bucket-stats.json`);
+  }
+
   shouldPublishPartiallyDuringResume(previousState, hasExistingIndexes) {
     if (!previousState) {
       return !hasExistingIndexes;
@@ -770,17 +1000,38 @@ export class BuildLocalIndexesUseCase {
     return previousState.buildReason === "initial-build";
   }
 
-  async syncWorkingIndexesToPublished(paths, workingIndexesDir, summary) {
-    const publishSnapshotDir = paths.getTempPath(
-      `${INDEX_BUILD_TEMP_PREFIX}-${summary.session.buildId}-publish`
+  assertStagedSessionMode(previousState, { stageOnly }) {
+    if (!previousState?.session?.stagedOnly) {
+      return;
+    }
+
+    if (["running", "cancelled"].includes(previousState.status) && !stageOnly) {
+      throw new Error(
+        "A staged-only indexing session already exists. Resume it with --stage-only or clear temp/index state before starting a normal build."
+      );
+    }
+
+    if (previousState.status === "staged") {
+      if (stageOnly) {
+        throw new Error(
+          "Staged file indexes are already ready. Run --merge-staged to publish them or use --clean to rebuild from scratch."
+        );
+      }
+
+      throw new Error(
+        "Unmerged staged file indexes already exist. Run --merge-staged to publish them or use --clean to rebuild from scratch."
+      );
+    }
+  }
+
+  async isStateManifestCurrent(paths, documentFiles, previousState) {
+    const snapshots = await this.indexBuildPlanner.readFileSnapshots(paths, documentFiles);
+    const previousManifest = this.indexBuildPlanner.normalizeManifest(previousState?.fileManifest);
+    const currentManifest = new Map(
+      Object.entries(this.indexBuildPlanner.buildManifestFromPlans(snapshots))
     );
-    await this.jsonLinesRepository.remove(publishSnapshotDir);
-    await this.jsonLinesRepository.copy(workingIndexesDir, publishSnapshotDir);
-    await this.replaceIndexesAtomically(
-      paths,
-      publishSnapshotDir,
-      paths.getTempPath(`${INDEX_BACKUP_TEMP_PREFIX}-${summary.session.buildId}-publish`)
-    );
+
+    return this.indexBuildPlanner.areManifestEntriesEqual(previousManifest, currentManifest);
   }
 
   async handleCancellation({ error, progress, paths, summary, filePlan = null, activeFiles = [] }) {
@@ -1219,7 +1470,31 @@ export class BuildLocalIndexesUseCase {
     if (previousState?.session?.backupIndexesDir) {
       await this.jsonLinesRepository.remove(previousState.session.backupIndexesDir);
     }
+    if (previousState?.session?.bucketStatsPath) {
+      await this.jsonLinesRepository.remove(previousState.session.bucketStatsPath);
+    }
+    if (Array.isArray(previousState?.session?.completedFiles)) {
+      for (const fileName of previousState.session.completedFiles) {
+        await this.jsonLinesRepository.remove(this.getFileWorkDir(paths, previousState, fileName));
+      }
+    }
     await this.removeCurrentFileWorkDir(previousState, paths);
+  }
+
+  async cleanupStagedArtifacts(paths, previousState) {
+    if (previousState?.session?.bucketStatsPath) {
+      await this.jsonLinesRepository.remove(previousState.session.bucketStatsPath);
+    }
+
+    if (Array.isArray(previousState?.session?.completedFiles)) {
+      for (const fileName of previousState.session.completedFiles) {
+        await this.jsonLinesRepository.remove(this.getFileWorkDir(paths, previousState, fileName));
+      }
+    }
+
+    if (previousState?.session?.workingIndexesDir) {
+      await this.jsonLinesRepository.remove(previousState.session.workingIndexesDir);
+    }
   }
 
   async hasPublishedIndexes(paths) {

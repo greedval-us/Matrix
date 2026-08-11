@@ -95,12 +95,15 @@ function printUsage() {
   console.log(
     [
       "Usage:",
-      "  node scripts/buildLocalIndexesCli.mjs --db-root /path/to/MatrixData [--clean] [--workers 2]",
+      "  node scripts/buildLocalIndexesCli.mjs --db-root /path/to/MatrixData [--clean] [--workers 2] [--stage-only]",
+      "  node scripts/buildLocalIndexesCli.mjs --db-root /path/to/MatrixData --merge-staged",
       "",
       "Examples:",
       "  node scripts/buildLocalIndexesCli.mjs --db-root /srv/data/MatrixData",
       "  node scripts/buildLocalIndexesCli.mjs --db-root /srv/data/MatrixData --clean",
       "  node scripts/buildLocalIndexesCli.mjs --db-root /srv/data/MatrixData --workers 2",
+      "  node scripts/buildLocalIndexesCli.mjs --db-root /srv/data/MatrixData --clean --workers 3 --stage-only",
+      "  node scripts/buildLocalIndexesCli.mjs --db-root /srv/data/MatrixData --merge-staged",
       "  npm run index:cli -- --db-root /srv/data/MatrixData --clean",
     ].join("\n")
   );
@@ -111,6 +114,8 @@ function parseArgs(argv) {
     dbRoot: "",
     clean: false,
     workers: 1,
+    stageOnly: false,
+    mergeStaged: false,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -138,6 +143,16 @@ function parseArgs(argv) {
       continue;
     }
 
+    if (current === "--stage-only") {
+      args.stageOnly = true;
+      continue;
+    }
+
+    if (current === "--merge-staged") {
+      args.mergeStaged = true;
+      continue;
+    }
+
   }
 
   return args;
@@ -150,7 +165,8 @@ function formatProgress(payload) {
   const workers = payload.workerCount ? ` workers=${payload.workerCount}` : "";
   const fileName = payload.currentFile ? ` file=${payload.currentFile}` : "";
   const mode = payload.buildMode ? ` mode=${payload.buildMode}` : "";
-  return `[index:${stage}] files=${files} docs=${docs}${workers}${mode}${fileName}`;
+  const merge = payload.mergeStaged ? " merge-staged" : "";
+  return `[index:${stage}] files=${files} docs=${docs}${workers}${mode}${merge}${fileName}`;
 }
 
 async function main() {
@@ -158,6 +174,11 @@ async function main() {
   if (args.help || !args.dbRoot) {
     printUsage();
     process.exit(args.help ? 0 : 1);
+  }
+
+  if (args.stageOnly && args.mergeStaged) {
+    console.error("Use either --stage-only or --merge-staged, not both.");
+    process.exit(1);
   }
 
   const localDatabaseService = new CliLocalDatabaseService(args.dbRoot);
@@ -205,6 +226,8 @@ async function main() {
 
   const summary = await useCase.execute({
     workerCount: args.workers,
+    stageOnly: args.stageOnly,
+    mergeStaged: args.mergeStaged,
     onProgress: (payload) => {
       console.log(formatProgress(payload));
     },
