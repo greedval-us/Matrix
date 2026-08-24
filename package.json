@@ -12,12 +12,12 @@
     "build:linux": "cross-env ELECTRON_CACHE=.electron-cache vite build && cross-env ELECTRON_CACHE=.electron-cache electron-builder --linux AppImage",
     "build:win": "cross-env ELECTRON_CACHE=.electron-cache vite build && cross-env ELECTRON_CACHE=.electron-cache electron-builder --win nsis portable",
     "documents:split": "node scripts/splitDocumentsCli.mjs",
-    "index:cli": "node scripts/buildLocalIndexesCli.mjs",
-    "index:analyze": "node scripts/analyzeIndexBucketsCli.mjs",
-    "index:rebucket": "node scripts/rebucketIndexCli.mjs",
-    "index:rebucket:number": "node scripts/rebucketNumberIndexCli.mjs",
-    "search:bench": "node scripts/benchmarkLocalSearchCli.mjs",
-    "test": "node --test tests/main/localdb/*.test.js",
+    "sqlite:index": "cross-env ELECTRON_RUN_AS_NODE=1 electron scripts/buildSqliteIndexesCli.mjs",
+    "sqlite:check": "cross-env ELECTRON_RUN_AS_NODE=1 electron scripts/checkSqliteRuntime.cjs",
+    "search:bench": "cross-env ELECTRON_RUN_AS_NODE=1 electron scripts/benchmarkSqliteSearchCli.mjs",
+    "test": "npm run test:core && npm run test:sqlite",
+    "test:core": "node --test tests/main/localdb/*.test.js tests/main/services/*.test.js",
+    "test:sqlite": "cross-env ELECTRON_RUN_AS_NODE=1 electron --test tests/main/sqlite/*.test.js",
     "postinstall": "electron-builder install-app-deps"
   },
   "build": {

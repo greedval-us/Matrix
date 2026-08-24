@@ -41,7 +41,8 @@ export class SearchHandler {
       return result;
     };
 
-    const destroyClient = (_event, tabId) => {
+    const destroyClient = async (_event, tabId) => {
+      await this.clients.get(tabId)?.dispose();
       this.clients.delete(tabId);
       return true;
     };

@@ -654,6 +654,161 @@ test("BuildLocalIndexesUseCase blocks normal resume when cancelled staged-only s
   await fs.rm(tempRoot, { recursive: true, force: true });
 });
 
+test("BuildLocalIndexesUseCase publishes a resumable staged checkpoint", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "matrix-index-stage-checkpoint-"));
+  const dbRoot = path.join(tempRoot, "db");
+  const paths = new LocalDatabasePaths(dbRoot);
+  const stateRepository = new LocalDatabaseStateRepository();
+  const jsonLinesRepository = new JsonLinesRepository();
+
+  await fs.mkdir(paths.documentsDir, { recursive: true });
+  await fs.mkdir(paths.metaDir, { recursive: true });
+  await fs.mkdir(paths.stateDir, { recursive: true });
+  await fs.mkdir(paths.tempDir, { recursive: true });
+  await stateRepository.writeJson(
+    paths.databaseMetaPath,
+    stateRepository.buildDatabaseMeta("2026-08-11T11:15:00.000Z")
+  );
+
+  for (let index = 1; index <= 2; index += 1) {
+    await jsonLinesRepository.appendLines(path.join(paths.documentsDir, `import_${index}.jsonl`), [
+      JSON.stringify({
+        docId: `checkpoint:${index}`,
+        sourceTable: "checkpoint",
+        rowId: index,
+        fields: { number: `7888000000${index}` },
+        invalidFields: {},
+      }),
+    ]);
+  }
+
+  const useCase = createUseCase({ dbRoot, stateRepository, jsonLinesRepository });
+  const cancelledSummary = await useCase.execute({
+    stageOnly: true,
+    onProgress: (event) => {
+      if (event.stage === "file-completed") {
+        useCase.cancel("checkpoint-test");
+      }
+    },
+  });
+  assert.equal(cancelledSummary.status, "cancelled");
+  assert.equal(cancelledSummary.filesProcessed, 1);
+
+  const checkpointSummary = await useCase.execute({ publishStaged: true });
+  assert.equal(checkpointSummary.status, "cancelled");
+  assert.equal(checkpointSummary.session.stagedOnly, true);
+  assert.equal(checkpointSummary.session.checkpointPublishedFiles, 1);
+  assert.equal(checkpointSummary.session.completedFiles.length, 1);
+  assert.equal(checkpointSummary.session.pendingFiles.length, 1);
+
+  const firstBucket = [];
+  for await (const entry of jsonLinesRepository.iterateJson(
+    paths.getIndexBucketPath("number", getNumberBucketName("78880000001"))
+  )) {
+    firstBucket.push(entry);
+  }
+  assert.ok(firstBucket.some((entry) => entry.docId === "checkpoint:1"));
+  assert.equal(
+    await jsonLinesRepository.exists(
+      paths.getIndexBucketPath("number", getNumberBucketName("78880000002"))
+    ),
+    false
+  );
+
+  const resumedSummary = await useCase.execute({ stageOnly: true });
+  assert.equal(resumedSummary.status, "staged");
+  assert.equal(resumedSummary.filesProcessed, 2);
+
+  const finalSummary = await useCase.execute({ mergeStaged: true });
+  assert.equal(finalSummary.status, "completed");
+  const secondBucket = [];
+  for await (const entry of jsonLinesRepository.iterateJson(
+    paths.getIndexBucketPath("number", getNumberBucketName("78880000002"))
+  )) {
+    secondBucket.push(entry);
+  }
+  assert.ok(secondBucket.some((entry) => entry.docId === "checkpoint:2"));
+
+  const databaseMeta = await stateRepository.readJson(paths.databaseMetaPath, null);
+  assert.equal(databaseMeta.indexes.partial, false);
+  assert.equal(databaseMeta.indexes.publishedFiles, 2);
+
+  await fs.rm(tempRoot, { recursive: true, force: true });
+});
+
+test("BuildLocalIndexesUseCase resumes interrupted checkpoint publishing", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "matrix-index-checkpoint-resume-"));
+  const dbRoot = path.join(tempRoot, "db");
+  const paths = new LocalDatabasePaths(dbRoot);
+  const stateRepository = new LocalDatabaseStateRepository();
+  const jsonLinesRepository = new JsonLinesRepository();
+
+  await fs.mkdir(paths.documentsDir, { recursive: true });
+  await fs.mkdir(paths.metaDir, { recursive: true });
+  await fs.mkdir(paths.stateDir, { recursive: true });
+  await fs.mkdir(paths.tempDir, { recursive: true });
+  await stateRepository.writeJson(
+    paths.databaseMetaPath,
+    stateRepository.buildDatabaseMeta("2026-08-24T08:00:00.000Z")
+  );
+
+  for (let index = 1; index <= 3; index += 1) {
+    await jsonLinesRepository.appendLines(path.join(paths.documentsDir, `part_${index}.jsonl`), [
+      JSON.stringify({
+        docId: `resume-checkpoint:${index}`,
+        sourceTable: "resume-checkpoint",
+        rowId: index,
+        fields: { number: `7666000000${index}` },
+        invalidFields: {},
+      }),
+    ]);
+  }
+
+  const useCase = createUseCase({ dbRoot, stateRepository, jsonLinesRepository });
+  const stagedCancellation = await useCase.execute({
+    stageOnly: true,
+    onProgress: (event) => {
+      if (event.stage === "file-completed" && event.filesProcessed === 2) {
+        useCase.cancel("stage-two-files");
+      }
+    },
+  });
+  assert.equal(stagedCancellation.status, "cancelled");
+  assert.equal(stagedCancellation.session.completedFiles.length, 2);
+
+  const publishCancellation = await useCase.execute({
+    publishStaged: true,
+    onProgress: (event) => {
+      if (event.partsTotal && event.filesProcessed === 0) {
+        useCase.cancel("publish-one-file");
+      }
+    },
+  });
+  assert.equal(publishCancellation.status, "cancelled");
+  assert.equal(publishCancellation.session.checkpointPublish.filesProcessed, 1);
+  assert.equal(publishCancellation.session.checkpointPublish.completedFiles.length, 1);
+
+  const publishedSummary = await useCase.execute({ publishStaged: true });
+  assert.equal(publishedSummary.status, "cancelled");
+  assert.equal(publishedSummary.session.checkpointPublish, null);
+  assert.equal(publishedSummary.session.checkpointPublishedFiles, 2);
+
+  for (let index = 1; index <= 2; index += 1) {
+    const entries = [];
+    for await (const entry of jsonLinesRepository.iterateJson(
+      paths.getIndexBucketPath("number", getNumberBucketName(`7666000000${index}`))
+    )) {
+      entries.push(entry);
+    }
+    assert.equal(
+      entries.filter((entry) => entry.docId === `resume-checkpoint:${index}`).length,
+      1
+    );
+  }
+
+  await fs.rm(tempRoot, { recursive: true, force: true });
+});
+
 test("BuildLocalIndexesUseCase fails merge when staged file data is missing", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "matrix-index-merge-missing-"));
   const dbRoot = path.join(tempRoot, "db");

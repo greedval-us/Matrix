@@ -38,12 +38,44 @@ export class LocalDatabasePaths {
     return path.join(this.metaDir, "index_bucket_stats.json");
   }
 
+  get searchBackendConfigPath() {
+    return path.join(this.metaDir, "search_backend.json");
+  }
+
   get importStatePath() {
     return path.join(this.stateDir, "import_state.json");
   }
 
   get indexStatePath() {
     return path.join(this.stateDir, "index_state.json");
+  }
+
+  get sqliteIndexStatePath() {
+    return path.join(this.stateDir, "sqlite_index_state.json");
+  }
+
+  get sqliteIndexesDir() {
+    return path.join(this.rootPath, "sqlite-indexes-v3");
+  }
+
+  get legacySqliteIndexesDir() {
+    return path.join(this.rootPath, "sqlite-indexes-v1");
+  }
+
+  get legacySqliteV2IndexesDir() {
+    return path.join(this.rootPath, "sqlite-indexes-v2");
+  }
+
+  get sqliteTermIndexesDir() {
+    return path.join(this.sqliteIndexesDir, "terms");
+  }
+
+  getSqliteTermShardPath(shard) {
+    return path.join(this.sqliteTermIndexesDir, `${shard}.sqlite`);
+  }
+
+  getSqliteDocumentShardPath(shard) {
+    return path.join(this.sqliteIndexesDir, "documents", `${shard}.sqlite`);
   }
 
   get readmePath() {

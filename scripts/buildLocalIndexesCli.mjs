@@ -96,6 +96,7 @@ function printUsage() {
     [
       "Usage:",
       "  node scripts/buildLocalIndexesCli.mjs --db-root /path/to/MatrixData [--clean] [--workers 2] [--stage-only]",
+      "  node scripts/buildLocalIndexesCli.mjs --db-root /path/to/MatrixData --publish-staged",
       "  node scripts/buildLocalIndexesCli.mjs --db-root /path/to/MatrixData --merge-staged",
       "",
       "Examples:",
@@ -103,6 +104,7 @@ function printUsage() {
       "  node scripts/buildLocalIndexesCli.mjs --db-root /srv/data/MatrixData --clean",
       "  node scripts/buildLocalIndexesCli.mjs --db-root /srv/data/MatrixData --workers 2",
       "  node scripts/buildLocalIndexesCli.mjs --db-root /srv/data/MatrixData --clean --workers 3 --stage-only",
+      "  node scripts/buildLocalIndexesCli.mjs --db-root /srv/data/MatrixData --publish-staged",
       "  node scripts/buildLocalIndexesCli.mjs --db-root /srv/data/MatrixData --merge-staged",
       "  npm run index:cli -- --db-root /srv/data/MatrixData --clean",
     ].join("\n")
@@ -116,6 +118,7 @@ function parseArgs(argv) {
     workers: 1,
     stageOnly: false,
     mergeStaged: false,
+    publishStaged: false,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -153,6 +156,11 @@ function parseArgs(argv) {
       continue;
     }
 
+    if (current === "--publish-staged") {
+      args.publishStaged = true;
+      continue;
+    }
+
   }
 
   return args;
@@ -165,8 +173,15 @@ function formatProgress(payload) {
   const workers = payload.workerCount ? ` workers=${payload.workerCount}` : "";
   const fileName = payload.currentFile ? ` file=${payload.currentFile}` : "";
   const mode = payload.buildMode ? ` mode=${payload.buildMode}` : "";
-  const merge = payload.mergeStaged ? " merge-staged" : "";
-  return `[index:${stage}] files=${files} docs=${docs}${workers}${mode}${merge}${fileName}`;
+  const operation = payload.mergeStaged
+    ? " merge-staged"
+    : payload.publishStaged
+      ? " publish-staged"
+      : "";
+  const parts = payload.partsTotal
+    ? ` parts=${payload.partsProcessed ?? 0}/${payload.partsTotal}`
+    : "";
+  return `[index:${stage}] files=${files} docs=${docs}${workers}${mode}${operation}${parts}${fileName}`;
 }
 
 async function main() {
@@ -176,8 +191,8 @@ async function main() {
     process.exit(args.help ? 0 : 1);
   }
 
-  if (args.stageOnly && args.mergeStaged) {
-    console.error("Use either --stage-only or --merge-staged, not both.");
+  if ([args.stageOnly, args.mergeStaged, args.publishStaged].filter(Boolean).length > 1) {
+    console.error("Use only one of --stage-only, --publish-staged, or --merge-staged.");
     process.exit(1);
   }
 
@@ -228,6 +243,7 @@ async function main() {
     workerCount: args.workers,
     stageOnly: args.stageOnly,
     mergeStaged: args.mergeStaged,
+    publishStaged: args.publishStaged,
     onProgress: (payload) => {
       console.log(formatProgress(payload));
     },
@@ -236,7 +252,7 @@ async function main() {
   console.log("Index build finished.");
   console.log(JSON.stringify(summary, null, 2));
 
-  if (summary.status === "cancelled") {
+  if (summary.status === "cancelled" && !args.publishStaged) {
     process.exitCode = 2;
     return;
   }

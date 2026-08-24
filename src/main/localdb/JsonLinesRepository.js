@@ -42,6 +42,10 @@ export class JsonLinesRepository {
     return await fsPromises.stat(targetPath);
   }
 
+  async truncate(targetPath, length) {
+    await fsPromises.truncate(targetPath, length);
+  }
+
   async readFirstNonWhitespaceChar(filePath, bytesToRead = 4096) {
     const handle = await fsPromises.open(filePath, "r");
 
@@ -81,18 +85,31 @@ export class JsonLinesRepository {
   }
 
   async *iterateLinesWithMetadata(filePath) {
-    let byteOffset = 0;
+    yield* this.iterateLinesWithMetadataFrom(filePath, 0);
+  }
 
-    for await (const line of this.iterateLines(filePath)) {
-      const byteLength = Buffer.byteLength(line, "utf8");
-      yield {
-        line,
-        byteOffset,
-        byteLength,
-      };
-      // Compact lookup stores offsets against JSONL files written by appendLines(),
-      // which always separates records with a single "\n" byte.
-      byteOffset += byteLength + 1;
+  async *iterateLinesWithMetadataFrom(filePath, startOffset = 0) {
+    let byteOffset = Math.max(0, Number(startOffset) || 0);
+    const stream = fs.createReadStream(filePath, {
+      encoding: "utf8",
+      start: byteOffset,
+    });
+    const reader = readline.createInterface({
+      input: stream,
+      crlfDelay: Infinity,
+    });
+
+    try {
+      for await (const line of reader) {
+        const byteLength = Buffer.byteLength(line, "utf8");
+        if (line.trim()) {
+          yield { line, byteOffset, byteLength };
+        }
+        byteOffset += byteLength + 1;
+      }
+    } finally {
+      reader.close();
+      stream.close();
     }
   }
 

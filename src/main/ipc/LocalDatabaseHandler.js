@@ -1,10 +1,16 @@
 import { ipcMain } from "electron";
 import { wrapHandler } from "../utils/ipcWrapper.js";
 import { LocalDatabaseService } from "../services/LocalDatabaseService.js";
+import { LocalDatabaseStateRepository } from "../localdb/LocalDatabaseStateRepository.js";
+import { SearchBackendConfigService } from "../services/SearchBackendConfigService.js";
 
 export class LocalDatabaseHandler {
   constructor() {
     this.service = new LocalDatabaseService();
+    this.searchBackendService = new SearchBackendConfigService({
+      localDatabaseService: this.service,
+      stateRepository: new LocalDatabaseStateRepository(),
+    });
   }
 
   register() {
@@ -33,6 +39,19 @@ export class LocalDatabaseHandler {
       "database-storage:initialize",
       wrapHandler("database-storage:initialize", (_event, rootPath) =>
         this.service.initialize(rootPath)
+      )
+    );
+
+    ipcMain.handle(
+      "database-storage:get-search-backend",
+      wrapHandler("database-storage:get-search-backend", () =>
+        this.searchBackendService.getConfig()
+      )
+    );
+    ipcMain.handle(
+      "database-storage:set-search-backend",
+      wrapHandler("database-storage:set-search-backend", (_event, config) =>
+        this.searchBackendService.setConfig(config)
       )
     );
   }

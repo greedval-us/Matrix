@@ -6,6 +6,12 @@ const status = ref(null);
 const error = ref("");
 const isLoading = ref(false);
 const isInitializing = ref(false);
+const searchBackend = ref({
+  backend: "sqlite",
+  sqlite: { maxResults: 250 },
+});
+const backendMessage = ref("");
+const isSavingBackend = ref(false);
 
 const statusText = computed(() => {
   if (!status.value) return "Статус еще не проверен";
@@ -17,6 +23,24 @@ const statusText = computed(() => {
 
 async function refreshStatus(path = databaseRootPath.value) {
   status.value = await window.databaseStorageAPI.getStatus(path);
+  if (status.value?.initialized) await loadSearchBackend();
+}
+
+async function loadSearchBackend() {
+  searchBackend.value = await window.databaseStorageAPI.getSearchBackend();
+}
+
+async function saveSearchBackend() {
+  isSavingBackend.value = true;
+  backendMessage.value = "";
+  try {
+    searchBackend.value = await window.databaseStorageAPI.setSearchBackend(searchBackend.value);
+    backendMessage.value = "Режим поиска сохранен";
+  } catch (e) {
+    backendMessage.value = `Не удалось сохранить: ${e.message || e}`;
+  } finally {
+    isSavingBackend.value = false;
+  }
 }
 
 async function loadSettings() {
@@ -88,7 +112,7 @@ onMounted(loadSettings);
 <template>
   <div class="flex h-full items-center justify-center bg-gradient-to-br from-neutral-900 to-neutral-950 p-6">
     <div
-      class="w-full max-w-2xl space-y-6 rounded-3xl border border-neutral-700 bg-neutral-900/80 p-8 text-white shadow-2xl backdrop-blur-xl transition-all hover:shadow-3xl"
+      class="max-h-full w-full max-w-3xl space-y-6 overflow-y-auto rounded-3xl border border-neutral-700 bg-neutral-900/80 p-8 text-white shadow-2xl backdrop-blur-xl transition-all hover:shadow-3xl"
     >
       <h2 class="text-center text-3xl font-bold text-white drop-shadow-md">
         Настройка локальной базы
@@ -152,6 +176,45 @@ onMounted(loadSettings);
           {{ status.rootPath }}
         </p>
       </div>
+
+      <section v-if="status?.initialized" class="space-y-4 rounded-2xl border border-neutral-700 bg-neutral-800/70 p-5">
+        <div>
+          <h3 class="text-lg font-semibold">Поисковый движок</h3>
+          <p class="mt-1 text-xs text-neutral-400">
+            SQLite является основным переносимым режимом и не требует отдельного сервера.
+            Старый JSONL-поиск оставлен только для безопасного перехода существующей базы.
+          </p>
+        </div>
+
+        <div class="grid gap-3 sm:grid-cols-2">
+          <label class="cursor-pointer rounded-xl border p-3" :class="searchBackend.backend === 'embedded' ? 'border-emerald-500 bg-emerald-950/30' : 'border-neutral-600'">
+            <input v-model="searchBackend.backend" type="radio" value="embedded" class="mr-2">
+            Старый JSONL (переход)
+          </label>
+          <label class="cursor-pointer rounded-xl border p-3" :class="searchBackend.backend === 'sqlite' ? 'border-sky-500 bg-sky-950/30' : 'border-neutral-600'">
+            <input v-model="searchBackend.backend" type="radio" value="sqlite" class="mr-2">
+            SQLite (переносимый)
+          </label>
+        </div>
+
+        <div v-if="searchBackend.backend === 'sqlite'" class="space-y-3 rounded-xl border border-sky-900 bg-sky-950/20 p-4">
+          <p class="text-xs text-neutral-300">
+            Не требует сервера. Индексы находятся в sqlite-indexes-v3 рядом с documents и
+            переносятся вместе с внешним диском.
+          </p>
+          <label class="block max-w-xs space-y-1 text-sm text-neutral-300">
+            <span>Максимум найденных записей</span>
+            <input v-model.number="searchBackend.sqlite.maxResults" type="number" min="1" max="10000" class="w-full rounded-xl border border-neutral-600 bg-neutral-900 p-3 text-white">
+          </label>
+        </div>
+
+        <div class="flex flex-wrap gap-3">
+          <button :disabled="isSavingBackend" @click="saveSearchBackend" class="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold transition hover:bg-emerald-600 disabled:opacity-50">
+            {{ isSavingBackend ? "Сохранение..." : "Сохранить режим" }}
+          </button>
+        </div>
+        <p v-if="backendMessage" class="text-sm text-amber-300">{{ backendMessage }}</p>
+      </section>
 
       <transition name="fade">
         <div

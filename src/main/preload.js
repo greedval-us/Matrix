@@ -55,6 +55,8 @@ contextBridge.exposeInMainWorld("databaseStorageAPI", {
   setRootPath: (rootPath) => ipcRenderer.invoke("database-storage:set-root-path", rootPath),
   getStatus: (rootPath) => ipcRenderer.invoke("database-storage:get-status", rootPath),
   initialize: (rootPath) => ipcRenderer.invoke("database-storage:initialize", rootPath),
+  getSearchBackend: () => ipcRenderer.invoke("database-storage:get-search-backend"),
+  setSearchBackend: (config) => ipcRenderer.invoke("database-storage:set-search-backend", config),
 });
 
 contextBridge.exposeInMainWorld("importAPI", {

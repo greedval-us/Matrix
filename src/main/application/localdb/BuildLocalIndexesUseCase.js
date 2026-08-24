@@ -50,6 +50,7 @@ export class BuildLocalIndexesUseCase {
     const workerCount = this.normalizeWorkerCount(options.workerCount);
     const stageOnly = Boolean(options.stageOnly);
     const mergeStaged = Boolean(options.mergeStaged);
+    const publishStaged = Boolean(options.publishStaged);
 
     return await this.operationCoordinator.runExclusive("local-db-index", async () => {
       const databaseRootPath = this.localDatabaseService.getStoredRootPath();
@@ -80,8 +81,8 @@ export class BuildLocalIndexesUseCase {
         throw new Error(localDbMessages.noIndexedDocuments);
       }
 
-      if (stageOnly && mergeStaged) {
-        throw new Error("Choose either stageOnly or mergeStaged, not both.");
+      if ([stageOnly, mergeStaged, publishStaged].filter(Boolean).length > 1) {
+        throw new Error("Choose only one staged indexing operation.");
       }
 
       const buildToken = {
@@ -93,6 +94,16 @@ export class BuildLocalIndexesUseCase {
       try {
         if (mergeStaged) {
           return await this.mergeStagedIndexes({
+            progress,
+            paths,
+            documentFiles,
+            previousState,
+            buildToken,
+          });
+        }
+
+        if (publishStaged) {
+          return await this.publishStagedCheckpoint({
             progress,
             paths,
             documentFiles,
@@ -755,6 +766,8 @@ export class BuildLocalIndexesUseCase {
         ...(meta.indexes || {}),
         version: 1,
         builtAt: summary.completedAt,
+        partial: false,
+        publishedFiles: summary.filesProcessed,
         fields: INDEXABLE_FIELDS,
         lookupFormatVersion: DOCUMENT_LOOKUP_FORMAT_VERSION,
         bucketLayoutVersion: resolveGlobalBucketLayoutVersion(activeBucketLayouts),
@@ -907,6 +920,8 @@ export class BuildLocalIndexesUseCase {
         ...(meta.indexes || {}),
         version: 1,
         builtAt: completedAt,
+        partial: false,
+        publishedFiles: previousState.filesProcessed,
         fields: INDEXABLE_FIELDS,
         lookupFormatVersion: DOCUMENT_LOOKUP_FORMAT_VERSION,
         bucketLayoutVersion: resolveGlobalBucketLayoutVersion(bucketLayouts),
@@ -917,6 +932,321 @@ export class BuildLocalIndexesUseCase {
     await this.cleanupStagedArtifacts(paths, previousState);
     progress.emit("completed", this.buildCompletedPayload(summary));
     return summary;
+  }
+
+  async publishStagedCheckpoint({ progress, paths, documentFiles, previousState, buildToken }) {
+    if (
+      !["cancelled", "publishing"].includes(previousState?.status) ||
+      !previousState?.session?.stagedOnly ||
+      !previousState?.session?.resumable
+    ) {
+      throw new Error("No interrupted staged indexing session found to publish.");
+    }
+
+    const completedFiles = previousState.session.completedFiles || [];
+    if (completedFiles.length === 0) {
+      throw new Error("No completed staged file indexes found to publish.");
+    }
+
+    const manifestMatches = await this.isStateManifestCurrent(paths, documentFiles, previousState);
+    if (!manifestMatches) {
+      throw new Error(
+        "Document files changed after staged indexing. Resume or rebuild staged indexes before publishing."
+      );
+    }
+
+    const checkpointIndexesDir = paths.getTempPath(
+      `${INDEX_BUILD_TEMP_PREFIX}-${previousState.session.buildId}-checkpoint`
+    );
+    const backupIndexesDir = paths.getTempPath(
+      `${INDEX_BACKUP_TEMP_PREFIX}-${previousState.session.buildId}-checkpoint`
+    );
+    const journalPath = paths.getTempPath(
+      `${INDEX_BUILD_TEMP_PREFIX}-${previousState.session.buildId}-checkpoint-journal.json`
+    );
+    const savedCheckpoint = previousState.session.checkpointPublish;
+    const canResumeCheckpoint =
+      savedCheckpoint?.workingIndexesDir === checkpointIndexesDir &&
+      (await this.jsonLinesRepository.exists(checkpointIndexesDir));
+    let checkpointCompletedFiles = canResumeCheckpoint
+      ? [...(savedCheckpoint.completedFiles || [])]
+      : [];
+
+    if (canResumeCheckpoint) {
+      await this.recoverCheckpointJournal({
+        checkpointIndexesDir,
+        journalPath,
+        checkpointCompletedFiles,
+      });
+    } else {
+      await this.jsonLinesRepository.remove(checkpointIndexesDir);
+      await this.jsonLinesRepository.remove(journalPath);
+      await this.prepareIndexDirectories(paths, checkpointIndexesDir);
+    }
+
+    const checkpointCompletedSet = new Set(checkpointCompletedFiles);
+    const checkpointSummary = {
+      ...previousState,
+      status: "publishing",
+      currentFile: null,
+      activeFiles: [],
+      error: null,
+      session: {
+        ...previousState.session,
+        checkpointPublish: {
+          status: "running",
+          workingIndexesDir: checkpointIndexesDir,
+          journalPath,
+          filesProcessed: checkpointCompletedFiles.length,
+          filesTotal: completedFiles.length,
+          completedFiles: checkpointCompletedFiles,
+          currentFile: canResumeCheckpoint ? savedCheckpoint?.currentFile || null : null,
+          currentFilePartsProcessed: canResumeCheckpoint
+            ? Number(savedCheckpoint?.currentFilePartsProcessed || 0)
+            : 0,
+          currentFilePartsTotal: canResumeCheckpoint
+            ? Number(savedCheckpoint?.currentFilePartsTotal || 0)
+            : 0,
+          startedAt: savedCheckpoint?.startedAt || new Date().toISOString(),
+          resumedAt: canResumeCheckpoint ? new Date().toISOString() : null,
+        },
+      },
+    };
+    await this.stateRepository.writeIndexState(paths, checkpointSummary);
+
+    progress.emit("started", {
+      filesProcessed: checkpointCompletedFiles.length,
+      filesTotal: completedFiles.length,
+      indexedDocuments: previousState.indexedDocuments,
+      documentsTotal: previousState.documentsTotal,
+      buildMode: previousState.buildMode,
+      workerCount: 1,
+      resumable: true,
+      publishStaged: true,
+    });
+
+    let filesProcessed = checkpointCompletedFiles.length;
+    try {
+      for (const fileName of completedFiles) {
+        if (checkpointCompletedSet.has(fileName)) continue;
+        this.throwIfCancelled(buildToken);
+        const fileWorkDir = this.getFileWorkDir(paths, previousState, fileName);
+        if (!(await this.jsonLinesRepository.exists(fileWorkDir))) {
+          throw new Error(`Staged index data is missing for file: ${fileName}`);
+        }
+
+        const mergePlan = await this.buildIndexedFileMergePlan(
+          paths,
+          fileWorkDir,
+          checkpointIndexesDir
+        );
+        let partsProcessed =
+          checkpointSummary.session.checkpointPublish.currentFile === fileName
+            ? Number(checkpointSummary.session.checkpointPublish.currentFilePartsProcessed || 0)
+            : 0;
+        if (partsProcessed < 0 || partsProcessed > mergePlan.length) {
+          partsProcessed = 0;
+        }
+
+        while (partsProcessed < mergePlan.length) {
+          this.throwIfCancelled(buildToken);
+          const batchEnd = Math.min(
+            partsProcessed + CHECKPOINT_MERGE_BATCH_SIZE,
+            mergePlan.length
+          );
+          const mergeBatch = mergePlan.slice(partsProcessed, batchEnd);
+          await this.writeCheckpointJournal({
+            checkpointIndexesDir,
+            journalPath,
+            fileName,
+            mergePlan: mergeBatch,
+          });
+          checkpointSummary.session.checkpointPublish = {
+            ...checkpointSummary.session.checkpointPublish,
+            currentFile: fileName,
+            currentFilePartsProcessed: partsProcessed,
+            currentFilePartsTotal: mergePlan.length,
+          };
+          await this.stateRepository.writeIndexState(paths, checkpointSummary);
+
+          await this.mergeIndexedFile(paths, fileWorkDir, checkpointIndexesDir, {
+            mergePlan: mergeBatch,
+          });
+          partsProcessed = batchEnd;
+          checkpointSummary.session.checkpointPublish.currentFilePartsProcessed = partsProcessed;
+          await this.stateRepository.writeIndexState(paths, checkpointSummary);
+          await this.jsonLinesRepository.remove(journalPath);
+          progress.emit("progress", {
+            currentFile: fileName,
+            filesProcessed,
+            filesTotal: completedFiles.length,
+            indexedDocuments: previousState.indexedDocuments,
+            documentsTotal: previousState.documentsTotal,
+            buildMode: previousState.buildMode,
+            workerCount: 1,
+            resumable: true,
+            publishStaged: true,
+            partsProcessed,
+            partsTotal: mergePlan.length,
+          });
+        }
+        filesProcessed += 1;
+        checkpointCompletedFiles = [...checkpointCompletedFiles, fileName];
+        checkpointCompletedSet.add(fileName);
+        checkpointSummary.session.checkpointPublish = {
+          ...checkpointSummary.session.checkpointPublish,
+          filesProcessed,
+          completedFiles: checkpointCompletedFiles,
+          currentFile: null,
+          currentFilePartsProcessed: 0,
+          currentFilePartsTotal: 0,
+        };
+        await this.stateRepository.writeIndexState(paths, checkpointSummary);
+        await this.jsonLinesRepository.remove(journalPath);
+        progress.emit("progress", {
+          currentFile: fileName,
+          filesProcessed,
+          filesTotal: completedFiles.length,
+          indexedDocuments: previousState.indexedDocuments,
+          documentsTotal: previousState.documentsTotal,
+          buildMode: previousState.buildMode,
+          workerCount: 1,
+          resumable: true,
+          publishStaged: true,
+        });
+      }
+    } catch (error) {
+      await this.recoverCheckpointJournal({
+        checkpointIndexesDir,
+        journalPath,
+        checkpointCompletedFiles,
+      });
+      checkpointSummary.status = "cancelled";
+      checkpointSummary.completedAt = new Date().toISOString();
+      checkpointSummary.error = error instanceof IndexBuildCancelledError ? null : error.message;
+      checkpointSummary.session.checkpointPublish = {
+        ...checkpointSummary.session.checkpointPublish,
+        status: "cancelled",
+        filesProcessed,
+        completedFiles: checkpointCompletedFiles,
+      };
+      await this.stateRepository.writeIndexState(paths, checkpointSummary);
+      if (error instanceof IndexBuildCancelledError) {
+        progress.emit("cancelled", {
+          filesProcessed,
+          filesTotal: completedFiles.length,
+          indexedDocuments: previousState.indexedDocuments,
+          documentsTotal: previousState.documentsTotal,
+          buildMode: previousState.buildMode,
+          reason: error.reason,
+          publishStaged: true,
+        });
+        return checkpointSummary;
+      }
+      throw error;
+    }
+
+    await this.replaceIndexesAtomically(paths, checkpointIndexesDir, backupIndexesDir);
+    await this.jsonLinesRepository.remove(paths.indexBucketStatsPath);
+
+    const publishedAt = new Date().toISOString();
+    const bucketLayouts = previousState.bucketLayouts || buildRecommendedBucketLayoutMap();
+    const summary = {
+      ...previousState,
+      status: "cancelled",
+      completedAt: publishedAt,
+      currentFile: null,
+      currentFileDocumentsProcessed: 0,
+      currentFileDocumentsTotal: 0,
+      activeFiles: [],
+      error: null,
+      session: {
+        ...previousState.session,
+        checkpointPublishedAt: publishedAt,
+        checkpointPublishedFiles: completedFiles.length,
+        checkpointPublish: null,
+      },
+    };
+
+    await this.stateRepository.updateDatabaseMeta(paths, (meta) => ({
+      ...meta,
+      updatedAt: publishedAt,
+      indexes: {
+        ...(meta.indexes || {}),
+        version: 1,
+        builtAt: publishedAt,
+        partial: true,
+        publishedFiles: completedFiles.length,
+        fields: INDEXABLE_FIELDS,
+        lookupFormatVersion: DOCUMENT_LOOKUP_FORMAT_VERSION,
+        bucketLayoutVersion: resolveGlobalBucketLayoutVersion(bucketLayouts),
+        bucketLayouts,
+      },
+    }));
+    await this.stateRepository.writeIndexState(paths, summary);
+    progress.emit("published", {
+      filesProcessed: completedFiles.length,
+      filesTotal: completedFiles.length,
+      indexedDocuments: previousState.indexedDocuments,
+      documentsTotal: previousState.documentsTotal,
+      buildMode: previousState.buildMode,
+      resumable: true,
+      publishStaged: true,
+    });
+    return summary;
+  }
+
+  async writeCheckpointJournal({ checkpointIndexesDir, journalPath, fileName, mergePlan }) {
+    const targetSizes = [];
+    const seenTargets = new Set();
+    for (const { targetPath } of mergePlan) {
+      if (seenTargets.has(targetPath)) continue;
+      seenTargets.add(targetPath);
+
+      let previousSize = null;
+      try {
+        previousSize = Number((await this.jsonLinesRepository.stat(targetPath)).size);
+      } catch {
+        previousSize = null;
+      }
+      targetSizes.push({
+        relativePath: path.relative(checkpointIndexesDir, targetPath),
+        previousSize,
+      });
+    }
+
+    await this.stateRepository.writeJson(journalPath, {
+      fileName,
+      targetSizes,
+    });
+  }
+
+  async recoverCheckpointJournal({ checkpointIndexesDir, journalPath, checkpointCompletedFiles }) {
+    const journal = await this.stateRepository.readJson(journalPath, null);
+    if (!journal) return;
+
+    if ((checkpointCompletedFiles || []).includes(journal.fileName)) {
+      await this.jsonLinesRepository.remove(journalPath);
+      return;
+    }
+
+    const checkpointRoot = path.resolve(checkpointIndexesDir);
+    for (const target of journal.targetSizes || []) {
+      const targetPath = path.resolve(checkpointIndexesDir, target.relativePath);
+      if (
+        targetPath !== checkpointRoot &&
+        !targetPath.startsWith(`${checkpointRoot}${path.sep}`)
+      ) {
+        throw new Error(`Unsafe checkpoint journal path: ${target.relativePath}`);
+      }
+
+      if (target.previousSize === null) {
+        await this.jsonLinesRepository.remove(targetPath);
+      } else if (await this.jsonLinesRepository.exists(targetPath)) {
+        await this.jsonLinesRepository.truncate(targetPath, Number(target.previousSize));
+      }
+    }
+    await this.jsonLinesRepository.remove(journalPath);
   }
 
   async handleMergeStagedCancellation({
@@ -1044,11 +1374,14 @@ export class BuildLocalIndexesUseCase {
     summary.activeFiles = activeFiles;
     if (summary.session) {
       const pendingFiles = new Set(summary.session.pendingFiles || []);
-      if (summary.currentFile) {
+      const completedFiles = new Set(summary.session.completedFiles || []);
+      if (summary.currentFile && !completedFiles.has(summary.currentFile)) {
         pendingFiles.add(summary.currentFile);
       }
       for (const activeFile of activeFiles) {
-        pendingFiles.add(activeFile);
+        if (!completedFiles.has(activeFile)) {
+          pendingFiles.add(activeFile);
+        }
       }
       summary.session.pendingFiles = [...pendingFiles];
     }
@@ -1321,7 +1654,8 @@ export class BuildLocalIndexesUseCase {
     }
   }
 
-  async mergeIndexedFile(paths, sourceIndexesDir, targetIndexesDir) {
+  async buildIndexedFileMergePlan(paths, sourceIndexesDir, targetIndexesDir) {
+    const mergePlan = [];
     for (const field of INDEXABLE_FIELDS) {
       const sourceFieldDir = paths.getIndexFieldDir(field, sourceIndexesDir);
       if (!(await this.jsonLinesRepository.exists(sourceFieldDir))) continue;
@@ -1334,7 +1668,7 @@ export class BuildLocalIndexesUseCase {
         const bucketName = path.basename(bucketFile, ".jsonl");
         const sourcePath = path.join(sourceFieldDir, bucketFile);
         const targetPath = paths.getIndexBucketPath(field, bucketName, targetIndexesDir);
-        await this.copyJsonLines(sourcePath, targetPath);
+        mergePlan.push({ sourcePath, targetPath });
       }
     }
 
@@ -1344,7 +1678,25 @@ export class BuildLocalIndexesUseCase {
       for (const bucketFile of bucketFiles) {
         const sourcePath = path.join(sourceLookupDir, bucketFile);
         const targetPath = path.join(paths.getDocumentLookupDir(targetIndexesDir), bucketFile);
-        await this.copyJsonLines(sourcePath, targetPath);
+        mergePlan.push({ sourcePath, targetPath });
+      }
+    }
+    return mergePlan;
+  }
+
+  async mergeIndexedFile(paths, sourceIndexesDir, targetIndexesDir, options = {}) {
+    const mergePlan =
+      options.mergePlan ||
+      (await this.buildIndexedFileMergePlan(paths, sourceIndexesDir, targetIndexesDir));
+    let partsProcessed = 0;
+    for (const { sourcePath, targetPath } of mergePlan) {
+      await this.copyJsonLines(sourcePath, targetPath);
+      partsProcessed += 1;
+      if (
+        options.onProgress &&
+        (partsProcessed % 1000 === 0 || partsProcessed === mergePlan.length)
+      ) {
+        options.onProgress({ partsProcessed, partsTotal: mergePlan.length });
       }
     }
   }
@@ -1453,6 +1805,7 @@ export class BuildLocalIndexesUseCase {
 
   async removeCurrentFileWorkDir(summary, paths) {
     if (!summary.currentFile || !summary.session?.buildId) return;
+    if ((summary.session.completedFiles || []).includes(summary.currentFile)) return;
     const fileWorkDir = this.getFileWorkDir(paths, summary, summary.currentFile);
     await this.jsonLinesRepository.remove(fileWorkDir);
   }
@@ -1545,3 +1898,5 @@ export class BuildLocalIndexesUseCase {
     return Math.min(4, Math.max(1, Math.floor(numericValue)));
   }
 }
+
+const CHECKPOINT_MERGE_BATCH_SIZE = 1000;

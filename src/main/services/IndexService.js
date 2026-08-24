@@ -8,6 +8,8 @@ import { SearchTermService } from "../localdb/SearchTermService.js";
 import log from "../utils/logger.js";
 import { LocalDatabaseService } from "./LocalDatabaseService.js";
 
+const STALE_RUNNING_INDEX_STATE_MS = 2 * 60 * 1000;
+
 export class IndexService {
   constructor() {
     this.localDatabaseService = new LocalDatabaseService();
@@ -29,13 +31,20 @@ export class IndexService {
     const rootPath = this.localDatabaseService.getStoredRootPath();
     if (!rootPath) return null;
 
-    return await this.stateRepository.readIndexState(new LocalDatabasePaths(rootPath));
+    const paths = new LocalDatabasePaths(rootPath);
+    const status = await this.stateRepository.readIndexState(paths);
+    return await this.recoverStaleRunningState(paths, status);
   }
 
   async buildIndexes(options) {
     try {
       const rootPath = this.localDatabaseService.getStoredRootPath();
       log.info(`[Index] buildIndexes requested rootPath=${rootPath || "<empty>"}`);
+      if (rootPath) {
+        const paths = new LocalDatabasePaths(rootPath);
+        const status = await this.stateRepository.readIndexState(paths);
+        await this.recoverStaleRunningState(paths, status);
+      }
       return await this.useCase.execute(options);
     } catch (error) {
       if (this.isAlreadyRunningError(error)) {
@@ -54,5 +63,37 @@ export class IndexService {
 
   isAlreadyRunningError(error) {
     return String(error?.message || "").includes('Operation "local-db-index" is already running');
+  }
+
+  async recoverStaleRunningState(paths, status) {
+    if (!status || status.status !== "running" || this.useCase.currentBuildToken) {
+      return status;
+    }
+
+    let stateStat = null;
+    try {
+      stateStat = await this.jsonLinesRepository.stat(paths.indexStatePath);
+    } catch {
+      return status;
+    }
+
+    const staleForMs = Date.now() - new Date(stateStat.mtime).getTime();
+    if (staleForMs < STALE_RUNNING_INDEX_STATE_MS) {
+      return status;
+    }
+
+    const recoveredStatus = {
+      ...status,
+      status: "cancelled",
+      completedAt: new Date().toISOString(),
+      error: null,
+      activeFiles: [],
+    };
+
+    await this.stateRepository.writeIndexState(paths, recoveredStatus);
+    log.warn(
+      `[Index] recovered stale running state after ${Math.round(staleForMs / 1000)}s without progress`
+    );
+    return recoveredStatus;
   }
 }

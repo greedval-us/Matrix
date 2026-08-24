@@ -3,6 +3,7 @@ import path from "path";
 import Store from "electron-store";
 import { LocalDatabasePaths } from "../localdb/LocalDatabasePaths.js";
 import {
+  DEFAULT_SEARCH_BACKEND_CONFIG,
   DEFAULT_DATABASE_FOLDER_NAME,
   STORAGE_KEY,
 } from "../localdb/constants.js";
@@ -121,6 +122,12 @@ export class LocalDatabaseService {
       paths.indexStatePath,
       this.stateRepository.buildInitialIndexState(now)
     );
+    if (!(await this.pathExists(paths.searchBackendConfigPath))) {
+      await this.stateRepository.writeSearchBackendConfig(
+        paths,
+        DEFAULT_SEARCH_BACKEND_CONFIG
+      );
+    }
     await fs.writeFile(
       paths.readmePath,
       [
@@ -142,5 +149,14 @@ export class LocalDatabaseService {
 
   async ensureReady(rootPath = this.getStoredRootPath()) {
     return await this.ensureReadyUseCase.execute(rootPath);
+  }
+
+  async pathExists(targetPath) {
+    try {
+      await fs.access(targetPath);
+      return true;
+    } catch {
+      return false;
+    }
   }
 }

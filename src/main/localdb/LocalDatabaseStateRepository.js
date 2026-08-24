@@ -1,5 +1,6 @@
 import fs from "fs/promises";
 import {
+  DEFAULT_SEARCH_BACKEND_CONFIG,
   DOCUMENT_LOOKUP_FORMAT_VERSION,
   INDEXABLE_FIELDS,
   LOCAL_DATABASE_FORMAT,
@@ -14,7 +15,8 @@ export class LocalDatabaseStateRepository {
   async readJson(filePath, fallbackValue = null) {
     try {
       const content = await fs.readFile(filePath, "utf8");
-      return JSON.parse(content);
+      const normalizedContent = content.replace(/^\uFEFF/u, "");
+      return JSON.parse(normalizedContent);
     } catch {
       return fallbackValue;
     }
@@ -63,6 +65,24 @@ export class LocalDatabaseStateRepository {
 
   async writeIndexBucketStats(paths, stats) {
     await this.writeJson(paths.indexBucketStatsPath, stats);
+  }
+
+  async readSearchBackendConfig(paths) {
+    return await this.readJson(paths.searchBackendConfigPath, DEFAULT_SEARCH_BACKEND_CONFIG);
+  }
+
+  async writeSearchBackendConfig(paths, config) {
+    await this.writeJson(paths.searchBackendConfigPath, config);
+  }
+
+  async readSqliteIndexState(paths) {
+    return await this.readJson(paths.sqliteIndexStatePath, null);
+  }
+
+  async writeSqliteIndexState(paths, state) {
+    const temporaryPath = `${paths.sqliteIndexStatePath}.next`;
+    await this.writeJson(temporaryPath, state);
+    await fs.rename(temporaryPath, paths.sqliteIndexStatePath);
   }
 
   async updateDatabaseMeta(paths, updater) {

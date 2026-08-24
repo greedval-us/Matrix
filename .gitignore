@@ -138,6 +138,7 @@ release
 # Electron builder artifacts
 *.blockmap
 latest*.yml
+.electron-cache/
 
 # One-off local SQL migration artifacts
 scripts/importLegacySqlDump.mjs
