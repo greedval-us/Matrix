@@ -8,7 +8,7 @@ import { JsonLinesRepository } from "../../../src/main/localdb/JsonLinesReposito
 import { LocalDatabasePaths } from "../../../src/main/localdb/LocalDatabasePaths.js";
 import { LocalDatabaseStateRepository } from "../../../src/main/localdb/LocalDatabaseStateRepository.js";
 import { SearchTermService } from "../../../src/main/localdb/SearchTermService.js";
-import { SqliteIndexStore } from "../../../src/main/sqlite/SqliteIndexStore.js";
+import { LsmSqliteIndexStore } from "../../../src/main/sqlite/LsmSqliteIndexStore.js";
 
 test("SQLite indexing resumes inside a JSONL file and accepts new files", async (t) => {
   const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "matrix-sqlite-index-"));
@@ -32,7 +32,7 @@ test("SQLite indexing resumes inside a JSONL file and accepts new files", async 
 
   const stateRepository = new LocalDatabaseStateRepository();
   const create = () => {
-    const indexStore = new SqliteIndexStore({ paths });
+    const indexStore = new LsmSqliteIndexStore({ paths });
     return { indexStore, useCase: new BuildSqliteIndexesUseCase({
       localDatabaseService: {
         getStoredRootPath: () => rootPath,

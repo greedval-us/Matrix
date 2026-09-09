@@ -70,6 +70,14 @@ export class LocalDatabasePaths {
     return path.join(this.sqliteIndexesDir, "terms");
   }
 
+  get sqliteSegmentsDir() {
+    return path.join(this.sqliteIndexesDir, "segments");
+  }
+
+  getSqliteSegmentDir(segmentId) {
+    return path.join(this.sqliteSegmentsDir, segmentId);
+  }
+
   getSqliteTermShardPath(shard) {
     return path.join(this.sqliteTermIndexesDir, `${shard}.sqlite`);
   }

@@ -7,7 +7,7 @@ import { LocalDatabasePaths } from "../src/main/localdb/LocalDatabasePaths.js";
 import { LocalDatabaseStateRepository } from "../src/main/localdb/LocalDatabaseStateRepository.js";
 import { SearchTermService } from "../src/main/localdb/SearchTermService.js";
 import { normalizeSearchBackendConfig } from "../src/main/sqlite/SearchBackendConfig.js";
-import { SqliteIndexStore } from "../src/main/sqlite/SqliteIndexStore.js";
+import { LsmSqliteIndexStore } from "../src/main/sqlite/LsmSqliteIndexStore.js";
 
 function parseArgs(argv) {
   const args = { dbRoot: "", clean: false, activate: false };
@@ -87,7 +87,7 @@ async function main() {
   await localDatabaseService.ensureReady();
   const paths = new LocalDatabasePaths(localDatabaseService.getStoredRootPath());
   const stateRepository = new LocalDatabaseStateRepository();
-  const indexStore = new SqliteIndexStore({ paths });
+  const indexStore = new LsmSqliteIndexStore({ paths });
   const useCase = new BuildSqliteIndexesUseCase({
     localDatabaseService,
     stateRepository,

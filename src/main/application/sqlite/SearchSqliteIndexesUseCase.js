@@ -34,6 +34,7 @@ export class SearchSqliteIndexesUseCase {
       !["running", "cancelled", "completed"].includes(state.status)) {
       throw new Error("SQLite indexes have not been built yet.");
     }
+    this.indexStore.configure?.(state);
 
     const queries = Object.entries(payload || {})
       .filter(([field, value]) => INDEXABLE_FIELDS.includes(field) && value)

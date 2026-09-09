@@ -14,8 +14,12 @@ Windows and Ubuntu, so system SQLite and a recent system Node.js are not require
 MatrixData/
   documents/                 original JSONL records
   sqlite-indexes-v3/
-    terms/                   64 global term shards
-    documents/               sharded JSONL byte pointers
+    terms/                   immutable base: 64 term shards
+    documents/               immutable base: 64 JSONL pointer shards
+    segments/
+      segment-000001/        next 20 million indexed documents
+        terms/               64 term shards
+        documents/           64 JSONL pointer shards
   meta/
     db.json
     sources.json
@@ -27,10 +31,13 @@ MatrixData/
 The indexer never rewrites or copies `documents/`. Full records remain in JSONL; SQLite
 contains normalized search terms, compact document keys, and byte pointers to the originals.
 
-The format uses 64 global term shards and 64 document-pointer shards. This keeps the number
-of active SQLite databases fixed regardless of the number of fields. Exact and prefix
-searches use B-tree indexes. Leading-wildcard searches use FTS5 trigrams built in a separate
-resumable phase. A wildcard query must contain at least three consecutive literal characters.
+The existing v3 index is retained as an immutable base. New batches are written to bounded
+20-million-document segments, so growing B-trees never require a rebuild of already indexed
+data. Matrix searches the base and all published segments as one index and removes duplicate
+document keys. Every layer uses 64 term shards and 64 document-pointer shards. Exact and
+prefix searches use B-tree indexes. Leading-wildcard searches use FTS5 trigrams built in a
+separate resumable phase. A wildcard query must contain at least three consecutive literal
+characters.
 
 ## Install And Check
 
@@ -60,7 +67,7 @@ indexes.
 
 ## Full Build And Resume
 
-Start a new complete build:
+Start a new complete build only when no usable SQLite checkpoint exists:
 
 ```bash
 npm run sqlite:index -- \
@@ -81,6 +88,12 @@ create duplicate postings. On slow RAID storage, `--batch-size 100000` avoids hu
 durable disk synchronizations per small batch. A smaller value creates more frequent
 checkpoints but is usually slower.
 
+An existing non-segmented v3 index is migrated automatically on the first continuation: its
+files become the immutable base, the current document counter is saved as
+`baseIndexedDocuments`, and only later records are written to `segments/`. This operation
+does not copy SQLite files and does not reread `documents/`. Keep the checkpoint and run the
+normal continuation command without `--clean`.
+
 Do not rename, modify, or remove an already indexed document file while a build is resumable.
 New JSONL files may be added after completion and will be indexed incrementally.
 
@@ -95,10 +108,10 @@ npm run sqlite:index -- \
   --wildcards-only
 ```
 
-The command checkpoints after every one of 64 term shards. Stop it with `Ctrl+C` and repeat
-the same command to continue. Exact and prefix search are available from committed core
-batches; leading `%` and `?` require a wildcard snapshot matching the current core index.
-If new documents are indexed later, repeat `--wildcards-only`.
+The command checkpoints after every term shard in the base and each segment. Stop it with
+`Ctrl+C` and repeat the same command to continue. Exact and prefix search are available from
+committed core batches; leading `%` and `?` require a wildcard snapshot matching the current
+core index. If new documents are indexed later, repeat `--wildcards-only`.
 
 ## Activate Search
 

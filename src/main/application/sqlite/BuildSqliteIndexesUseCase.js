@@ -38,9 +38,10 @@ export class BuildSqliteIndexesUseCase {
       await this.jsonLinesRepository.remove(paths.legacySqliteV2IndexesDir);
       await this.jsonLinesRepository.remove(paths.sqliteIndexStatePath);
     }
-    await this.indexStore.ensureDirectories();
-
     const state = await this.restoreState(paths, files, fileManifest);
+    this.indexStore.initializeStorage?.(state);
+    this.indexStore.configure?.(state);
+    await this.indexStore.ensureDirectories();
     const plannedFiles = state.files;
     if (state.nextFileIndex < plannedFiles.length) {
       state.wildcard = {
@@ -102,7 +103,9 @@ export class BuildSqliteIndexesUseCase {
     let nextOffset = state.byteOffset || 0;
     const flush = async () => {
       if (batch.length === 0) return;
+      this.indexStore.prepareWrite?.(state, batch.length);
       await this.indexStore.writeBatch(batch);
+      this.indexStore.recordWrite?.(state, batch.length);
       state.byteOffset = nextOffset;
       state.indexedDocuments += batch.length;
       batch.length = 0;
@@ -175,7 +178,7 @@ export class BuildSqliteIndexesUseCase {
       const previousSet = new Set(previousFiles);
       const addedFiles = files.filter((file) => !previousSet.has(file));
       const plannedFiles = [...previousFiles, ...addedFiles];
-      return {
+      const restored = {
         ...previous,
         files: plannedFiles,
         filesTotal: plannedFiles.length,
@@ -185,8 +188,10 @@ export class BuildSqliteIndexesUseCase {
         indexedDocuments: Number(previous.indexedDocuments) || 0,
         error: null,
       };
+      this.indexStore.initializeStorage?.(restored);
+      return restored;
     }
-    return {
+    const initial = {
       formatVersion: SQLITE_INDEX_FORMAT_VERSION,
       status: "pending",
       files,
@@ -205,6 +210,8 @@ export class BuildSqliteIndexesUseCase {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
+    this.indexStore.initializeStorage?.(initial);
+    return initial;
   }
 
   async buildFileManifest(paths, files) {

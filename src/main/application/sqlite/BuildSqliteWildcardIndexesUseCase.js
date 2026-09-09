@@ -28,6 +28,7 @@ export class BuildSqliteWildcardIndexesUseCase {
     if (state.status === "running") {
       throw new Error("Stop core SQLite indexing before building wildcard indexes.");
     }
+    this.indexStore.configure?.(state);
 
     const sameSnapshot = state.wildcard?.indexedDocuments === state.indexedDocuments;
     const completedShards = sameSnapshot
@@ -41,24 +42,30 @@ export class BuildSqliteWildcardIndexesUseCase {
     };
     await this.stateRepository.writeSqliteIndexState(paths, state);
 
-    for (let index = 0; index < SQLITE_TERM_SHARD_COUNT; index += 1) {
-      if (this.cancelRequested) break;
-      const shard = index.toString(16).padStart(2, "0");
-      if (completedShards.has(shard)) continue;
-      this.indexStore.rebuildWildcardShard(shard);
-      completedShards.add(shard);
+    const targets = this.indexStore.getWildcardTargets?.() || ["base"];
+    const totalShards = targets.length * SQLITE_TERM_SHARD_COUNT;
+    for (const target of targets) {
+      for (let index = 0; index < SQLITE_TERM_SHARD_COUNT; index += 1) {
+        if (this.cancelRequested) break;
+        const shard = index.toString(16).padStart(2, "0");
+        const checkpoint = target === "base" ? shard : `${target}:${shard}`;
+        if (completedShards.has(checkpoint)) continue;
+        this.indexStore.rebuildWildcardShard(shard, target);
+        completedShards.add(checkpoint);
       state.wildcard.completedShards = [...completedShards];
       state.wildcard.updatedAt = new Date().toISOString();
       await this.stateRepository.writeSqliteIndexState(paths, state);
       options.onProgress?.({
         status: "running",
         shardsProcessed: completedShards.size,
-        shardsTotal: SQLITE_TERM_SHARD_COUNT,
-        shard,
+        shardsTotal: totalShards,
+        shard: checkpoint,
       });
+      }
+      if (this.cancelRequested) break;
     }
 
-    state.wildcard.status = completedShards.size === SQLITE_TERM_SHARD_COUNT
+    state.wildcard.status = completedShards.size === totalShards
       ? "completed"
       : "cancelled";
     state.wildcard.updatedAt = new Date().toISOString();
@@ -66,7 +73,7 @@ export class BuildSqliteWildcardIndexesUseCase {
     options.onProgress?.({
       status: state.wildcard.status,
       shardsProcessed: completedShards.size,
-      shardsTotal: SQLITE_TERM_SHARD_COUNT,
+      shardsTotal: totalShards,
       shard: null,
     });
     return state;

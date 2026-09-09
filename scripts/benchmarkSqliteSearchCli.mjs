@@ -7,7 +7,7 @@ import { JsonLinesRepository } from "../src/main/localdb/JsonLinesRepository.js"
 import { LocalDatabasePaths } from "../src/main/localdb/LocalDatabasePaths.js";
 import { LocalDatabaseStateRepository } from "../src/main/localdb/LocalDatabaseStateRepository.js";
 import { SearchTermService } from "../src/main/localdb/SearchTermService.js";
-import { SqliteIndexStore } from "../src/main/sqlite/SqliteIndexStore.js";
+import { LsmSqliteIndexStore } from "../src/main/sqlite/LsmSqliteIndexStore.js";
 
 function parseArgs(argv) {
   const args = { dbRoot: "", iterations: 5, payload: {} };
@@ -45,7 +45,7 @@ async function main() {
   const rootPath = path.resolve(args.dbRoot);
   await fs.access(path.join(rootPath, "meta", "db.json"));
   const paths = new LocalDatabasePaths(rootPath);
-  const indexStore = new SqliteIndexStore({ paths });
+  const indexStore = new LsmSqliteIndexStore({ paths });
   const useCase = new SearchSqliteIndexesUseCase({
     localDatabaseService: {
       getStoredRootPath: () => rootPath,

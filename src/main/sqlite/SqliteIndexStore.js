@@ -13,8 +13,9 @@ import {
 const FIELD_IDS = new Map(INDEXABLE_FIELDS.map((field, index) => [field, index + 1]));
 
 export class SqliteIndexStore {
-  constructor({ paths, maxOpenConnections = 160 }) {
+  constructor({ paths, indexesDir = paths.sqliteIndexesDir, maxOpenConnections = 160 }) {
     this.paths = paths;
+    this.indexesDir = indexesDir;
     this.maxOpenConnections = maxOpenConnections;
     this.connections = new Map();
     this.readonlyDatabases = new WeakSet();
@@ -22,8 +23,8 @@ export class SqliteIndexStore {
 
   async ensureDirectories() {
     await Promise.all([
-      fsPromises.mkdir(this.paths.sqliteTermIndexesDir, { recursive: true }),
-      fsPromises.mkdir(path.join(this.paths.sqliteIndexesDir, "documents"), { recursive: true }),
+      fsPromises.mkdir(this.termIndexesDir, { recursive: true }),
+      fsPromises.mkdir(path.join(this.indexesDir, "documents"), { recursive: true }),
     ]);
   }
 
@@ -64,6 +65,7 @@ export class SqliteIndexStore {
     }
 
     for (const [shard, entries] of documentGroups.entries()) {
+      entries.sort((left, right) => Buffer.compare(left.docKey, right.docKey));
       const database = this.openDocumentShard(shard);
       const insert = database.prepare(`
         INSERT OR IGNORE INTO documents
@@ -85,16 +87,27 @@ export class SqliteIndexStore {
     }
 
     for (const [shard, postings] of postingGroups.entries()) {
+      postings.sort((left, right) => this.comparePostings(left, right));
       const database = this.openTermShard(shard);
       const insertPosting = database.prepare(
         "INSERT OR IGNORE INTO postings(field_id, term, doc_key) VALUES (?, ?, ?)"
       );
       this.transaction(database, () => {
-        for (const { fieldId, term, docKey } of postings) {
-          insertPosting.run(fieldId, term, docKey);
+        let previous = null;
+        for (const posting of postings) {
+          if (previous && this.comparePostings(previous, posting) === 0) continue;
+          insertPosting.run(posting.fieldId, posting.term, posting.docKey);
+          previous = posting;
         }
       });
     }
+  }
+
+  comparePostings(left, right) {
+    if (left.fieldId !== right.fieldId) return left.fieldId - right.fieldId;
+    if (left.term < right.term) return -1;
+    if (left.term > right.term) return 1;
+    return Buffer.compare(left.docKey, right.docKey);
   }
 
   queryField(field, term, limit, { wildcardReady = true } = {}) {
@@ -205,20 +218,20 @@ export class SqliteIndexStore {
   }
 
   openTermShard(shard) {
-    return this.open(this.paths.getSqliteTermShardPath(shard), "term", false);
+    return this.open(this.getTermShardPath(shard), "term", false);
   }
 
   openDocumentShard(shard) {
-    return this.open(this.paths.getSqliteDocumentShardPath(shard), "document", false);
+    return this.open(this.getDocumentShardPath(shard), "document", false);
   }
 
   openExistingTermShard(shard, readonly = true) {
-    const filePath = this.paths.getSqliteTermShardPath(shard);
+    const filePath = this.getTermShardPath(shard);
     return fs.existsSync(filePath) ? this.open(filePath, "term", readonly) : null;
   }
 
   openExistingDocumentShard(shard) {
-    const filePath = this.paths.getSqliteDocumentShardPath(shard);
+    const filePath = this.getDocumentShardPath(shard);
     return fs.existsSync(filePath) ? this.open(filePath, "document", true) : null;
   }
 
@@ -314,5 +327,17 @@ export class SqliteIndexStore {
 
   keyHex(value) {
     return Buffer.from(value).toString("hex");
+  }
+
+  get termIndexesDir() {
+    return path.join(this.indexesDir, "terms");
+  }
+
+  getTermShardPath(shard) {
+    return path.join(this.termIndexesDir, `${shard}.sqlite`);
+  }
+
+  getDocumentShardPath(shard) {
+    return path.join(this.indexesDir, "documents", `${shard}.sqlite`);
   }
 }

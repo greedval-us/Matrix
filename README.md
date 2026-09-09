@@ -11,7 +11,7 @@ Useful commands:
 ```bash
 npm run documents:split -- --db-root /path/to/MatrixData --max-size-gb 2
 npm run sqlite:check
-npm run sqlite:index -- --db-root /path/to/MatrixData --max-files 10 --batch-size 100000 --clean
+npm run sqlite:index -- --db-root /path/to/MatrixData --batch-size 100000
 npm run sqlite:index -- --db-root /path/to/MatrixData --wildcards-only
 ```
 

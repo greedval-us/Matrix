@@ -7,7 +7,7 @@ import { SEARCH_BACKEND_SQLITE } from "../localdb/constants.js";
 import { LocalDatabasePaths } from "../localdb/LocalDatabasePaths.js";
 import { LocalDatabaseService } from "./LocalDatabaseService.js";
 import { SearchBackendConfigService } from "./SearchBackendConfigService.js";
-import { SqliteIndexStore } from "../sqlite/SqliteIndexStore.js";
+import { LsmSqliteIndexStore } from "../sqlite/LsmSqliteIndexStore.js";
 
 export class SearchClientService {
   constructor() {
@@ -36,7 +36,7 @@ export class SearchClientService {
       const rootPath = this.localDatabaseService.getStoredRootPath();
       if (!this.sqliteIndexStore || this.sqliteRootPath !== rootPath) {
         this.sqliteIndexStore?.close();
-        this.sqliteIndexStore = new SqliteIndexStore({
+        this.sqliteIndexStore = new LsmSqliteIndexStore({
           paths: new LocalDatabasePaths(rootPath),
         });
         this.sqliteRootPath = rootPath;
