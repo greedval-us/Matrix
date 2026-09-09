@@ -64,6 +64,7 @@ test("LSM rotates full segments without changing the base", async (t) => {
   await store.writeBatch([document("people:1", "one@example.org")]);
   store.recordWrite(state, 1);
   state.indexedDocuments += 1;
+  const firstSegmentId = state.storage.activeSegmentId;
   store.prepareWrite(state, 1);
   await store.writeBatch([document("people:2", "two@example.org")]);
   store.recordWrite(state, 1);
@@ -71,6 +72,7 @@ test("LSM rotates full segments without changing the base", async (t) => {
   assert.equal(state.storage.segments.length, 2);
   assert.equal(state.storage.segments[0].status, "sealed");
   assert.equal(state.storage.segments[1].status, "active");
+  assert.equal(store.segmentStores.has(firstSegmentId), false);
   assert.equal(store.queryField("mail", "one@example.org", 10).length, 1);
   assert.equal(store.queryField("mail", "two@example.org", 10).length, 1);
   store.close();

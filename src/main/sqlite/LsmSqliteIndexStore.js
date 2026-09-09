@@ -49,6 +49,7 @@ export class LsmSqliteIndexStore {
     if (active && active.indexedDocuments > 0 &&
         active.indexedDocuments + documentCount > maxDocuments) {
       active.status = "sealed";
+      this.closeSegmentStore(active.id);
       active = null;
       storage.activeSegmentId = null;
     }
@@ -138,6 +139,13 @@ export class LsmSqliteIndexStore {
       this.segmentStores.set(segmentId, store);
     }
     return store;
+  }
+
+  closeSegmentStore(segmentId) {
+    const store = this.segmentStores.get(segmentId);
+    if (!store) return;
+    store.close();
+    this.segmentStores.delete(segmentId);
   }
 
   readStoresNewestFirst() {
