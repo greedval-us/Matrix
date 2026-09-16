@@ -119,7 +119,25 @@ export class BuildSqliteIndexesUseCase {
       state.byteOffset || 0
     )) {
       if (this.cancelRequested) break;
-      const document = JSON.parse(entry.line);
+      let document;
+      try {
+        document = JSON.parse(entry.line);
+      } catch (error) {
+        await flush();
+        nextOffset = entry.byteOffset + entry.byteLength + 1;
+        state.byteOffset = nextOffset;
+        state.skippedDocuments = (Number(state.skippedDocuments) || 0) + 1;
+        state.lastSkippedDocument = {
+          fileName,
+          byteOffset: entry.byteOffset,
+          byteLength: entry.byteLength,
+          error: error.message,
+        };
+        state.updatedAt = new Date().toISOString();
+        await this.stateRepository.writeSqliteIndexState(paths, state);
+        options.onWarning?.(state.lastSkippedDocument);
+        continue;
+      }
       batch.push(this.mapDocument(document, fileName, entry));
       nextOffset = entry.byteOffset + entry.byteLength + 1;
       if (batch.length >= this.batchDocuments) {
@@ -186,6 +204,7 @@ export class BuildSqliteIndexesUseCase {
         completedFiles: previous.completedFiles || [],
         byteOffset: Number(previous.byteOffset) || 0,
         indexedDocuments: Number(previous.indexedDocuments) || 0,
+        skippedDocuments: Number(previous.skippedDocuments) || 0,
         error: null,
       };
       this.indexStore.initializeStorage?.(restored);
@@ -202,6 +221,7 @@ export class BuildSqliteIndexesUseCase {
       currentFile: null,
       byteOffset: 0,
       indexedDocuments: 0,
+      skippedDocuments: 0,
       wildcard: {
         status: "pending",
         indexedDocuments: 0,

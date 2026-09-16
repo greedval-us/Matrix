@@ -134,6 +134,12 @@ async function main() {
           `fileProgress=${percent}%`
         );
       },
+      onWarning(warning) {
+        console.warn(
+          `[sqlite:warning] skipped malformed JSON file=${warning.fileName} ` +
+          `offset=${warning.byteOffset} bytes=${warning.byteLength} error=${warning.error}`
+        );
+      },
         });
     indexStore.close();
     const stats = await getDirectoryStats(paths.sqliteIndexesDir);

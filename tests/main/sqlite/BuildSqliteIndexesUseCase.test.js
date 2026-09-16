@@ -80,3 +80,60 @@ test("SQLite indexing resumes inside a JSONL file and accepts new files", async 
   assert.equal(incremental.indexStore.queryField("mail", "new@example.org", 10).length, 1);
   incremental.indexStore.close();
 });
+
+test("SQLite indexing checkpoints and skips malformed JSONL records", async (t) => {
+  const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "matrix-sqlite-malformed-"));
+  t.after(() => fs.rm(rootPath, { recursive: true, force: true }));
+  const paths = new LocalDatabasePaths(rootPath);
+  await Promise.all([paths.documentsDir, paths.metaDir, paths.stateDir].map((directory) =>
+    fs.mkdir(directory, { recursive: true })
+  ));
+  await fs.writeFile(paths.databaseMetaPath, "{}", "utf8");
+  const valid = (id) => JSON.stringify({
+    docId: `people:${id}`,
+    sourceTable: "people",
+    fields: { mail: `person${id}@example.org` },
+    invalidFields: {},
+  });
+  await fs.writeFile(
+    paths.getDocumentPath("people.jsonl"),
+    `${valid(1)}\n{"docId":"broken","fields":{"fio":"unterminated}}\n${valid(2)}\n`,
+    "utf8"
+  );
+
+  const stateRepository = new LocalDatabaseStateRepository();
+  const create = () => {
+    const indexStore = new LsmSqliteIndexStore({ paths });
+    return { indexStore, useCase: new BuildSqliteIndexesUseCase({
+      localDatabaseService: {
+        getStoredRootPath: () => rootPath,
+        ensureReady: async () => ({ initialized: true }),
+      },
+      stateRepository,
+      jsonLinesRepository: new JsonLinesRepository(),
+      termService: new SearchTermService(),
+      indexStore,
+      batchDocuments: 100,
+    }) };
+  };
+
+  const first = create();
+  const cancelled = await first.useCase.execute({
+    onWarning: () => first.useCase.cancel(),
+  });
+  first.indexStore.close();
+  assert.equal(cancelled.status, "cancelled");
+  assert.equal(cancelled.indexedDocuments, 1);
+  assert.equal(cancelled.skippedDocuments, 1);
+  assert.equal(cancelled.lastSkippedDocument.fileName, "people.jsonl");
+  assert.ok(cancelled.byteOffset > 0);
+
+  const resumed = create();
+  const completed = await resumed.useCase.execute();
+  assert.equal(completed.status, "completed");
+  assert.equal(completed.indexedDocuments, 2);
+  assert.equal(completed.skippedDocuments, 1);
+  assert.equal(resumed.indexStore.queryField("mail", "person1@example.org", 10).length, 1);
+  assert.equal(resumed.indexStore.queryField("mail", "person2@example.org", 10).length, 1);
+  resumed.indexStore.close();
+});
