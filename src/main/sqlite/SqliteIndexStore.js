@@ -13,10 +13,11 @@ import {
 const FIELD_IDS = new Map(INDEXABLE_FIELDS.map((field, index) => [field, index + 1]));
 
 export class SqliteIndexStore {
-  constructor({ paths, indexesDir = paths.sqliteIndexesDir, maxOpenConnections = 160 }) {
+  constructor({ paths, indexesDir = paths.sqliteIndexesDir, maxOpenConnections = 160, fieldScoped = false }) {
     this.paths = paths;
     this.indexesDir = indexesDir;
     this.maxOpenConnections = maxOpenConnections;
+    this.fieldScoped = fieldScoped;
     this.connections = new Map();
     this.readonlyDatabases = new WeakSet();
   }
@@ -57,9 +58,10 @@ export class SqliteIndexStore {
       for (const [field, terms] of Object.entries(document.indexTerms || {})) {
         for (const term of terms) {
           const shard = this.getTermShard(field, term);
-          const postings = postingGroups.get(shard) || [];
+          const groupKey = this.fieldScoped ? `${field}:${shard}` : shard;
+          const postings = postingGroups.get(groupKey) || [];
           postings.push({ fieldId: this.getFieldId(field), term, docKey });
-          postingGroups.set(shard, postings);
+          postingGroups.set(groupKey, postings);
         }
       }
     }
@@ -86,9 +88,10 @@ export class SqliteIndexStore {
       });
     }
 
-    for (const [shard, postings] of postingGroups.entries()) {
+    for (const [groupKey, postings] of postingGroups.entries()) {
       postings.sort((left, right) => this.comparePostings(left, right));
-      const database = this.openTermShard(shard);
+      const [field, shard] = this.fieldScoped ? groupKey.split(":") : [null, groupKey];
+      const database = this.openTermShard(shard, field);
       const insertPosting = database.prepare(
         "INSERT OR IGNORE INTO postings(field_id, term, doc_key) VALUES (?, ?, ?)"
       );
@@ -120,7 +123,7 @@ export class SqliteIndexStore {
   queryExact(field, term, limit) {
     const fieldId = this.getFieldId(field);
     const shard = this.getTermShard(field, term);
-    const database = this.openExistingTermShard(shard);
+    const database = this.openExistingTermShard(shard, true, field);
     if (!database) return [];
     return database.prepare(`
       SELECT doc_key
@@ -150,7 +153,7 @@ export class SqliteIndexStore {
     for (let shardIndex = 0; shardIndex < SQLITE_TERM_SHARD_COUNT; shardIndex += 1) {
       if (results.length >= limit) break;
       const shard = shardIndex.toString(16).padStart(2, "0");
-      const database = this.openExistingTermShard(shard);
+      const database = this.openExistingTermShard(shard, true, field);
       if (!database) continue;
       const remaining = limit - results.length;
       const rows = prefix
@@ -172,8 +175,8 @@ export class SqliteIndexStore {
     return results;
   }
 
-  rebuildWildcardShard(shard) {
-    const database = this.openExistingTermShard(shard, false);
+  rebuildWildcardShard(shard, field = null) {
+    const database = this.openExistingTermShard(shard, false, field);
     if (!database) return false;
     this.transaction(database, () => {
       database.exec(`
@@ -217,16 +220,16 @@ export class SqliteIndexStore {
     return docKeys.map((key) => pointers.get(this.keyHex(key))).filter(Boolean);
   }
 
-  openTermShard(shard) {
-    return this.open(this.getTermShardPath(shard), "term", false);
+  openTermShard(shard, field = null) {
+    return this.open(this.getTermShardPath(shard, field), "term", false);
   }
 
   openDocumentShard(shard) {
     return this.open(this.getDocumentShardPath(shard), "document", false);
   }
 
-  openExistingTermShard(shard, readonly = true) {
-    const filePath = this.getTermShardPath(shard);
+  openExistingTermShard(shard, readonly = true, field = null) {
+    const filePath = this.getTermShardPath(shard, field);
     return fs.existsSync(filePath) ? this.open(filePath, "term", readonly) : null;
   }
 
@@ -333,8 +336,11 @@ export class SqliteIndexStore {
     return path.join(this.indexesDir, "terms");
   }
 
-  getTermShardPath(shard) {
-    return path.join(this.termIndexesDir, `${shard}.sqlite`);
+  getTermShardPath(shard, field = null) {
+    if (this.fieldScoped && !FIELD_IDS.has(field)) {
+      throw new Error(`Unsupported SQLite index field: ${field}`);
+    }
+    return path.join(this.termIndexesDir, ...(this.fieldScoped ? [field] : []), `${shard}.sqlite`);
   }
 
   getDocumentShardPath(shard) {

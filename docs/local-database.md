@@ -14,30 +14,58 @@ Windows and Ubuntu, so system SQLite and a recent system Node.js are not require
 MatrixData/
   documents/                 original JSONL records
   sqlite-indexes-v3/
-    terms/                   immutable base: 64 term shards
-    documents/               immutable base: 64 JSONL pointer shards
-    segments/
-      segment-000001/        next 20 million indexed documents
-        terms/               64 term shards
-        documents/           64 JSONL pointer shards
+    field-shards/
+      terms/
+        number/              64 hash shards for phone numbers
+        passport/            64 hash shards for passports
+        .../                 one directory per indexed field
+      documents/             64 JSONL pointer shards shared by all fields
   meta/
     db.json
     sources.json
     search_backend.json
   state/
     sqlite_index_state.json  atomic resume checkpoint
+    sqlite_field_migration.json  SQLite-to-SQLite migration checkpoint
 ```
 
 The indexer never rewrites or copies `documents/`. Full records remain in JSONL; SQLite
 contains normalized search terms, compact document keys, and byte pointers to the originals.
 
-The existing v3 index is retained as an immutable base. New batches are written to bounded
-20-million-document segments, so growing B-trees never require a rebuild of already indexed
-data. Matrix searches the base and all published segments as one index and removes duplicate
-document keys. Every layer uses 64 term shards and 64 document-pointer shards. Exact and
-prefix searches use B-tree indexes. Leading-wildcard searches use FTS5 trigrams built in a
-separate resumable phase. A wildcard query must contain at least three consecutive literal
-characters.
+Existing v3 databases may still use an immutable base plus bounded segments. The field
+migration below converts their SQLite postings and JSONL pointers directly into global
+field-specific hash shards without rereading JSONL. Once switched, exact search opens only
+the relevant field shard and document-pointer shard. Prefix searches use B-tree indexes.
+Leading-wildcard searches use FTS5 trigrams built in a separate resumable phase. A wildcard
+query must contain at least three consecutive literal characters.
+
+## Migrate Completed Segment Indexes
+
+Run this only after core SQLite indexing has completed and no indexer is running:
+
+```bash
+npm run sqlite:migrate-fields -- --db-root /media/arm-5/data/zookeeper/MatrixData
+```
+
+The command copies **only existing SQLite indexes**, never scans `documents/*.jsonl`, and
+checkpoints each source shard. `Ctrl+C` stops after the current shard; the same command
+resumes after interruption or power loss. Use `--max-shards 1` for a small trial. The app
+continues searching the old segments until every shard has been copied and verified. The
+state then switches atomically to `field-shards-v1`. Allow enough free space for both copies
+until validation is complete. Do not run the core indexer or wildcard builder concurrently
+with the migration.
+
+Check representative exact searches and document results before removing old SQLite files:
+
+```bash
+npm run sqlite:migrate-fields -- \
+  --db-root /media/arm-5/data/zookeeper/MatrixData \
+  --prune-old
+```
+
+`--prune-old` removes only the old v3 base `terms/`, base `documents/`, and `segments/`.
+It leaves `field-shards/`, all JSONL, metadata, and checkpoints intact. Run
+`--wildcards-only` afterward to build wildcard FTS for the new layout.
 
 ## Install And Check
 
@@ -108,7 +136,7 @@ npm run sqlite:index -- \
   --wildcards-only
 ```
 
-The command checkpoints after every term shard in the base and each segment. Stop it with
+The command checkpoints after every term shard in the active layout. Stop it with
 `Ctrl+C` and repeat the same command to continue. Exact and prefix search are available from
 committed core batches; leading `%` and `?` require a wildcard snapshot matching the current
 core index. If new documents are indexed later, repeat `--wildcards-only`.

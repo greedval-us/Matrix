@@ -13,6 +13,7 @@
     "build:win": "cross-env ELECTRON_CACHE=.electron-cache vite build && cross-env ELECTRON_CACHE=.electron-cache electron-builder --win nsis portable",
     "documents:split": "node scripts/splitDocumentsCli.mjs",
     "sqlite:index": "cross-env ELECTRON_RUN_AS_NODE=1 electron scripts/buildSqliteIndexesCli.mjs",
+    "sqlite:migrate-fields": "cross-env ELECTRON_RUN_AS_NODE=1 electron scripts/migrateSqliteFieldIndexesCli.mjs",
     "sqlite:check": "cross-env ELECTRON_RUN_AS_NODE=1 electron scripts/checkSqliteRuntime.cjs",
     "search:bench": "cross-env ELECTRON_RUN_AS_NODE=1 electron scripts/benchmarkSqliteSearchCli.mjs",
     "test": "npm run test:core && npm run test:sqlite",

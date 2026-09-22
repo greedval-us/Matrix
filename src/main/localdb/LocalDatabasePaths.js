@@ -74,6 +74,14 @@ export class LocalDatabasePaths {
     return path.join(this.sqliteIndexesDir, "segments");
   }
 
+  get sqliteFieldIndexesDir() {
+    return path.join(this.sqliteIndexesDir, "field-shards");
+  }
+
+  get sqliteFieldMigrationPath() {
+    return path.join(this.stateDir, "sqlite_field_migration.json");
+  }
+
   getSqliteSegmentDir(segmentId) {
     return path.join(this.sqliteSegmentsDir, segmentId);
   }

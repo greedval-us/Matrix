@@ -28,6 +28,9 @@ export class BuildSqliteIndexesUseCase {
     const rootPath = this.localDatabaseService.getStoredRootPath();
     await this.localDatabaseService.ensureReady(rootPath);
     const paths = new LocalDatabasePaths(rootPath);
+    if (await this.jsonLinesRepository.exists(`${paths.sqliteFieldMigrationPath}.lock`)) {
+      throw new Error("SQLite field migration is running; do not index documents concurrently.");
+    }
     const files = await this.jsonLinesRepository.listFiles(paths.documentsDir, ".jsonl");
     const fileManifest = await this.buildFileManifest(paths, files);
 
@@ -37,6 +40,7 @@ export class BuildSqliteIndexesUseCase {
       await this.jsonLinesRepository.remove(paths.legacySqliteIndexesDir);
       await this.jsonLinesRepository.remove(paths.legacySqliteV2IndexesDir);
       await this.jsonLinesRepository.remove(paths.sqliteIndexStatePath);
+      await this.jsonLinesRepository.remove(paths.sqliteFieldMigrationPath);
     }
     const state = await this.restoreState(paths, files, fileManifest);
     this.indexStore.initializeStorage?.(state);

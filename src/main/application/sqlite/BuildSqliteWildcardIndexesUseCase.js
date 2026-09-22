@@ -1,3 +1,4 @@
+import fs from "node:fs/promises";
 import {
   SQLITE_INDEX_FORMAT_VERSION,
   SQLITE_TERM_SHARD_COUNT,
@@ -21,6 +22,9 @@ export class BuildSqliteWildcardIndexesUseCase {
     const rootPath = this.localDatabaseService.getStoredRootPath();
     await this.localDatabaseService.ensureReady(rootPath);
     const paths = new LocalDatabasePaths(rootPath);
+    if (await fs.access(`${paths.sqliteFieldMigrationPath}.lock`).then(() => true, () => false)) {
+      throw new Error("SQLite field migration is running; do not build wildcard indexes concurrently.");
+    }
     const state = await this.stateRepository.readSqliteIndexState(paths);
     if (!state || state.formatVersion !== SQLITE_INDEX_FORMAT_VERSION) {
       throw new Error("SQLite core indexes v3 have not been built.");
