@@ -13,11 +13,22 @@ import {
 const FIELD_IDS = new Map(INDEXABLE_FIELDS.map((field, index) => [field, index + 1]));
 
 export class SqliteIndexStore {
-  constructor({ paths, indexesDir = paths.sqliteIndexesDir, maxOpenConnections = 160, fieldScoped = false }) {
+  constructor({
+    paths,
+    indexesDir = paths.sqliteIndexesDir,
+    maxOpenConnections = 160,
+    fieldScoped = false,
+    cacheSizeKb = 8192,
+    synchronous = "FULL",
+    walAutoCheckpointPages = 16384,
+  }) {
     this.paths = paths;
     this.indexesDir = indexesDir;
     this.maxOpenConnections = maxOpenConnections;
     this.fieldScoped = fieldScoped;
+    this.cacheSizeKb = cacheSizeKb;
+    this.synchronous = synchronous;
+    this.walAutoCheckpointPages = walAutoCheckpointPages;
     this.connections = new Map();
     this.readonlyDatabases = new WeakSet();
   }
@@ -250,11 +261,12 @@ export class SqliteIndexStore {
     const database = new DatabaseSync(filePath, { readOnly: readonly });
     database.exec("PRAGMA busy_timeout = 5000");
     database.exec("PRAGMA case_sensitive_like = ON");
-    database.exec("PRAGMA cache_size = -8192");
+    database.exec(`PRAGMA cache_size = -${this.cacheSizeKb}`);
     if (!readonly) {
       database.exec("PRAGMA journal_mode = WAL");
-      database.exec("PRAGMA synchronous = FULL");
-      database.exec("PRAGMA wal_autocheckpoint = 16384");
+      database.exec(`PRAGMA synchronous = ${this.synchronous}`);
+      database.exec(`PRAGMA wal_autocheckpoint = ${this.walAutoCheckpointPages}`);
+      database.exec("PRAGMA temp_store = MEMORY");
       kind === "term"
         ? this.initializeTermSchema(database)
         : this.initializeDocumentSchema(database);

@@ -7,7 +7,7 @@ import { INDEXABLE_FIELDS, SQLITE_INDEX_FORMAT_VERSION, SQLITE_TERM_SHARD_COUNT,
 import { FIELD_STORAGE_MODE } from "./LsmSqliteIndexStore.js";
 import { SqliteIndexStore } from "./SqliteIndexStore.js";
 
-const MIGRATION_VERSION = 1;
+const MIGRATION_VERSION = 2;
 
 function sourceDirectories(paths, state) {
   return [
@@ -43,6 +43,47 @@ function copyAndVerify(target, sourcePath, insertSql, verifySql, fieldId = null)
   } finally {
     target.exec("DETACH DATABASE source_index");
   }
+}
+
+function validateCheckpoint(existing, sourceIds, indexedDocuments) {
+  if (!existing) return;
+  if (![1, MIGRATION_VERSION].includes(existing.version) ||
+      JSON.stringify(existing.sourceIds) !== JSON.stringify(sourceIds) ||
+      existing.indexedDocuments !== indexedDocuments) {
+    throw new Error("Migration checkpoint does not match the current SQLite indexes.");
+  }
+}
+
+function upgradeCheckpoint(existing, sourceIds, indexedDocuments) {
+  if (!existing) {
+    return {
+      version: MIGRATION_VERSION,
+      order: "target-shard-major",
+      sourceIds,
+      indexedDocuments,
+      shardIndex: 0,
+      sourceIndex: 0,
+    };
+  }
+  if (existing.version === MIGRATION_VERSION) return existing;
+  return {
+    version: MIGRATION_VERSION,
+    order: "target-shard-major",
+    sourceIds,
+    indexedDocuments,
+    shardIndex: 0,
+    sourceIndex: 0,
+    legacyCoverage: {
+      sourceIndex: existing.sourceIndex,
+      shardIndex: existing.shardIndex,
+    },
+  };
+}
+
+function coveredByLegacyCheckpoint(coverage, sourceIndex, shardIndex) {
+  if (!coverage) return false;
+  return sourceIndex < coverage.sourceIndex ||
+    (sourceIndex === coverage.sourceIndex && shardIndex < coverage.shardIndex);
 }
 
 async function acquireLock(lockPath) {
@@ -86,7 +127,10 @@ export async function migrateSqliteFieldIndexes({ paths, stateRepository, maxSha
     paths,
     indexesDir: paths.sqliteFieldIndexesDir,
     fieldScoped: true,
-    maxOpenConnections: 32,
+    maxOpenConnections: INDEXABLE_FIELDS.length + 1,
+    cacheSizeKb: 128 * 1024,
+    synchronous: "NORMAL",
+    walAutoCheckpointPages: 262144,
   });
   try {
     if (state.storage.mode === FIELD_STORAGE_MODE) {
@@ -99,26 +143,24 @@ export async function migrateSqliteFieldIndexes({ paths, stateRepository, maxSha
         throw error;
       });
     const sourceIds = sources.map((source) => source.id);
-    if (existing && (existing.version !== MIGRATION_VERSION ||
-      JSON.stringify(existing.sourceIds) !== JSON.stringify(sourceIds) ||
-      existing.indexedDocuments !== state.indexedDocuments)) {
-      throw new Error("Migration checkpoint does not match the current SQLite indexes.");
+    validateCheckpoint(existing, sourceIds, state.indexedDocuments);
+    const checkpoint = upgradeCheckpoint(existing, sourceIds, state.indexedDocuments);
+    if (existing?.version !== MIGRATION_VERSION) {
+      await writeCheckpoint(paths.sqliteFieldMigrationPath, checkpoint);
     }
-    const checkpoint = existing || {
-      version: MIGRATION_VERSION,
-      sourceIds,
-      indexedDocuments: state.indexedDocuments,
-      sourceIndex: 0,
-      shardIndex: 0,
-    };
     const maxShardCount = Math.max(SQLITE_TERM_SHARD_COUNT, SQLITE_DOCUMENT_SHARD_COUNT);
     let processedShards = 0;
-    for (let sourceIndex = checkpoint.sourceIndex; sourceIndex < sources.length; sourceIndex += 1) {
-      const source = sources[sourceIndex];
-      for (let shardIndex = sourceIndex === checkpoint.sourceIndex ? checkpoint.shardIndex : 0;
-        shardIndex < maxShardCount; shardIndex += 1) {
+    for (let shardIndex = checkpoint.shardIndex; shardIndex < maxShardCount; shardIndex += 1) {
+      for (let sourceIndex = shardIndex === checkpoint.shardIndex ? checkpoint.sourceIndex : 0;
+        sourceIndex < sources.length; sourceIndex += 1) {
+        const source = sources[sourceIndex];
         if (shouldStop() || processedShards >= maxShards) {
           return { status: "paused", processedShards, source: source.id, shardIndex };
+        }
+        if (coveredByLegacyCheckpoint(checkpoint.legacyCoverage, sourceIndex, shardIndex)) {
+          checkpoint.shardIndex = shardIndex;
+          checkpoint.sourceIndex = sourceIndex + 1;
+          continue;
         }
         const shard = shardIndex.toString(16).padStart(2, "0");
         const sourceTermPath = path.join(source.dir, "terms", `${shard}.sqlite`);
@@ -159,13 +201,13 @@ export async function migrateSqliteFieldIndexes({ paths, stateRepository, maxSha
           );
         }
         processedShards += 1;
-        checkpoint.sourceIndex = sourceIndex;
-        checkpoint.shardIndex = shardIndex + 1;
+        checkpoint.shardIndex = shardIndex;
+        checkpoint.sourceIndex = sourceIndex + 1;
         await writeCheckpoint(paths.sqliteFieldMigrationPath, checkpoint);
         onProgress({ source: source.id, sourceIndex: sourceIndex + 1, sourcesTotal: sources.length, shardIndex: shardIndex + 1, shardsTotal: maxShardCount });
       }
-      checkpoint.sourceIndex = sourceIndex + 1;
-      checkpoint.shardIndex = 0;
+      checkpoint.shardIndex = shardIndex + 1;
+      checkpoint.sourceIndex = 0;
       await writeCheckpoint(paths.sqliteFieldMigrationPath, checkpoint);
     }
     target.close();
@@ -184,7 +226,9 @@ export async function pruneMigratedSqliteIndexes({ paths, stateRepository }) {
   const state = await stateRepository.readSqliteIndexState(paths);
   const checkpoint = JSON.parse(await fsPromises.readFile(paths.sqliteFieldMigrationPath, "utf8"));
   if (state?.storage?.mode !== FIELD_STORAGE_MODE ||
-      checkpoint.sourceIndex !== checkpoint.sourceIds.length) {
+      (checkpoint.version === 1
+        ? checkpoint.sourceIndex !== checkpoint.sourceIds.length
+        : checkpoint.shardIndex < Math.max(SQLITE_TERM_SHARD_COUNT, SQLITE_DOCUMENT_SHARD_COUNT))) {
     throw new Error("Field migration is not fully completed; old indexes cannot be removed.");
   }
   const targets = [

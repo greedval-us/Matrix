@@ -55,6 +55,14 @@ state then switches atomically to `field-shards-v1`. Allow enough free space for
 until validation is complete. Do not run the core indexer or wildcard builder concurrently
 with the migration.
 
+Migration version 2 processes one target hash shard across every source before moving to
+the next shard. This keeps the active SQLite B-trees in memory and reduces write
+amplification on rotational storage. Migration-only databases use `synchronous=NORMAL`, a
+larger page cache, and less frequent WAL checkpoints. Source indexes remain untouched, and
+the checkpoint is written only after a verified source/shard pair, so an interrupted pair is
+safely replayed. Existing version 1 checkpoints are upgraded automatically without
+rewriting pairs that were already completed.
+
 Check representative exact searches and document results before removing old SQLite files:
 
 ```bash
