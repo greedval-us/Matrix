@@ -18,6 +18,7 @@ export class LsmSqliteIndexStore {
     this.segmentIds = [];
     this.activeSegmentId = null;
     this.fieldMode = false;
+    this.fieldMigration = null;
   }
 
   async ensureDirectories() {
@@ -28,13 +29,16 @@ export class LsmSqliteIndexStore {
     ]);
   }
 
-  configure(state) {
+  configure(state, fieldMigration = null) {
     const storage = state?.storage;
     this.fieldMode = storage?.mode === FIELD_STORAGE_MODE;
     this.segmentIds = storage?.mode === STORAGE_MODE
       ? (storage.segments || []).map((segment) => segment.id)
       : [];
     this.activeSegmentId = storage?.activeSegmentId || null;
+    this.fieldMigration = this.validateFieldMigration(state, fieldMigration)
+      ? fieldMigration
+      : null;
     for (const segmentId of this.segmentIds) this.getSegmentStore(segmentId);
   }
 
@@ -98,12 +102,21 @@ export class LsmSqliteIndexStore {
 
   queryField(field, term, limit, options = {}) {
     if (this.fieldMode) return this.fieldStore.queryField(field, term, limit, options);
+    if (this.fieldMigration) {
+      return this.fieldStore.queryField(field, term, limit, {
+        ...options,
+        wildcardReady: false,
+      });
+    }
+    return this.queryStores(this.readStoresNewestFirst(), field, term, limit, options);
+  }
+
+  queryStores(stores, field, term, limit, options) {
     const results = [];
     const seen = new Set();
-    for (const store of this.readStoresNewestFirst()) {
+    for (const store of stores) {
       if (results.length >= limit) break;
-      const matches = store.queryField(field, term, limit - results.length, options);
-      for (const key of matches) {
+      for (const key of store.queryField(field, term, limit - results.length, options)) {
         const hex = Buffer.from(key).toString("hex");
         if (seen.has(hex)) continue;
         seen.add(hex);
@@ -115,9 +128,14 @@ export class LsmSqliteIndexStore {
 
   loadDocumentPointers(docKeys) {
     if (this.fieldMode) return this.fieldStore.loadDocumentPointers(docKeys);
+    if (this.fieldMigration) return this.fieldStore.loadDocumentPointers(docKeys);
+    return this.loadDocumentPointersFromStores(docKeys, this.readStoresNewestFirst());
+  }
+
+  loadDocumentPointersFromStores(docKeys, stores) {
     const remaining = new Map(docKeys.map((key) => [Buffer.from(key).toString("hex"), key]));
     const pointers = new Map();
-    for (const store of this.readStoresNewestFirst()) {
+    for (const store of stores) {
       if (remaining.size === 0) break;
       for (const pointer of store.loadDocumentPointers([...remaining.values()])) {
         const hex = Buffer.from(pointer.doc_key).toString("hex");
@@ -126,6 +144,20 @@ export class LsmSqliteIndexStore {
       }
     }
     return docKeys.map((key) => pointers.get(Buffer.from(key).toString("hex"))).filter(Boolean);
+  }
+
+  validateFieldMigration(state, migration) {
+    if (this.fieldMode || state?.storage?.mode !== STORAGE_MODE ||
+        migration?.version !== 2 || migration?.order !== "target-shard-major") {
+      return false;
+    }
+    const sourceIds = [...this.segmentIds].reverse().concat("base");
+    return migration.indexedDocuments === state.indexedDocuments &&
+      JSON.stringify(migration.sourceIds) === JSON.stringify(sourceIds);
+  }
+
+  keyHex(value) {
+    return Buffer.from(value).toString("hex");
   }
 
   getWildcardTargets() {

@@ -60,7 +60,8 @@ try {
     matches = pointers.length;
   }
   console.log(
-    `field=${args.field} matches=${matches} ` +
+    `field=${args.field} term=${JSON.stringify(sample)} ` +
+    `shard=${store.getTermShard(args.field, sample)} matches=${matches} ` +
     `index_ms=${indexSamples.map((n) => n.toFixed(2)).join(",")} ` +
     `total_ms=${samples.map((n) => n.toFixed(2)).join(",")}`
   );

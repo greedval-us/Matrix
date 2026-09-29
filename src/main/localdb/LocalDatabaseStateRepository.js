@@ -79,6 +79,10 @@ export class LocalDatabaseStateRepository {
     return await this.readJson(paths.sqliteIndexStatePath, null);
   }
 
+  async readSqliteFieldMigration(paths) {
+    return await this.readJson(paths.sqliteFieldMigrationPath, null);
+  }
+
   async writeSqliteIndexState(paths, state) {
     const temporaryPath = `${paths.sqliteIndexStatePath}.next`;
     await this.writeJson(temporaryPath, state);

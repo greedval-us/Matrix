@@ -18,6 +18,13 @@ function document(docId, term) {
   };
 }
 
+function termInShard(store, shard, prefix) {
+  for (let index = 0; ; index += 1) {
+    const term = `${prefix}${index}@example.org`;
+    if (store.getTermShard("mail", term) === shard) return term;
+  }
+}
+
 test("LSM migration keeps the existing index as base and resumes in segments", async (t) => {
   const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "matrix-sqlite-lsm-"));
   const paths = new LocalDatabasePaths(rootPath);
@@ -76,4 +83,58 @@ test("LSM rotates full segments without changing the base", async (t) => {
   assert.equal(store.queryField("mail", "one@example.org", 10).length, 1);
   assert.equal(store.queryField("mail", "two@example.org", 10).length, 1);
   store.close();
+});
+
+test("LSM search uses only field shards while migration is in progress", async (t) => {
+  const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "matrix-sqlite-lsm-hybrid-"));
+  const paths = new LocalDatabasePaths(rootPath);
+  t.after(() => fs.rm(rootPath, { recursive: true, force: true }));
+  const segmentIds = ["segment-000001", "segment-000002"];
+  const probe = new SqliteIndexStore({ paths });
+  const newestTerm = termInShard(probe, "00", "newest");
+  const olderTerm = termInShard(probe, "00", "older");
+  const baseTerm = termInShard(probe, "00", "base");
+  probe.close();
+
+  const base = new SqliteIndexStore({ paths });
+  await base.writeBatch([document("people:base", baseTerm)]);
+  base.close();
+  const older = new SqliteIndexStore({ paths, indexesDir: paths.getSqliteSegmentDir(segmentIds[0]) });
+  await older.writeBatch([document("people:older", olderTerm)]);
+  older.close();
+  const newest = new SqliteIndexStore({ paths, indexesDir: paths.getSqliteSegmentDir(segmentIds[1]) });
+  await newest.writeBatch([document("people:newest", newestTerm)]);
+  newest.close();
+  const migrated = new SqliteIndexStore({
+    paths,
+    indexesDir: paths.sqliteFieldIndexesDir,
+    fieldScoped: true,
+  });
+  await migrated.writeBatch([document("people:newest", newestTerm)]);
+  migrated.close();
+
+  const state = {
+    indexedDocuments: 3,
+    storage: {
+      mode: "lsm-v1",
+      segments: segmentIds.map((id) => ({ id })),
+    },
+  };
+  const migration = {
+    version: 2,
+    order: "target-shard-major",
+    indexedDocuments: 3,
+    sourceIds: [segmentIds[1], segmentIds[0], "base"],
+    shardIndex: 0,
+    sourceIndex: 1,
+  };
+  const hybrid = new LsmSqliteIndexStore({ paths });
+  hybrid.configure(state, migration);
+  const keys = hybrid.queryField("mail", newestTerm, 10);
+  assert.equal(keys.length, 1);
+  assert.equal(hybrid.queryField("mail", olderTerm, 10).length, 0);
+  assert.equal(hybrid.queryField("mail", baseTerm, 10).length, 0);
+  const pointers = hybrid.loadDocumentPointers(keys);
+  assert.deepEqual(pointers.map((pointer) => pointer.doc_id), ["people:newest"]);
+  hybrid.close();
 });

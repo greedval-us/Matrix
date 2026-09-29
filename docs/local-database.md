@@ -63,6 +63,13 @@ the checkpoint is written only after a verified source/shard pair, so an interru
 safely replayed. Existing version 1 checkpoints are upgraded automatically without
 rewriting pairs that were already completed.
 
+While a version 2 migration is running, Matrix searches only `field-shards/`. This makes the
+already migrated data available immediately without opening the legacy base or segment
+indexes. Search results are intentionally incomplete until migration finishes: active and
+future hash shards contain only the sources copied so far. Exact and prefix-wildcard queries
+work against the partial new index. Leading `%` and `?` queries require the wildcard FTS pass
+after field migration finishes.
+
 Check representative exact searches and document results before removing old SQLite files:
 
 ```bash
