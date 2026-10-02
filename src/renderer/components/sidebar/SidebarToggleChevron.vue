@@ -1,7 +1,7 @@
 <script setup>
-import { ChevronLeft } from 'lucide-vue-next'
-const collapsed = defineModel()
-const toggle = () => (collapsed.value = !collapsed.value)
+import { ChevronLeft } from 'lucide-vue-next';
+const collapsed = defineModel();
+const toggle = () => (collapsed.value = !collapsed.value);
 </script>
 
 <template>

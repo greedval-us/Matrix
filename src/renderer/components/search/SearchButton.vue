@@ -44,11 +44,15 @@ function handleSearch() {
       :disabled="!hasSearchValue && !loading"
       @click.prevent="handleSearch"
     >
-      <Square v-if="loading" class="h-3.5 w-3.5 fill-current" /><Search v-else class="h-4 w-4" />
+      <Square aria-hidden="true" v-if="loading" class="h-3.5 w-3.5 fill-current" /><Search
+        aria-hidden="true"
+        v-else
+        class="h-4 w-4"
+      />
       {{ loading ? 'Остановить поиск' : 'Найти совпадения' }}
       <kbd
         v-if="!loading"
-        class="ml-auto hidden rounded border border-emerald-900/20 px-1.5 text-[10px] opacity-60 sm:inline"
+        class="ml-auto hidden rounded border border-matrix-on-accent/30 px-1.5 text-xs sm:inline"
         >Enter</kbd
       >
     </button>
@@ -69,10 +73,11 @@ function handleSearch() {
         :disabled="!hasRecords || loading || exporting"
         @click="handleExport"
       >
-        <LoaderCircle v-if="exporting" class="h-3.5 w-3.5 animate-spin" /><Download
-          v-else
-          class="h-3.5 w-3.5"
-        />Экспорт
+        <LoaderCircle
+          aria-hidden="true"
+          v-if="exporting"
+          class="h-3.5 w-3.5 animate-spin"
+        /><Download aria-hidden="true" v-else class="h-3.5 w-3.5" />Экспорт
       </button>
     </div>
     <p v-if="exportError" role="alert" class="text-xs text-rose-300">{{ exportError }}</p>

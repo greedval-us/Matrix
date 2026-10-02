@@ -28,7 +28,7 @@ async function save() {
   <AppDialog title="Новая заметка" @close="modals.closeNoteModal()">
     <form class="space-y-4" @submit.prevent="save">
       <label class="block space-y-2 text-xs"
-        ><span class="block text-slate-400">Текст заметки</span
+        ><span class="block text-matrix-muted">Текст заметки</span
         ><textarea
           v-model="text"
           rows="6"

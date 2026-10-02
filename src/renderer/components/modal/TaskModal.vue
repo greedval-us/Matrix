@@ -28,7 +28,7 @@ async function save() {
   <AppDialog title="Новая задача" @close="modals.closeTaskModal()">
     <form class="space-y-4" @submit.prevent="save">
       <label class="block space-y-2 text-xs"
-        ><span class="block text-slate-400">Название</span
+        ><span class="block text-matrix-muted">Название</span
         ><input
           v-model="title"
           required
@@ -36,7 +36,7 @@ async function save() {
           class="mx-input"
           placeholder="Что нужно сделать?" /></label
       ><label class="block space-y-2 text-xs"
-        ><span class="block text-slate-400">Описание</span
+        ><span class="block text-matrix-muted">Описание</span
         ><textarea
           v-model="description"
           rows="4"

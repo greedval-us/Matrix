@@ -18,8 +18,8 @@ function closeTab(id) {
     :class="[
       'flex shrink-0 items-center gap-2 rounded-lg border px-2 py-1',
       tab.id === tabStore.state.activeTabId
-        ? 'border-[#3a4c60] bg-[#1b2531] text-slate-100'
-        : 'border-transparent text-slate-500 hover:bg-[#141b24]',
+        ? 'border-matrix-control bg-matrix-raised text-matrix-strong'
+        : 'border-transparent text-matrix-muted hover:bg-matrix-panel',
     ]"
   >
     <input
@@ -42,18 +42,19 @@ function closeTab(id) {
       @dblclick="tabStore.startEdit(tab)"
     >
       <LoaderCircle
+        aria-hidden="true"
         v-if="searchUI.getLoading(tab.id)"
-        class="h-3 w-3 shrink-0 animate-spin text-emerald-300"
+        class="h-3 w-3 shrink-0 animate-spin text-matrix-accent"
       /><span class="truncate">{{ tab.title }}</span>
     </button>
     <button
       v-if="tabStore.state.tabs.length > 1"
       type="button"
-      class="mx-icon-button !h-6 !w-6"
+      class="mx-icon-button mx-icon-button-compact"
       :aria-label="'Закрыть вкладку ' + tab.title"
       @click="closeTab(tab.id)"
     >
-      <X class="h-3 w-3" />
+      <X aria-hidden="true" class="h-3 w-3" />
     </button>
   </div>
 </template>

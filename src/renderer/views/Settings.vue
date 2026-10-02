@@ -84,25 +84,25 @@ onMounted(loadConfig);
       title="Настройки подключения"
       description="Укажите сервер и ключ доступа, затем проверьте соединение."
     />
-    <p v-if="loading" role="status" class="mb-4 text-xs text-slate-500">Загружаем настройки…</p>
+    <p v-if="loading" role="status" class="mb-4 text-sm text-matrix-muted">Загружаем настройки…</p>
     <form class="mx-panel space-y-6 p-5 md:p-7" @submit.prevent="saveConfig">
       <fieldset :disabled="busy" class="grid gap-6 sm:grid-cols-2">
-        <label class="space-y-2 text-xs"
-          ><span class="block font-medium text-slate-300">Адрес сервера</span
+        <label class="space-y-2 text-sm"
+          ><span class="block font-medium text-matrix-secondary">Адрес сервера</span
           ><input
             v-model.trim="config.endpoint"
             required
             placeholder="arm-5:50051"
             class="mx-input"
             autocomplete="off"
-          /><span class="block leading-5 text-slate-500"
+          /><span class="block leading-5 text-matrix-muted"
             >Имя сервера или IP-адрес и порт.</span
           ></label
         >
-        <label class="space-y-2 text-xs"
-          ><span class="block font-medium text-slate-300"
+        <label class="space-y-2 text-sm"
+          ><span class="block font-medium text-matrix-secondary"
             >API-ключ
-            <span v-if="config.hasApiKey" class="ml-2 text-emerald-300">Сохранён</span></span
+            <span v-if="config.hasApiKey" class="ml-2 text-matrix-accent">Сохранён</span></span
           ><input
             v-model="config.apiKey"
             type="password"
@@ -113,16 +113,17 @@ onMounted(loadConfig);
             class="mx-input"
         /></label>
         <div class="space-y-3 sm:col-span-2">
-          <div class="flex items-center gap-2 text-xs font-medium text-slate-300">
-            <ShieldCheck class="h-4 w-4 text-emerald-300" />Защищённое соединение
+          <div class="flex items-center gap-2 text-sm font-medium text-matrix-secondary">
+            <ShieldCheck aria-hidden="true" class="h-4 w-4 text-matrix-accent" />Защищённое
+            соединение
           </div>
-          <div class="mx-input break-all text-xs text-slate-400">{{ certificateLabel }}</div>
+          <div class="mx-input break-all text-sm text-matrix-muted">{{ certificateLabel }}</div>
           <div class="flex flex-wrap gap-2">
-            <button type="button" class="mx-button !py-2 text-xs" @click="chooseCertificate">
+            <button type="button" class="mx-button !py-2 text-sm" @click="chooseCertificate">
               Выбрать сертификат</button
             ><button
               type="button"
-              class="mx-button !py-2 text-xs"
+              class="mx-button !py-2 text-sm"
               :disabled="!config.caCertificatePath"
               @click="config.caCertificatePath = ''"
             >
@@ -130,13 +131,13 @@ onMounted(loadConfig);
             </button>
           </div>
         </div>
-        <details class="border-t border-[#293443] pt-5 sm:col-span-2">
-          <summary class="cursor-pointer text-xs font-medium text-slate-400">
+        <details class="border-t border-matrix-border pt-5 sm:col-span-2">
+          <summary class="cursor-pointer text-sm font-medium text-matrix-muted">
             Дополнительные параметры
           </summary>
           <div class="mt-5 grid gap-5 sm:grid-cols-2">
-            <label class="space-y-2 text-xs"
-              ><span class="block text-slate-300">Записей в одной странице потока</span
+            <label class="space-y-2 text-sm"
+              ><span class="block text-matrix-secondary">Записей в одной странице потока</span
               ><input
                 v-model.number="config.pageSize"
                 type="number"
@@ -144,12 +145,12 @@ onMounted(loadConfig);
                 max="10000"
                 required
                 class="mx-input"
-              /><span class="block leading-5 text-slate-500"
+              /><span class="block leading-5 text-matrix-muted"
                 >Сервер передаст все совпадения. Этот параметр определяет размер одной
                 страницы.</span
               ></label
-            ><label class="space-y-2 text-xs"
-              ><span class="block text-slate-300">Время ожидания подключения, мс</span
+            ><label class="space-y-2 text-sm"
+              ><span class="block text-matrix-secondary">Время ожидания подключения, мс</span
               ><input
                 v-model.number="config.connectionTimeoutMs"
                 type="number"
@@ -162,21 +163,27 @@ onMounted(loadConfig);
           </div>
         </details>
       </fieldset>
-      <div class="flex flex-wrap gap-3 border-t border-[#293443] pt-5">
+      <div class="flex flex-wrap gap-3 border-t border-matrix-border pt-5">
         <button type="submit" :disabled="busy" class="mx-button mx-button-primary">
-          <Check class="h-4 w-4" />{{ saving ? 'Сохранение…' : 'Сохранить настройки' }}</button
+          <Check aria-hidden="true" class="h-4 w-4" />{{
+            saving ? 'Сохранение…' : 'Сохранить настройки'
+          }}</button
         ><button type="button" :disabled="busy" class="mx-button" @click="testConnection">
-          <RefreshCw v-if="testing" class="h-4 w-4 animate-spin" /><Wifi v-else class="h-4 w-4" />{{
-            testing ? 'Подключаемся…' : 'Проверить соединение'
-          }}
+          <RefreshCw aria-hidden="true" v-if="testing" class="h-4 w-4 animate-spin" /><Wifi
+            aria-hidden="true"
+            v-else
+            class="h-4 w-4"
+          />{{ testing ? 'Подключаемся…' : 'Проверить соединение' }}
         </button>
       </div>
     </form>
     <p v-if="message" role="status" class="mx-alert mx-success mt-5 text-sm">{{ message }}</p>
     <p v-if="error" role="alert" class="mx-alert mt-5 text-sm">{{ error }}</p>
     <div v-if="indexStatus" class="mx-panel mt-5 p-5">
-      <p class="text-xs font-medium text-slate-200">Состояние индекса: {{ indexStatus.status }}</p>
-      <p class="mt-2 text-xs text-slate-400">
+      <p class="text-sm font-medium text-matrix-text">
+        Состояние индекса: {{ indexStatus.status }}
+      </p>
+      <p class="mt-2 text-sm text-matrix-muted">
         Доступно частей: {{ indexStatus.indexed_shards }} из {{ indexStatus.total_shards }} ·
         {{ Number(indexStatus.progress_percent || 0).toFixed(1) }}%
       </p>

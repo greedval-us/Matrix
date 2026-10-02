@@ -20,21 +20,21 @@ const modals = useModalsStore();
       </button>
     </div>
     <div v-if="!notesStore.state.notes.length" class="mx-empty">
-      <StickyNote class="mx-auto mb-3 h-6 w-6 text-slate-600" />Сохраняйте важные результаты<br />или
-      добавьте свою первую заметку.
+      <StickyNote aria-hidden="true" class="mx-auto mb-3 h-6 w-6 text-matrix-muted" />Сохраняйте
+      важные результаты<br />или добавьте свою первую заметку.
     </div>
     <ul v-else class="space-y-3">
       <li
         v-for="note in notesStore.state.notes"
         :key="note.id"
-        class="flex items-start gap-3 rounded-lg border border-[#293443] bg-[#0f151e] p-4"
+        class="flex items-start gap-3 rounded-lg border border-matrix-border bg-matrix-input p-4"
       >
         <div class="min-w-0 flex-1">
           <div
-            class="break-words text-xs leading-6 text-slate-300 [&_dd]:mb-2 [&_dd]:break-all [&_dt]:text-slate-500 [&_h2]:font-semibold"
+            class="break-words text-sm leading-6 text-matrix-secondary [&_dd]:mb-2 [&_dd]:break-all [&_dt]:text-matrix-muted [&_h2]:font-semibold"
             v-html="note.text"
           ></div>
-          <p class="mt-3 text-[10px] text-slate-500">
+          <p class="mt-3 text-xs text-matrix-muted">
             {{ new Date(note.createdAt).toLocaleString('ru-RU') }}
           </p>
         </div>
@@ -44,7 +44,7 @@ const modals = useModalsStore();
           aria-label="Удалить заметку"
           @click="notesStore.deleteNote(note.id)"
         >
-          <Trash2 class="h-3.5 w-3.5" />
+          <Trash2 aria-hidden="true" class="h-3.5 w-3.5" />
         </button>
       </li>
     </ul>

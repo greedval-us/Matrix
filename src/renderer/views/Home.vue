@@ -37,36 +37,39 @@ onMounted(async () => {
     <section class="mx-panel mb-6 flex flex-wrap items-center justify-between gap-6 p-6">
       <div class="flex items-start gap-4">
         <span
-          class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-300/10"
-          ><Search class="h-5 w-5 text-emerald-300"
+          class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-matrix-accent/10"
+          ><Search aria-hidden="true" class="h-5 w-5 text-matrix-accent"
         /></span>
         <div>
           <h2 class="text-lg font-semibold tracking-tight">Найдите нужные данные</h2>
-          <p class="mt-1.5 max-w-lg text-xs leading-6 text-slate-400">
+          <p class="mt-1.5 max-w-lg text-sm leading-6 text-matrix-muted">
             По телефону, имени, почте и другим параметрам. Каждый запрос можно открыть в отдельной
             вкладке.
           </p>
         </div>
       </div>
       <router-link to="/search" class="mx-button mx-button-primary"
-        >Новый поиск<ArrowUpRight class="h-4 w-4"
+        >Новый поиск<ArrowUpRight aria-hidden="true" class="h-4 w-4"
       /></router-link>
     </section>
     <div class="mb-6 grid gap-3 sm:grid-cols-3">
       <div class="mx-panel flex items-center gap-3 p-4">
-        <History class="h-4 w-4 text-slate-500" /><span class="text-xs text-slate-400"
+        <History aria-hidden="true" class="h-4 w-4 text-matrix-muted" /><span
+          class="text-sm text-matrix-muted"
           >Запросов в истории</span
         ><strong class="ml-auto text-lg tabular-nums">{{
           historyStore.state.history.length
         }}</strong>
       </div>
       <div class="mx-panel flex items-center gap-3 p-4">
-        <StickyNote class="h-4 w-4 text-slate-500" /><span class="text-xs text-slate-400"
+        <StickyNote aria-hidden="true" class="h-4 w-4 text-matrix-muted" /><span
+          class="text-sm text-matrix-muted"
           >Заметок</span
         ><strong class="ml-auto text-lg tabular-nums">{{ notesStore.state.notes.length }}</strong>
       </div>
       <div class="mx-panel flex items-center gap-3 p-4">
-        <ListTodo class="h-4 w-4 text-slate-500" /><span class="text-xs text-slate-400"
+        <ListTodo aria-hidden="true" class="h-4 w-4 text-matrix-muted" /><span
+          class="text-sm text-matrix-muted"
           >Задач в работе</span
         ><strong class="ml-auto text-lg tabular-nums">{{
           tasksStore.state.tasks.filter((task) => !task.done).length

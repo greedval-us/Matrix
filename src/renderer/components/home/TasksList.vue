@@ -20,31 +20,31 @@ const modals = useModalsStore();
       </button>
     </div>
     <div v-if="!tasksStore.state.tasks.length" class="mx-empty">
-      <ListTodo class="mx-auto mb-3 h-6 w-6 text-slate-600" />Задач пока нет.<br />Добавьте задачу,
-      чтобы не забыть важное.
+      <ListTodo aria-hidden="true" class="mx-auto mb-3 h-6 w-6 text-matrix-muted" />Задач пока
+      нет.<br />Добавьте задачу, чтобы не забыть важное.
     </div>
-    <ul v-else class="divide-y divide-[#293443]">
+    <ul v-else class="divide-y divide-matrix-border">
       <li v-for="task in tasksStore.state.tasks" :key="task.id" class="flex items-start gap-3 py-4">
         <button
-          class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border border-[#46566b]"
-          :class="task.done ? '!border-emerald-300 bg-emerald-300 text-[#0d2920]' : ''"
+          class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border border-matrix-control"
+          :class="task.done ? '!border-matrix-accent bg-matrix-accent text-matrix-on-accent' : ''"
           :aria-label="task.done ? 'Возобновить задачу' : 'Завершить задачу'"
           :aria-pressed="task.done"
           @click="tasksStore.toggleTaskDone(task.id)"
         >
-          <Check v-if="task.done" class="h-3 w-3" />
+          <Check aria-hidden="true" v-if="task.done" class="h-3 w-3" />
         </button>
         <div class="min-w-0 flex-1">
           <h3
             :class="[
               'break-words text-sm font-medium',
-              task.done ? 'text-slate-500 line-through' : 'text-slate-200',
+              task.done ? 'text-matrix-muted line-through' : 'text-matrix-text',
             ]"
           >
             {{ task.title }}
           </h3>
-          <p class="mt-1 break-words text-xs leading-5 text-slate-500">{{ task.text }}</p>
-          <p class="mt-2 text-[10px] text-slate-600">
+          <p class="mt-1 break-words text-sm leading-5 text-matrix-muted">{{ task.text }}</p>
+          <p class="mt-2 text-xs text-matrix-muted">
             {{ new Date(task.createdAt).toLocaleString('ru-RU') }}
           </p>
         </div>
@@ -54,7 +54,7 @@ const modals = useModalsStore();
           aria-label="Удалить задачу"
           @click="tasksStore.deleteTask(task.id)"
         >
-          <Trash2 class="h-3.5 w-3.5" />
+          <Trash2 aria-hidden="true" class="h-3.5 w-3.5" />
         </button>
       </li>
     </ul>

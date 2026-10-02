@@ -39,7 +39,7 @@ watch(
 
 <template>
   <div class="flex h-full min-h-0 min-w-0 flex-col">
-    <div class="flex shrink-0 items-center gap-2 border-b border-[#293443] px-3 py-3 md:px-6">
+    <div class="flex shrink-0 items-center gap-2 border-b border-matrix-border px-3 py-3 md:px-6">
       <button
         class="mx-icon-button !h-7 !w-7"
         aria-label="Прокрутить вкладки влево"
@@ -59,7 +59,7 @@ watch(
         aria-label="Прокрутить вкладки вправо"
         @click="scrollTabs(200)"
       >
-        <ChevronRight class="h-4 w-4" />
+        <ChevronRight aria-hidden="true" class="h-4 w-4" />
       </button>
       <button
         class="mx-button shrink-0 !px-2.5 !py-2 text-xs"

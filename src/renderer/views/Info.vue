@@ -37,18 +37,22 @@ onBeforeUnmount(() => window.clearInterval(timer));
       title="Состояние системы"
       description="Подключение к серверу и готовность данных для поиска."
       ><button class="mx-button" :disabled="loading" @click="refresh">
-        <RefreshCw class="h-4 w-4" :class="{ 'animate-spin': loading }" />Обновить
+        <RefreshCw
+          aria-hidden="true"
+          class="h-4 w-4"
+          :class="{ 'animate-spin': loading }"
+        />Обновить
       </button></PageHeading
     >
     <p v-if="error" role="alert" class="mx-alert mb-5">{{ error }}</p>
     <div class="mb-6 grid gap-4 sm:grid-cols-2">
       <div class="mx-panel p-5">
-        <Server class="h-5 w-5 text-emerald-300" />
+        <Server class="h-5 w-5 text-matrix-accent" />
         <p class="mx-eyebrow mt-5">Сервер поиска</p>
         <p class="mt-2 break-all text-sm font-medium">{{ config?.endpoint || 'Не настроен' }}</p>
       </div>
       <div class="mx-panel p-5">
-        <ShieldCheck class="h-5 w-5 text-emerald-300" />
+        <ShieldCheck aria-hidden="true" class="h-5 w-5 text-matrix-accent" />
         <p class="mx-eyebrow mt-5">Доступ</p>
         <p class="mt-2 text-sm font-medium">
           {{ config?.hasApiKey ? 'Ключ настроен · TLS' : 'Требуется API-ключ' }}
@@ -58,20 +62,20 @@ onBeforeUnmount(() => window.clearInterval(timer));
     <section class="mx-panel p-6">
       <div class="flex flex-wrap items-start justify-between gap-4">
         <div class="flex items-center gap-3">
-          <Database class="h-5 w-5 text-emerald-300" />
+          <Database aria-hidden="true" class="h-5 w-5 text-matrix-accent" />
           <div>
             <h2 class="text-sm font-semibold">Готовность поискового индекса</h2>
-            <p class="mt-1 text-xs text-slate-500">
+            <p class="mt-1 text-xs text-matrix-muted">
               {{ status?.status || (loading ? 'Проверяем состояние…' : 'Нет соединения') }}
             </p>
           </div>
         </div>
-        <strong class="text-3xl font-semibold tabular-nums text-emerald-300">{{
+        <strong class="text-3xl font-semibold tabular-nums text-matrix-accent">{{
           status ? progress.toFixed(1) + '%' : '—'
         }}</strong>
       </div>
       <div
-        class="mt-6 h-2 overflow-hidden rounded-full bg-[#293443]"
+        class="mt-6 h-2 overflow-hidden rounded-full bg-matrix-border"
         role="progressbar"
         aria-label="Готовность индекса"
         :aria-valuenow="status ? progress : undefined"
@@ -79,11 +83,11 @@ onBeforeUnmount(() => window.clearInterval(timer));
         aria-valuemax="100"
       >
         <div
-          class="h-full rounded-full bg-emerald-300 transition-[width] duration-500"
+          class="h-full rounded-full bg-matrix-accent transition-[width] duration-500"
           :style="{ width: progress + '%' }"
         ></div>
       </div>
-      <p class="mt-4 text-xs leading-6 text-slate-400">
+      <p class="mt-4 text-xs leading-6 text-matrix-muted">
         {{
           status
             ? 'Готово частей: ' + status.indexed_shards + ' из ' + status.total_shards
@@ -93,7 +97,7 @@ onBeforeUnmount(() => window.clearInterval(timer));
       <p v-if="status && progress < 100" class="mt-2 text-xs leading-6 text-amber-200/80">
         Индекс обновляется. Поиск работает по уже готовым данным; выдача может быть неполной.
       </p>
-      <p v-if="status?.updated_at" class="mt-4 text-[11px] text-slate-500">
+      <p v-if="status?.updated_at" class="mt-4 text-xs text-matrix-muted">
         Обновлено: {{ status.updated_at }}
       </p>
     </section>

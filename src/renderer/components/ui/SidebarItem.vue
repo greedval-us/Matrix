@@ -18,8 +18,8 @@ const iconComponent = computed(() => icons[props.icon]);
     :to="to"
     :title="label"
     :aria-label="label"
-    class="flex min-h-[44px] items-center gap-3 rounded-lg px-3 text-[13px] font-medium text-slate-400 transition-colors hover:bg-[#1b2531] hover:text-slate-100"
-    exact-active-class="!bg-emerald-300/10 !text-emerald-200"
+    class="flex min-h-[44px] items-center gap-3 rounded-lg px-3 text-[13px] font-medium text-matrix-muted transition-colors hover:bg-matrix-raised hover:text-matrix-strong"
+    exact-active-class="!bg-matrix-accent/10 !text-matrix-accent"
   >
     <component :is="iconComponent" class="h-[18px] w-[18px] shrink-0" />
     <span v-if="!collapsed" class="hidden md:inline">{{ label }}</span>

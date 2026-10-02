@@ -8,21 +8,21 @@ const isCollapsed = defineModel({ type: Boolean, default: false });
 <template>
   <aside
     :class="[
-      'flex h-full shrink-0 flex-col border-r border-[#293443] bg-[#101720] transition-[width] duration-200',
+      'flex h-full shrink-0 flex-col border-r border-matrix-border bg-matrix-rail',
       isCollapsed ? 'w-16' : 'w-16 md:w-56',
     ]"
   >
     <router-link
       to="/"
-      class="flex h-16 shrink-0 items-center gap-3 border-b border-[#293443] px-4"
+      class="flex h-16 shrink-0 items-center gap-3 border-b border-matrix-border px-4"
       aria-label="Matrix — главная"
     >
       <span
-        class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-300 text-[#10382a]"
+        class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-matrix-accent text-matrix-on-accent"
         ><Layers3 class="h-5 w-5"
       /></span>
       <span v-if="!isCollapsed" class="hidden text-lg font-semibold tracking-tight md:block"
-        >Matrix<span class="ml-1 text-emerald-300">.</span></span
+        >Matrix<span class="ml-1 text-matrix-accent">.</span></span
       >
     </router-link>
     <div class="min-h-0 flex-1 overflow-y-auto py-6">
@@ -30,10 +30,8 @@ const isCollapsed = defineModel({ type: Boolean, default: false });
       <SidebarNav :collapsed="isCollapsed" />
     </div>
     <SidebarBot v-model="isCollapsed" />
-    <div class="hidden items-center justify-between border-t border-[#293443] p-3 md:flex">
-      <span v-if="!isCollapsed" class="px-2 text-[11px] text-slate-500"
-        >Matrix · Search client</span
-      >
+    <div class="hidden items-center justify-between border-t border-matrix-border p-3 md:flex">
+      <span v-if="!isCollapsed" class="px-2 text-xs text-matrix-muted">Matrix · Search client</span>
       <button
         class="mx-icon-button"
         :aria-label="isCollapsed ? 'Развернуть меню' : 'Свернуть меню'"

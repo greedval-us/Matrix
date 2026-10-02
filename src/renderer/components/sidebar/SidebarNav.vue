@@ -1,8 +1,8 @@
 <script setup>
-import SidebarItem from '@/renderer/components/ui/SidebarItem.vue'
-import { sidebarItems } from '../../../shared/constants/sidebarItems.js'
+import SidebarItem from '@/renderer/components/ui/SidebarItem.vue';
+import { sidebarItems } from '../../../shared/constants/sidebarItems.js';
 
-defineProps({ collapsed: Boolean })
+defineProps({ collapsed: Boolean });
 </script>
 
 <template>

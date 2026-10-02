@@ -9,6 +9,7 @@ import { useModalsStore } from '../../stores/modals';
 import { sidebarItems } from '../../../shared/constants/sidebarItems';
 
 const isCollapsed = ref(false);
+const mainContent = ref(null);
 const route = useRoute();
 const modalsStore = useModalsStore();
 const pageTitle = computed(
@@ -17,11 +18,14 @@ const pageTitle = computed(
 </script>
 
 <template>
-  <div class="flex h-full min-h-0 w-full bg-[#0d1117]">
+  <div class="flex h-full min-h-0 w-full bg-matrix-canvas">
+    <a href="#main-content" class="mx-skip-link" @click.prevent="mainContent?.focus()">
+      Перейти к содержимому
+    </a>
     <Sidebar v-model="isCollapsed" />
     <div class="flex min-h-0 min-w-0 flex-1 flex-col">
       <header
-        class="flex h-16 shrink-0 items-center justify-between gap-3 border-b border-[#293443] px-4 md:px-7"
+        class="flex h-16 shrink-0 items-center justify-between gap-3 border-b border-matrix-border px-4 md:px-7"
       >
         <div class="flex min-w-0 items-center gap-3">
           <button
@@ -30,17 +34,22 @@ const pageTitle = computed(
             :aria-expanded="!isCollapsed"
             @click="isCollapsed = !isCollapsed"
           >
-            <PanelLeft class="h-4 w-4" />
+            <PanelLeft aria-hidden="true" class="h-4 w-4" />
           </button>
-          <span class="hidden text-xs text-slate-500 lg:inline">Рабочее пространство</span>
-          <ChevronRight class="hidden h-3 w-3 text-slate-600 lg:block" />
-          <span class="truncate text-sm font-medium text-slate-200">{{ pageTitle }}</span>
+          <span class="hidden text-xs text-matrix-muted lg:inline">Рабочее пространство</span>
+          <ChevronRight aria-hidden="true" class="hidden h-3 w-3 text-matrix-muted lg:block" />
+          <span class="truncate text-sm font-medium text-matrix-text">{{ pageTitle }}</span>
         </div>
-        <router-link to="/settings" class="mx-badge shrink-0" title="Настроить подключение"
-          ><span class="h-1.5 w-1.5 rounded-full bg-emerald-300"></span>gRPC / TLS</router-link
+        <router-link to="/settings" class="mx-badge min-h-9 shrink-0" title="Настроить подключение"
+          ><span class="h-1.5 w-1.5 rounded-full bg-matrix-accent"></span>gRPC / TLS</router-link
         >
       </header>
-      <main id="main-content" class="min-h-0 min-w-0 flex-1 overflow-auto">
+      <main
+        ref="mainContent"
+        id="main-content"
+        tabindex="-1"
+        class="min-h-0 min-w-0 flex-1 overflow-auto"
+      >
         <router-view />
       </main>
     </div>

@@ -12,17 +12,17 @@ const selectedFields = computed(() => searchUI.getSelectedFields(props.tabId));
   <div class="space-y-4">
     <div v-for="(field, type) in selectedFields" :key="type" class="space-y-2">
       <div class="flex items-center justify-between gap-2">
-        <label :for="'search-' + tabId + '-' + type" class="text-xs font-medium text-slate-200">{{
+        <label :for="'search-' + tabId + '-' + type" class="text-sm font-medium text-matrix-text">{{
           searchUI.getFieldLabel(type)
         }}</label>
         <div class="flex items-center gap-1">
           <Hint :tooltip="searchUI.getHelp(type)" /><button
             type="button"
-            class="mx-icon-button !h-6 !w-6"
+            class="mx-icon-button mx-icon-button-compact"
             :aria-label="'Удалить поле ' + searchUI.getFieldLabel(type)"
             @click="searchUI.toggleField(tabId, type)"
           >
-            <X class="h-3.5 w-3.5" />
+            <X aria-hidden="true" class="h-3.5 w-3.5" />
           </button>
         </div>
       </div>
@@ -50,7 +50,7 @@ const selectedFields = computed(() => searchUI.getSelectedFields(props.tabId));
         Проверьте формат: {{ field.placeholder }}
       </p>
     </div>
-    <p v-if="!Object.keys(selectedFields).length" class="text-xs leading-6 text-slate-500">
+    <p v-if="!Object.keys(selectedFields).length" class="text-xs leading-6 text-matrix-muted">
       Выберите тип данных выше, чтобы добавить поле.
     </p>
   </div>

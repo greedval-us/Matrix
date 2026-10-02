@@ -1,5 +1,5 @@
 <script setup>
-defineProps({ collapsed: Boolean })
+defineProps({ collapsed: Boolean });
 </script>
 
 <template>
