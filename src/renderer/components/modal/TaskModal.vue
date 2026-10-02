@@ -1,68 +1,57 @@
 <script setup>
-import { X } from 'lucide-vue-next'
-import { ref } from 'vue'
-import { useTasksStore } from '../../stores/tasksStore'
-import { useModalsStore } from '../../stores/modals'
-
-const tasksStore = useTasksStore()
-const modalsStore = useModalsStore()
-
-const title = ref('')
-const description = ref('')
-
+import { ref } from 'vue';
+import { useTasksStore } from '../../stores/tasksStore';
+import { useModalsStore } from '../../stores/modals';
+import AppDialog from '../ui/AppDialog.vue';
+const tasks = useTasksStore();
+const modals = useModalsStore();
+const title = ref('');
+const description = ref('');
+const saving = ref(false);
+const error = ref('');
 async function save() {
-  if (!title.value.trim()) return
-
-  await tasksStore.addTask(title.value, description.value)
-  await tasksStore.loadTasks()
-
-  title.value = ''
-  description.value = ''
-  modalsStore.closeTaskModal()
+  if (!title.value.trim() || saving.value) return;
+  saving.value = true;
+  error.value = '';
+  try {
+    await tasks.addTask(title.value.trim(), description.value);
+    modals.closeTaskModal();
+  } catch (reason) {
+    error.value = reason?.message || 'Не удалось сохранить задачу';
+  } finally {
+    saving.value = false;
+  }
 }
 </script>
 
 <template>
-  <transition name="fade">
-    <div
-      v-if="modalsStore.taskModalOpen"
-      class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
-    >
-      <transition name="scale">
-        <div
-          v-if="modalsStore.taskModalOpen"
-          class="bg-neutral-900/95 rounded-2xl shadow-xl w-full max-w-md p-6 text-neutral-200 relative"
-        >
-          <button
-            @click="modalsStore.closeTaskModal"
-            class="absolute top-3 right-3 text-neutral-400 hover:text-neutral-200 transition"
-          >
-            <X class="w-5 h-5" />
-          </button>
-
-          <h2 class="text-lg font-medium mb-4">Новая задача</h2>
-
-          <input
-            v-model="title"
-            type="text"
-            placeholder="Название задачи"
-            class="w-full p-3 bg-neutral-800/70 rounded-xl mb-3 outline-none border border-neutral-700 focus:border-neutral-500 transition"
-          />
-          <textarea
-            v-model="description"
-            placeholder="Описание задачи..."
-            class="w-full p-3 bg-neutral-800/70 rounded-xl resize-none outline-none border border-neutral-700 focus:border-neutral-500 transition"
-            rows="4"
-          ></textarea>
-
-          <button
-            @click="save"
-            class="mt-4 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 px-4 py-2 rounded-xl w-full transition"
-          >
-            Сохранить
-          </button>
-        </div>
-      </transition>
-    </div>
-  </transition>
+  <AppDialog title="Новая задача" @close="modals.closeTaskModal()">
+    <form class="space-y-4" @submit.prevent="save">
+      <label class="block space-y-2 text-xs"
+        ><span class="block text-slate-400">Название</span
+        ><input
+          v-model="title"
+          required
+          autofocus
+          class="mx-input"
+          placeholder="Что нужно сделать?" /></label
+      ><label class="block space-y-2 text-xs"
+        ><span class="block text-slate-400">Описание</span
+        ><textarea
+          v-model="description"
+          rows="4"
+          class="mx-input resize-y leading-6"
+          placeholder="Подробности задачи"
+        />
+      </label>
+      <p v-if="error" role="alert" class="mx-alert text-xs">{{ error }}</p>
+      <button
+        class="mx-button mx-button-primary w-full"
+        type="submit"
+        :disabled="saving || !title.trim()"
+      >
+        {{ saving ? 'Сохраняем…' : 'Добавить задачу' }}
+      </button>
+    </form>
+  </AppDialog>
 </template>

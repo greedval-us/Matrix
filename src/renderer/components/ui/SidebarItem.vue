@@ -1,24 +1,27 @@
 <script setup>
-import { computed } from 'vue'
-import * as Icons from 'lucide-vue-next'
-
-const props = defineProps({
-  to: String,
-  icon: String,
-  label: String,
-  collapsed: Boolean,
-})
-
-const iconComponent = computed(() => Icons[props.icon])
+import { computed } from 'vue';
+import { House, SearchCheck, PackageSearch, Database, Settings, Info } from 'lucide-vue-next';
+const props = defineProps({ to: String, icon: String, label: String, collapsed: Boolean });
+const icons = {
+  House,
+  SearchCheckIcon: SearchCheck,
+  PackageSearch,
+  Database,
+  Settings,
+  InfoIcon: Info,
+};
+const iconComponent = computed(() => icons[props.icon]);
 </script>
 
 <template>
   <router-link
-    :to="props.to"
-    class="flex items-center px-4 py-2 rounded-xl hover:bg-neutral-800 hover:text-white transition text-sm"
-    active-class="bg-neutral-800 text-white"
+    :to="to"
+    :title="label"
+    :aria-label="label"
+    class="flex min-h-[44px] items-center gap-3 rounded-lg px-3 text-[13px] font-medium text-slate-400 transition-colors hover:bg-[#1b2531] hover:text-slate-100"
+    exact-active-class="!bg-emerald-300/10 !text-emerald-200"
   >
-    <component :is="iconComponent" class="w-5 h-5" />
-    <span v-show="!props.collapsed" class="ml-3">{{ props.label }}</span>
+    <component :is="iconComponent" class="h-[18px] w-[18px] shrink-0" />
+    <span v-if="!collapsed" class="hidden md:inline">{{ label }}</span>
   </router-link>
 </template>

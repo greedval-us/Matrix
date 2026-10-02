@@ -21,7 +21,7 @@ export const help = {
   mail: `
     <div class="text-sm text-neutral-100">
       <p style="text-indent: 1.5em;">Буквенно-цифровой формат с допустимыми спецсимволами.</p><br/>
-      <p style="text-indent: 1.5em;">После <code>@</code> можно использовать <code>*</code> — для поиска только по имени адреса.</p>
+      <p style="text-indent: 1.5em;">Для неполного совпадения используйте маски <code>%</code> и <code>?</code>.</p>
     </div>
   `,
   passport: `

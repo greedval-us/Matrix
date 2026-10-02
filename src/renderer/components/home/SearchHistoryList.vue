@@ -1,59 +1,51 @@
 <script setup>
-import { Trash2 } from "lucide-vue-next"
-import { useHistoryStore } from "../../stores/historyStore"
-import { useRouter } from "vue-router"
-
-const historyStore = useHistoryStore()
-const router = useRouter()
-
-
+import { ArrowUpRight, Trash2, History } from 'lucide-vue-next';
+import { useHistoryStore } from '../../stores/historyStore';
+import { key as fieldLabels } from '../../../shared/constants/translateKey';
+import { useRouter } from 'vue-router';
+const historyStore = useHistoryStore();
+const router = useRouter();
 function repeatSearch(entry) {
-  router.push({
-    name: "Search",
-    query: {
-      key: entry.key,
-      value: entry.value
-    }
-  })
+  router.push({ name: 'Search', query: { key: entry.key, value: entry.value } });
 }
 </script>
 
 <template>
-  <div class="relative h-full flex flex-col overflow-x-hidden">
-    <div class="shrink-0">
-      <h2 class="text-xl font-semibold mb-4 text-white">История запросов</h2>
-    </div>
-
-    <transition-group name="list-fade" tag="ul" class="flex-1 overflow-y-auto overflow-x-hidden space-y-3 pr-1">
-      <li
-        v-for="entry in historyStore.state.history"
-        :key="entry.id"
-        class="bg-neutral-900/70 m-3 backdrop-blur-md p-4 rounded-2xl text-sm border hover:border-green-500 border-neutral-800 shadow-md hover:shadow-xl hover:scale-[1.02] transition-all duration-300 cursor-pointer"
-        @click="repeatSearch(entry)"
-      >
-        <div class="flex justify-between items-center mb-2">
-          <span class="text-xs text-neutral-400">
-            {{ new Date(entry.createdAt).toLocaleString('ru-RU') }}
-          </span>
-        </div>
-        <div class="text-white space-y-1 break-words">
-          <div>
-            <span class="text-neutral-400 font-medium">{{ entry.key }}:</span>
-            <span class="ml-1">{{ entry.value }}</span>
-          </div>
-        </div>
-      </li>
-    </transition-group>
-
-    <div class="shrink-0 mt-4 flex justify-end">
+  <section>
+    <div class="mb-4 flex items-center justify-between gap-3">
+      <h2 class="text-sm font-semibold">История запросов</h2>
       <button
-        @click="historyStore.clearHistory"
-        class="bg-neutral-800/90 backdrop-blur-lg px-4 py-2 rounded-full shadow-md border border-neutral-700 text-white hover:text-red-500 hover:border-red-500 hover:shadow-lg transition flex items-center gap-2"
+        class="mx-icon-button"
+        :disabled="!historyStore.state.history.length"
+        aria-label="Очистить историю"
         title="Очистить историю"
+        @click="historyStore.clearHistory"
       >
-        <Trash2 class="w-5 h-5" />
-        <span class="hidden sm:inline">Очистить</span>
+        <Trash2 class="h-3.5 w-3.5" />
       </button>
     </div>
-  </div>
+    <div v-if="!historyStore.state.history.length" class="mx-empty">
+      <History class="mx-auto mb-3 h-6 w-6 text-slate-600" />История пока пуста.<br />Ваши запросы
+      появятся здесь.
+    </div>
+    <ul v-else class="max-h-[560px] space-y-1 overflow-y-auto">
+      <li v-for="entry in historyStore.state.history" :key="entry.id">
+        <button
+          class="flex w-full items-start gap-3 rounded-lg px-3 py-3 text-left hover:bg-[#1b2531]"
+          title="Повторить поиск"
+          @click="repeatSearch(entry)"
+        >
+          <History class="mt-1 h-3.5 w-3.5 shrink-0 text-slate-500" />
+          <div class="min-w-0 flex-1">
+            <p class="break-words text-xs text-slate-100">{{ entry.value }}</p>
+            <p class="mt-1.5 text-[10px] text-slate-500">
+              {{ fieldLabels[entry.key] || entry.key }} ·
+              {{ new Date(entry.createdAt).toLocaleString('ru-RU') }}
+            </p>
+          </div>
+          <ArrowUpRight class="mt-1 h-3.5 w-3.5 shrink-0 text-slate-500" />
+        </button>
+      </li>
+    </ul>
+  </section>
 </template>

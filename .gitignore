@@ -136,6 +136,8 @@ release
 .vscode-test
 
 # Electron builder artifacts
+build/renderer/
+release-next/
 *.blockmap
 latest*.yml
 .electron-cache/

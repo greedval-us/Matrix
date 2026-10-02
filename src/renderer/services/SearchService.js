@@ -20,12 +20,13 @@ export class SearchService {
 
   async search(tabId, payload, options = {}) {
     if (!this.clients[tabId]) throw new Error(`Client not found for tab ${tabId}`);
+    if (this.isSearching[tabId]) throw new Error('Поиск в этой вкладке уже выполняется');
     this.isSearching[tabId] = true;
 
     const removeProgressListener = this.searchAPI.onProgress((eventPayload) => {
       if (!eventPayload || eventPayload.tabId !== tabId) return;
       options.onProgress?.(eventPayload);
-      if (eventPayload.type === "chunk" && Array.isArray(eventPayload.items)) {
+      if (eventPayload.type === 'chunk' && Array.isArray(eventPayload.items)) {
         options.onChunk?.(eventPayload.items, eventPayload.received);
       }
     });
@@ -41,7 +42,6 @@ export class SearchService {
   cancelSearch(tabId) {
     if (this.isSearching[tabId]) {
       this.searchAPI.cancel(tabId);
-      this.isSearching[tabId] = false;
     }
   }
 

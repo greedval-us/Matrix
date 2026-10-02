@@ -1,131 +1,74 @@
 <script setup>
-import { ChevronLeft, ChevronRight } from 'lucide-vue-next'
-import { ref, nextTick, onBeforeUnmount, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
-import { useTabStore } from '../stores/tabStore'
-import TabHeader from '../components/panel/TabHeaderPanel.vue'
-import SearchTabPanel from '../components/panel/SearchTabPanel.vue'
-import { useSearchUIStore } from '../stores/uistore/serchStoreUI'
+import { Plus, ChevronLeft, ChevronRight } from 'lucide-vue-next';
+import { ref, nextTick, watch } from 'vue';
+import { useRoute } from 'vue-router';
+import { useTabStore } from '../stores/tabStore';
+import { useSearchUIStore } from '../stores/uistore/serchStoreUI';
+import TabHeader from '../components/panel/TabHeaderPanel.vue';
+import SearchTabPanel from '../components/panel/SearchTabPanel.vue';
 
-const tabStore = useTabStore()
-const searchUI = useSearchUIStore()
-const route = useRoute()
-const tabsContainer = ref(null)
+const tabStore = useTabStore();
+const searchUI = useSearchUIStore();
+const route = useRoute();
+const tabsContainer = ref(null);
+if (!tabStore.state.tabs.length) tabStore.addTab();
 
 function scrollTabs(offset) {
-  if (tabsContainer.value) {
-    tabsContainer.value.scrollBy({
-      left: offset,
-      behavior: 'smooth'
-    })
-  }
+  tabsContainer.value?.scrollBy({ left: offset, behavior: 'smooth' });
 }
-
-function scrollToEnd() {
-  if (tabsContainer.value) {
-    tabsContainer.value.scrollTo({
-      left: tabsContainer.value.scrollWidth,
-      behavior: 'smooth'
-    })
-  }
+async function addTab() {
+  tabStore.addTab();
+  await nextTick();
+  tabsContainer.value?.scrollTo({ left: tabsContainer.value.scrollWidth, behavior: 'smooth' });
 }
-
-function addTabAndScroll() {
-  tabStore.addTab()
-  nextTick(() => {
-    scrollToEnd()
-  })
-}
-
-onMounted(async () => {
-  tabStore.resetTabs()
-  await nextTick()
-
-  if (!tabStore.state.activeTabId) {
-    tabStore.addTab()
-    await nextTick()
-    scrollToEnd()
-  }
-
-  const { key, value } = route.query
-  if (key && value) {
-    const activeTabId = tabStore.state.activeTabId
-    searchUI.quickSearch(activeTabId, { [0]: route.query })
-  }
-})
-
-onBeforeUnmount(() => {
-  for (const tab of tabStore.state.tabs) {
-    if (searchUI.getLoading(tab.id)) searchUI.cancelSearch(tab.id)
-  }
-})
+watch(
+  () => [route.query.key, route.query.value],
+  ([key, value]) => {
+    if (
+      typeof key === 'string' &&
+      typeof value === 'string' &&
+      searchUI.icons.some((item) => item.type === key)
+    ) {
+      const id = tabStore.addTab();
+      searchUI.quickSearch(id, { [key]: { key, value } });
+    }
+  },
+  { immediate: true },
+);
 </script>
 
 <template>
-  <div class="h-full flex flex-col">
-    <div class="flex items-center bg-neutral-900/90 backdrop-blur-md rounded-t-xl px-2 py-1 border-b border-neutral-700 gap-1">
-
-      <button 
-        @click="scrollTabs(-100)"
-        class="flex items-center justify-center w-8 h-8 text-gray-400 bg-neutral-800 rounded-full shadow-sm hover:bg-neutral-700 hover:text-white transition"
-        title="Прокрутить влево"
-      >
-        <ChevronLeft class="w-5 h-5"/>
-      </button>
-
-      <div ref="tabsContainer" class="flex-1 flex gap-1 overflow-x-auto scrollbar-none">
-        <transition-group name="tab-fade" tag="div" class="flex gap-1">
-          <TabHeader
-            v-for="tab in tabStore.state.tabs"
-            :key="tab.id"
-            :tab="tab"
-          />
-        </transition-group>
-      </div>
-
-      <button 
-        @click="scrollTabs(100)"
-        class="flex items-center justify-center w-8 h-8 text-gray-400 bg-neutral-800 rounded-full shadow-sm hover:bg-neutral-700 hover:text-white transition"
-        title="Прокрутить вправо"
-      >
-        <ChevronRight class="w-5 h-5"/>
-      </button>
-
+  <div class="flex h-full min-h-0 min-w-0 flex-col">
+    <div class="flex shrink-0 items-center gap-2 border-b border-[#293443] px-3 py-3 md:px-6">
       <button
-        @click="addTabAndScroll"
-        class="flex items-center justify-center w-8 h-8 rounded-full 
-               bg-neutral-700 text-green-400 text-lg font-bold 
-               hover:bg-neutral-600 hover:text-green-300 transition"
-        title="Новая вкладка"
+        class="mx-icon-button !h-7 !w-7"
+        aria-label="Прокрутить вкладки влево"
+        @click="scrollTabs(-200)"
       >
-        <span class="leading-none">+</span>
+        <ChevronLeft class="h-4 w-4" />
+      </button>
+      <nav
+        ref="tabsContainer"
+        class="flex min-w-0 flex-1 gap-2 overflow-x-auto"
+        aria-label="Вкладки поиска"
+      >
+        <TabHeader v-for="tab in tabStore.state.tabs" :key="tab.id" :tab="tab" />
+      </nav>
+      <button
+        class="mx-icon-button !h-7 !w-7"
+        aria-label="Прокрутить вкладки вправо"
+        @click="scrollTabs(200)"
+      >
+        <ChevronRight class="h-4 w-4" />
+      </button>
+      <button
+        class="mx-button shrink-0 !px-2.5 !py-2 text-xs"
+        aria-label="Новый поиск"
+        @click="addTab"
+      >
+        <Plus class="h-4 w-4" /><span class="hidden sm:inline">Новый поиск</span>
       </button>
     </div>
-
     <SearchTabPanel />
   </div>
 </template>
-
-<style>
-.tab-fade-enter-active,
-.tab-fade-leave-active {
-  transition: all 0.25s ease;
-}
-.tab-fade-enter-from {
-  opacity: 0;
-  transform: scale(0.95);
-}
-.tab-fade-leave-to {
-  opacity: 0;
-  transform: scale(0.95);
-}
-
-/* Скрыть скроллбар */
-.scrollbar-none::-webkit-scrollbar {
-  display: none;
-}
-.scrollbar-none {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
-}
-</style>

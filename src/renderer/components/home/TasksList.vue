@@ -1,75 +1,62 @@
 <script setup>
-import { Trash2, CheckCircle } from 'lucide-vue-next'
-import { useTasksStore } from '../../stores/tasksStore'
-
-const tasksStore = useTasksStore()
+import { Trash2, Check, Plus, ListTodo } from 'lucide-vue-next';
+import { useTasksStore } from '../../stores/tasksStore';
+import { useModalsStore } from '../../stores/modals';
+const tasksStore = useTasksStore();
+const modals = useModalsStore();
 </script>
 
 <template>
-  <div>
-    <h2 class="text-xl font-semibold mb-4 text-white">Задачи</h2>
-
-    <transition-group
-      name="list-fade"
-      tag="ul"
-      class="space-y-3"
-    >
-      <li
-        v-for="task in tasksStore.state.tasks"
-        :key="task.id"
-        :class="[ 
-          'p-4 rounded-2xl flex justify-between items-start border shadow-md hover:shadow-xl hover:scale-[1.02] transition-all duration-300',
-          task.done 
-            ? 'bg-neutral-800/70 border-neutral-700' 
-            : 'bg-neutral-900/80 border-neutral-800'
-        ]"
+  <section>
+    <div class="mb-4 flex items-center justify-between gap-3">
+      <h2 class="text-sm font-semibold">Задачи</h2>
+      <button
+        class="mx-icon-button"
+        title="Добавить задачу"
+        aria-label="Добавить задачу"
+        @click="modals.openTaskModal()"
       >
-        <div class="flex-1 pr-4">
-          <div :class="['font-semibold text-base', task.done ? 'line-through text-gray-400' : 'text-white']">
+        <Plus class="h-4 w-4" />
+      </button>
+    </div>
+    <div v-if="!tasksStore.state.tasks.length" class="mx-empty">
+      <ListTodo class="mx-auto mb-3 h-6 w-6 text-slate-600" />Задач пока нет.<br />Добавьте задачу,
+      чтобы не забыть важное.
+    </div>
+    <ul v-else class="divide-y divide-[#293443]">
+      <li v-for="task in tasksStore.state.tasks" :key="task.id" class="flex items-start gap-3 py-4">
+        <button
+          class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border border-[#46566b]"
+          :class="task.done ? '!border-emerald-300 bg-emerald-300 text-[#0d2920]' : ''"
+          :aria-label="task.done ? 'Возобновить задачу' : 'Завершить задачу'"
+          :aria-pressed="task.done"
+          @click="tasksStore.toggleTaskDone(task.id)"
+        >
+          <Check v-if="task.done" class="h-3 w-3" />
+        </button>
+        <div class="min-w-0 flex-1">
+          <h3
+            :class="[
+              'break-words text-sm font-medium',
+              task.done ? 'text-slate-500 line-through' : 'text-slate-200',
+            ]"
+          >
             {{ task.title }}
-          </div>
-          <div class="text-sm text-gray-400">{{ task.text }}</div>
-          <div class="text-xs text-gray-500 mt-2">
+          </h3>
+          <p class="mt-1 break-words text-xs leading-5 text-slate-500">{{ task.text }}</p>
+          <p class="mt-2 text-[10px] text-slate-600">
             {{ new Date(task.createdAt).toLocaleString('ru-RU') }}
-          </div>
+          </p>
         </div>
-
-        <div class="flex flex-col gap-3 items-center">
-          <button
-            @click="tasksStore.toggleTaskDone(task.id)"
-            :title="task.done ? 'Сделать невыполненной' : 'Отметить как выполненную'"
-            class="p-1 rounded-full transition-all duration-200"
-            :class="task.done 
-              ? 'text-yellow-300 hover:text-yellow-400 bg-neutral-700/50' 
-              : 'text-green-400 hover:text-green-500 bg-neutral-700/50'"
-          >
-            <CheckCircle class="w-5 h-5" />
-          </button>
-
-          <button
-            @click="tasksStore.deleteTask(task.id)"
-            class="p-1 text-red-400 hover:text-red-500 transition-all duration-200 rounded-full bg-neutral-700/50"
-            title="Удалить задачу"
-          >
-            <Trash2 class="w-4 h-4" />
-          </button>
-        </div>
+        <button
+          class="mx-icon-button !h-7 !w-7 hover:!text-rose-300"
+          title="Удалить задачу"
+          aria-label="Удалить задачу"
+          @click="tasksStore.deleteTask(task.id)"
+        >
+          <Trash2 class="h-3.5 w-3.5" />
+        </button>
       </li>
-    </transition-group>
-  </div>
+    </ul>
+  </section>
 </template>
-
-<style scoped>
-.list-fade-enter-active,
-.list-fade-leave-active {
-  transition: all 0.3s ease;
-}
-.list-fade-enter-from {
-  opacity: 0;
-  transform: translateY(10px) scale(0.97);
-}
-.list-fade-leave-to {
-  opacity: 0;
-  transform: translateY(-10px) scale(0.97);
-}
-</style>

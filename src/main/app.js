@@ -26,9 +26,10 @@ export default function createWindow() {
   win = new BrowserWindow({
     width: 1200,
     height: 700,
-    minWidth: 1200,
-    minHeight: 700,
+    minWidth: 820,
+    minHeight: 560,
     show: false,
+    backgroundColor: '#0d1117',
     icon: path.join(__dirname, '..', 'public', 'matrix.ico'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -42,14 +43,16 @@ export default function createWindow() {
   const isDev = !app.isPackaged;
 
   if (isDev) {
-    win.loadURL('http://localhost:5173').catch(err =>
-      console.error('Failed to load dev server:', err)
-    );
-    win.webContents.openDevTools({ mode: 'detach' });
+    win
+      .loadURL('http://localhost:5173')
+      .catch((err) => console.error('Failed to load dev server:', err));
+    if (process.env.MATRIX_DEVTOOLS === '1') {
+      win.webContents.openDevTools({ mode: 'detach' });
+    }
   } else {
-    win.loadFile(path.join(__dirname, '..', '..', 'dist', 'index.html')).catch(err =>
-      console.error('Failed to load index.html:', err)
-    );
+    win
+      .loadFile(path.join(__dirname, '..', '..', 'build', 'renderer', 'index.html'))
+      .catch((err) => console.error('Failed to load index.html:', err));
   }
 
   const minSplashTime = 2000;
@@ -62,7 +65,6 @@ export default function createWindow() {
     setTimeout(() => {
       if (splash && !splash.isDestroyed()) splash.destroy();
       win.show();
-
     }, delay);
   });
 }

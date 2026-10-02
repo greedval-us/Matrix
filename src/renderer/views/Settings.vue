@@ -1,7 +1,7 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
-import { KeyRound, LockKeyhole, Server, Wifi } from 'lucide-vue-next'
-
+import { computed, onMounted, ref } from 'vue';
+import { ShieldCheck, Wifi, RefreshCw, Check } from 'lucide-vue-next';
+import PageHeading from '../components/ui/PageHeading.vue';
 const config = ref({
   endpoint: 'arm-5:50051',
   apiKey: '',
@@ -10,147 +10,176 @@ const config = ref({
   pageSize: 1000,
   connectionTimeoutMs: 10000,
   hasApiKey: false,
-})
-const indexStatus = ref(null)
-const loading = ref(true)
-const saving = ref(false)
-const testing = ref(false)
-const message = ref('')
-const error = ref('')
-
-const certificateLabel = computed(() =>
-  config.value.caCertificatePath || `Встроенный: ${config.value.bundledCertificatePath}`
-)
-
+});
+const indexStatus = ref(null);
+const loading = ref(true);
+const saving = ref(false);
+const testing = ref(false);
+const message = ref('');
+const error = ref('');
+const busy = computed(() => loading.value || saving.value || testing.value);
+const certificateLabel = computed(
+  () => config.value.caCertificatePath || 'Встроенный сертификат сервера',
+);
 function draftConfig() {
-  return {
-    endpoint: config.value.endpoint,
-    apiKey: config.value.apiKey,
-    caCertificatePath: config.value.caCertificatePath,
-    pageSize: config.value.pageSize,
-    connectionTimeoutMs: config.value.connectionTimeoutMs,
-  }
+  const { endpoint, apiKey, caCertificatePath, pageSize, connectionTimeoutMs } = config.value;
+  return { endpoint, apiKey, caCertificatePath, pageSize, connectionTimeoutMs };
 }
-
-function applyPublicConfig(value) {
-  config.value = { ...config.value, ...value, apiKey: '' }
+function applyConfig(value) {
+  config.value = { ...config.value, ...value, apiKey: '' };
 }
-
 async function loadConfig() {
-  loading.value = true
-  error.value = ''
   try {
-    applyPublicConfig(await window.searchAPI.getConfig())
+    applyConfig(await window.searchAPI.getConfig());
   } catch (reason) {
-    error.value = reason?.message || String(reason)
+    error.value = reason?.message || String(reason);
   } finally {
-    loading.value = false
+    loading.value = false;
   }
 }
-
 async function chooseCertificate() {
-  const selected = await window.fileDialog.openCertificate()
-  if (selected) config.value.caCertificatePath = selected
+  try {
+    const selected = await window.fileDialog.openCertificate();
+    if (selected) config.value.caCertificatePath = selected;
+  } catch (reason) {
+    error.value = reason?.message || String(reason);
+  }
 }
-
 async function saveConfig() {
-  saving.value = true
-  message.value = ''
-  error.value = ''
+  if (busy.value) return;
+  saving.value = true;
+  message.value = '';
+  error.value = '';
+  indexStatus.value = null;
   try {
-    applyPublicConfig(await window.searchAPI.setConfig(draftConfig()))
-    message.value = 'Настройки подключения сохранены'
+    applyConfig(await window.searchAPI.setConfig(draftConfig()));
+    message.value = 'Настройки подключения сохранены';
   } catch (reason) {
-    error.value = reason?.message || String(reason)
+    error.value = reason?.message || String(reason);
   } finally {
-    saving.value = false
+    saving.value = false;
   }
 }
-
 async function testConnection() {
-  testing.value = true
-  message.value = ''
-  error.value = ''
+  if (busy.value) return;
+  testing.value = true;
+  message.value = '';
+  error.value = '';
+  indexStatus.value = null;
   try {
-    indexStatus.value = await window.searchAPI.testConnection(draftConfig())
-    message.value = 'TLS-соединение с сервером установлено'
+    indexStatus.value = await window.searchAPI.testConnection(draftConfig());
+    message.value = 'Соединение с сервером установлено';
   } catch (reason) {
-    error.value = reason?.message || String(reason)
+    error.value = reason?.message || String(reason);
   } finally {
-    testing.value = false
+    testing.value = false;
   }
 }
-
-onMounted(loadConfig)
+onMounted(loadConfig);
 </script>
 
 <template>
-  <div class="h-full overflow-y-auto bg-[radial-gradient(circle_at_top_right,_rgba(34,197,94,0.12),_transparent_36%),linear-gradient(145deg,#171717,#0a0a0a)] p-6 text-white">
-    <div class="mx-auto max-w-4xl space-y-6">
-      <header class="rounded-3xl border border-neutral-700/80 bg-neutral-900/80 p-7 shadow-2xl backdrop-blur-xl">
-        <div class="flex items-start gap-4">
-          <div class="rounded-2xl bg-green-500/15 p-3 text-green-400"><Server class="h-7 w-7" /></div>
-          <div>
-            <h1 class="text-2xl font-bold tracking-tight">Сервер поиска</h1>
-            <p class="mt-2 max-w-2xl text-sm leading-6 text-neutral-400">
-              Приложение выполняет поиск только через защищенный gRPC API. Manticore и MariaDB
-              остаются на сервере и не требуют локального каталога базы.
-            </p>
+  <div class="mx-page mx-auto max-w-4xl">
+    <PageHeading
+      title="Настройки подключения"
+      description="Укажите сервер и ключ доступа, затем проверьте соединение."
+    />
+    <p v-if="loading" role="status" class="mb-4 text-xs text-slate-500">Загружаем настройки…</p>
+    <form class="mx-panel space-y-6 p-5 md:p-7" @submit.prevent="saveConfig">
+      <fieldset :disabled="busy" class="grid gap-6 sm:grid-cols-2">
+        <label class="space-y-2 text-xs"
+          ><span class="block font-medium text-slate-300">Адрес сервера</span
+          ><input
+            v-model.trim="config.endpoint"
+            required
+            placeholder="arm-5:50051"
+            class="mx-input"
+            autocomplete="off"
+          /><span class="block leading-5 text-slate-500"
+            >Имя сервера или IP-адрес и порт.</span
+          ></label
+        >
+        <label class="space-y-2 text-xs"
+          ><span class="block font-medium text-slate-300"
+            >API-ключ
+            <span v-if="config.hasApiKey" class="ml-2 text-emerald-300">Сохранён</span></span
+          ><input
+            v-model="config.apiKey"
+            type="password"
+            autocomplete="off"
+            :placeholder="
+              config.hasApiKey ? 'Оставьте пустым, чтобы сохранить ключ' : 'Введите ключ доступа'
+            "
+            class="mx-input"
+        /></label>
+        <div class="space-y-3 sm:col-span-2">
+          <div class="flex items-center gap-2 text-xs font-medium text-slate-300">
+            <ShieldCheck class="h-4 w-4 text-emerald-300" />Защищённое соединение
+          </div>
+          <div class="mx-input break-all text-xs text-slate-400">{{ certificateLabel }}</div>
+          <div class="flex flex-wrap gap-2">
+            <button type="button" class="mx-button !py-2 text-xs" @click="chooseCertificate">
+              Выбрать сертификат</button
+            ><button
+              type="button"
+              class="mx-button !py-2 text-xs"
+              :disabled="!config.caCertificatePath"
+              @click="config.caCertificatePath = ''"
+            >
+              Использовать встроенный
+            </button>
           </div>
         </div>
-      </header>
-
-      <section class="grid gap-5 rounded-3xl border border-neutral-700/80 bg-neutral-900/80 p-7 shadow-xl md:grid-cols-2">
-        <label class="space-y-2 text-sm text-neutral-300">
-          <span class="flex items-center gap-2 font-medium"><Wifi class="h-4 w-4" />Адрес gRPC</span>
-          <input v-model.trim="config.endpoint" :disabled="loading" placeholder="arm-5:50051" class="w-full rounded-xl border border-neutral-600 bg-neutral-950 px-4 py-3 text-white outline-none transition focus:border-green-500">
-        </label>
-
-        <label class="space-y-2 text-sm text-neutral-300">
-          <span class="flex items-center gap-2 font-medium"><KeyRound class="h-4 w-4" />API-ключ</span>
-          <input v-model="config.apiKey" type="password" autocomplete="off" :placeholder="config.hasApiKey ? 'Ключ сохранен, оставьте поле пустым' : 'Введите API-ключ'" class="w-full rounded-xl border border-neutral-600 bg-neutral-950 px-4 py-3 text-white outline-none transition focus:border-green-500">
-        </label>
-
-        <label class="space-y-2 text-sm text-neutral-300">
-          <span class="font-medium">Размер страницы потока</span>
-          <input v-model.number="config.pageSize" type="number" min="50" max="10000" class="w-full rounded-xl border border-neutral-600 bg-neutral-950 px-4 py-3 text-white outline-none transition focus:border-green-500">
-          <span class="block text-xs leading-5 text-neutral-500">Это не лимит результатов. Сервер передаст все совпадения страницами указанного размера.</span>
-        </label>
-
-        <label class="space-y-2 text-sm text-neutral-300">
-          <span class="font-medium">Тайм-аут подключения, мс</span>
-          <input v-model.number="config.connectionTimeoutMs" type="number" min="1000" max="120000" step="1000" class="w-full rounded-xl border border-neutral-600 bg-neutral-950 px-4 py-3 text-white outline-none transition focus:border-green-500">
-        </label>
-
-        <div class="space-y-3 md:col-span-2">
-          <div class="flex items-center gap-2 text-sm font-medium text-neutral-300"><LockKeyhole class="h-4 w-4" />TLS-сертификат сервера</div>
-          <div class="break-all rounded-xl border border-neutral-700 bg-neutral-950 px-4 py-3 text-xs text-neutral-400">{{ certificateLabel }}</div>
-          <div class="flex flex-wrap gap-3">
-            <button class="rounded-xl bg-neutral-700 px-4 py-2 text-sm font-semibold transition hover:bg-neutral-600" @click="chooseCertificate">Выбрать сертификат</button>
-            <button class="rounded-xl border border-neutral-600 px-4 py-2 text-sm transition hover:border-neutral-400" @click="config.caCertificatePath = ''">Использовать встроенный</button>
+        <details class="border-t border-[#293443] pt-5 sm:col-span-2">
+          <summary class="cursor-pointer text-xs font-medium text-slate-400">
+            Дополнительные параметры
+          </summary>
+          <div class="mt-5 grid gap-5 sm:grid-cols-2">
+            <label class="space-y-2 text-xs"
+              ><span class="block text-slate-300">Записей в одной странице потока</span
+              ><input
+                v-model.number="config.pageSize"
+                type="number"
+                min="50"
+                max="10000"
+                required
+                class="mx-input"
+              /><span class="block leading-5 text-slate-500"
+                >Сервер передаст все совпадения. Этот параметр определяет размер одной
+                страницы.</span
+              ></label
+            ><label class="space-y-2 text-xs"
+              ><span class="block text-slate-300">Время ожидания подключения, мс</span
+              ><input
+                v-model.number="config.connectionTimeoutMs"
+                type="number"
+                min="1000"
+                max="120000"
+                step="1000"
+                required
+                class="mx-input"
+            /></label>
           </div>
-        </div>
-
-        <div class="flex flex-wrap gap-3 md:col-span-2">
-          <button :disabled="saving || loading" class="rounded-xl bg-green-600 px-5 py-3 font-semibold transition hover:bg-green-500 disabled:opacity-50" @click="saveConfig">{{ saving ? 'Сохранение...' : 'Сохранить' }}</button>
-          <button :disabled="testing || loading" class="rounded-xl bg-neutral-700 px-5 py-3 font-semibold transition hover:bg-neutral-600 disabled:opacity-50" @click="testConnection">{{ testing ? 'Проверка...' : 'Проверить соединение' }}</button>
-        </div>
-      </section>
-
-      <div v-if="message" class="rounded-2xl border border-green-600/50 bg-green-950/30 px-5 py-4 text-sm text-green-300">{{ message }}</div>
-      <div v-if="error" class="rounded-2xl border border-red-500/50 bg-red-950/30 px-5 py-4 text-sm text-red-200">{{ error }}</div>
-
-      <section v-if="indexStatus" class="rounded-3xl border border-neutral-700 bg-neutral-900/80 p-6">
-        <div class="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p class="text-xs uppercase tracking-[0.2em] text-neutral-500">Индекс Manticore</p>
-            <h2 class="mt-1 text-xl font-semibold">{{ indexStatus.status || 'unknown' }}</h2>
-          </div>
-          <p class="text-3xl font-bold text-green-400">{{ Number(indexStatus.progress_percent || 0).toFixed(1) }}%</p>
-        </div>
-        <div class="mt-4 h-2 overflow-hidden rounded-full bg-neutral-800"><div class="h-full rounded-full bg-green-500 transition-all" :style="{ width: `${Math.min(Number(indexStatus.progress_percent || 0), 100)}%` }"></div></div>
-        <p class="mt-3 text-sm text-neutral-400">Готово шардов: {{ indexStatus.indexed_shards }}/{{ indexStatus.total_shards }}</p>
-      </section>
+        </details>
+      </fieldset>
+      <div class="flex flex-wrap gap-3 border-t border-[#293443] pt-5">
+        <button type="submit" :disabled="busy" class="mx-button mx-button-primary">
+          <Check class="h-4 w-4" />{{ saving ? 'Сохранение…' : 'Сохранить настройки' }}</button
+        ><button type="button" :disabled="busy" class="mx-button" @click="testConnection">
+          <RefreshCw v-if="testing" class="h-4 w-4 animate-spin" /><Wifi v-else class="h-4 w-4" />{{
+            testing ? 'Подключаемся…' : 'Проверить соединение'
+          }}
+        </button>
+      </div>
+    </form>
+    <p v-if="message" role="status" class="mx-alert mx-success mt-5 text-sm">{{ message }}</p>
+    <p v-if="error" role="alert" class="mx-alert mt-5 text-sm">{{ error }}</p>
+    <div v-if="indexStatus" class="mx-panel mt-5 p-5">
+      <p class="text-xs font-medium text-slate-200">Состояние индекса: {{ indexStatus.status }}</p>
+      <p class="mt-2 text-xs text-slate-400">
+        Доступно частей: {{ indexStatus.indexed_shards }} из {{ indexStatus.total_shards }} ·
+        {{ Number(indexStatus.progress_percent || 0).toFixed(1) }}%
+      </p>
     </div>
   </div>
 </template>

@@ -1,125 +1,90 @@
-import { defineStore } from "pinia"
-import { ref, reactive } from "vue"
+import { defineStore } from 'pinia';
+import { ref } from 'vue';
 
-export const useTabStore = defineStore("tabs", () => {
+let lastTabId = 0;
+
+export function createSearchState(searchValue = '') {
+  return {
+    selectedFields: {},
+    collapsedFields: {},
+    results: [],
+    loading: false,
+    error: '',
+    meta: null,
+    received: 0,
+    hasSearched: false,
+    searchValue,
+  };
+}
+
+export const useTabStore = defineStore('tabs', () => {
   const state = ref({
     tabs: [],
     activeTabId: null,
     editingTabId: null,
     editTitle: '',
-    searchStates: {}
-  })
+    searchStates: {},
+  });
 
-  const initializeFirstTab = (initialSearch = '') => {
-    state.value.tabs = []
-    state.value.activeTabId = null
-    state.value.editingTabId = null
-    state.value.editTitle = ''
-    state.value.searchStates = {}
-
-    const firstTab = { id: Date.now(), title: initialSearch || 'вкладка', key: Date.now() }
-    state.value.tabs = [firstTab]
-    state.value.activeTabId = firstTab.id
-    state.value.searchStates[firstTab.id] = reactive({
-      selectedFields: {},
-      collapsedFields: {},
-      results: [],
-      loading: false,
-      error: '',
-      meta: null,
-      received: 0,
-      searchValue: initialSearch
-    })
+  function addTab(searchValue = '') {
+    lastTabId = Math.max(Date.now(), lastTabId + 1);
+    const tab = { id: lastTabId, title: searchValue || 'Новый поиск' };
+    state.value.tabs.push(tab);
+    state.value.searchStates[tab.id] = createSearchState(searchValue);
+    state.value.activeTabId = tab.id;
+    return tab.id;
   }
 
-  const addTab = (searchValue = '') => {
-    const newTab = { id: Date.now(), title: searchValue || 'вкладка', key: Date.now() }
-    state.value.tabs.push(newTab)
-    state.value.activeTabId = newTab.id
-    state.value.searchStates[newTab.id] = reactive({
-      selectedFields: {},
-      collapsedFields: {},
-      results: [],
-      loading: false,
-      error: '',
-      meta: null,
-      received: 0,
-      searchValue
-    })
-    return newTab.id
+  function closeTab(id) {
+    if (state.value.tabs.length <= 1) return;
+    const index = state.value.tabs.findIndex((tab) => tab.id === id);
+    if (index === -1) return;
+    state.value.tabs.splice(index, 1);
+    delete state.value.searchStates[id];
+    if (state.value.activeTabId === id)
+      state.value.activeTabId = state.value.tabs[Math.max(0, index - 1)].id;
+    if (state.value.editingTabId === id) state.value.editingTabId = null;
   }
 
-  const closeTab = (id) => {
-    if (state.value.tabs.length <= 1) return
-    const index = state.value.tabs.findIndex(t => t.id === id)
-    if (index === -1) return
-    state.value.tabs.splice(index, 1)
-    delete state.value.searchStates[id]
-    if (state.value.activeTabId === id) {
-      state.value.activeTabId = state.value.tabs[Math.max(0, index - 1)].id
-    }
+  function setActive(id) {
+    if (state.value.tabs.some((tab) => tab.id === id)) state.value.activeTabId = id;
   }
 
-  const setActive = (id) => {
-    state.value.activeTabId = id
-    if (!state.value.searchStates[id]) {
-      state.value.searchStates[id] = reactive({
-        selectedFields: {},
-        collapsedFields: {},
-        results: [],
-        loading: false,
-        error: '',
-        meta: null,
-        received: 0,
-        searchValue: ''
-      })
-    }
+  function getSearchState(id) {
+    return state.value.searchStates[id];
   }
 
-  const getSearchState = (tabId) => {
-    if (!state.value.searchStates[tabId]) {
-      state.value.searchStates[tabId] = reactive({
-        selectedFields: {},
-        collapsedFields: {},
-        results: [],
-        loading: false,
-        error: '',
-        meta: null,
-        received: 0,
-        searchValue: ''
-      })
-    }
-    return state.value.searchStates[tabId]
+  function startEdit(tab) {
+    state.value.editingTabId = tab.id;
+    state.value.editTitle = tab.title;
   }
 
-  const startEdit = (tab) => {
-    state.value.editingTabId = tab.id
-    state.value.editTitle = tab.title
+  function finishEdit(tab) {
+    const current = state.value.tabs.find((item) => item.id === tab.id);
+    if (current) current.title = state.value.editTitle.trim() || current.title;
+    state.value.editingTabId = null;
+    state.value.editTitle = '';
   }
 
-  const finishEdit = (tab) => {
-    const t = state.value.tabs.find(t => t.id === tab.id)
-    if (t) t.title = state.value.editTitle || t.title
-    state.value.editingTabId = null
-    state.value.editTitle = ''
+  function updateEditTitle(value) {
+    state.value.editTitle = value;
   }
 
-  const updateEditTitle = (value) => {
-    state.value.editTitle = value
+  function updateTabTitleBySearch(id, value) {
+    const tab = state.value.tabs.find((item) => item.id === id);
+    if (tab && state.value.editingTabId !== id) tab.title = value || tab.title;
+    if (state.value.searchStates[id]) state.value.searchStates[id].searchValue = value;
   }
 
-  const updateTabTitleBySearch = (tabId, searchValue) => {
-    const t = state.value.tabs.find(t => t.id === tabId)
-    if (t && !state.value.editingTabId) {
-      t.title = searchValue || t.title
-      if (state.value.searchStates[tabId]) {
-        state.value.searchStates[tabId].searchValue = searchValue
-      }
-    }
-  }
-
-  const resetTabs = () => {
-    initializeFirstTab()
+  function resetTabs() {
+    state.value = {
+      tabs: [],
+      activeTabId: null,
+      editingTabId: null,
+      editTitle: '',
+      searchStates: {},
+    };
+    addTab();
   }
 
   return {
@@ -127,11 +92,11 @@ export const useTabStore = defineStore("tabs", () => {
     addTab,
     closeTab,
     setActive,
+    getSearchState,
     startEdit,
     finishEdit,
     updateEditTitle,
     updateTabTitleBySearch,
     resetTabs,
-    getSearchState
-  }
-})
+  };
+});

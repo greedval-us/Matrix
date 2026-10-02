@@ -1,43 +1,32 @@
 <script setup>
-defineProps({
-  tooltip: {
-    type: String,
-    required: true
-  }
-})
+import { ref, useId } from 'vue';
+import { Info } from 'lucide-vue-next';
+defineProps({ tooltip: { type: String, required: true } });
+const open = ref(false);
+const tooltipId = useId();
 </script>
 
 <template>
-  <div class="relative group inline-block">
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      class="h-5 w-5 text-neutral-400 cursor-pointer"
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-      stroke-width="2"
+  <span class="relative inline-flex" @mouseenter="open = true" @mouseleave="open = false">
+    <button
+      type="button"
+      class="mx-icon-button !h-6 !w-6"
+      aria-label="Подсказка по формату"
+      :aria-expanded="open"
+      :aria-describedby="open ? tooltipId : undefined"
+      @click="open = !open"
+      @focus="open = true"
+      @blur="open = false"
+      @keydown.esc="open = false"
     >
-      <path
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        d="M13 16h-1v-4h-1m1-4h.01M12 20a8 8 0 100-16 8 8 0 000 16z"
-      />
-    </svg>
-
-    <div
-      class="absolute right-full top-1/2 -translate-y-1/2 mr-2
-             bg-neutral-900 text-xs text-neutral-200 p-2 rounded-lg
-             shadow-lg border border-neutral-700
-             opacity-0 group-hover:opacity-100 transition-opacity
-             pointer-events-none z-10 max-w-[250px] min-w-[240px] w-auto text-left"
+      <Info class="h-3.5 w-3.5" />
+    </button>
+    <span
+      v-if="open"
+      :id="tooltipId"
+      role="tooltip"
+      class="absolute right-0 top-full z-30 mt-2 block w-[min(240px,60vw)] rounded-lg border border-[#46566b] bg-[#1b2531] p-3 text-left text-[11px] leading-5 text-slate-300 shadow-xl"
       v-html="tooltip"
-    />
-  </div>
+    ></span>
+  </span>
 </template>
-
-<style scoped>
-div.group:hover > div {
-  transform: translateY(-50%) translateX(-5px);
-  transition: all 0.5s ease;
-}
-</style>

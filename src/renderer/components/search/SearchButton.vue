@@ -1,100 +1,80 @@
 <script setup>
-import { onMounted, onBeforeUnmount, computed } from 'vue'
-import { useTabStore } from '../../stores/tabStore'
-import { useSearchUIStore } from '../../stores/uistore/serchStoreUI'
-import MenegerExport from '../../services/export/MenegerExport'
-import { Search, Square } from 'lucide-vue-next'
-
-const tabStore = useTabStore()
-const searchUI = useSearchUIStore()
-const exporter = new MenegerExport()
-
-const activeTabId = computed(() => tabStore.state.activeTabId)
-const selectedFields = computed(() => searchUI.getSelectedFields(activeTabId.value))
-const results = computed(() => searchUI.getResults(activeTabId.value))
-const loading = computed(() => searchUI.getLoading(activeTabId.value))
+import { computed, ref } from 'vue';
+import { Search, Square, Download, LoaderCircle } from 'lucide-vue-next';
+import { useSearchUIStore } from '../../stores/uistore/serchStoreUI';
+const props = defineProps({ tabId: { type: Number, required: true } });
+const searchUI = useSearchUIStore();
+const exporting = ref(false);
+const exportFormat = ref('csv');
+const exportError = ref('');
+const fields = computed(() => searchUI.getSelectedFields(props.tabId));
+const loading = computed(() => searchUI.getLoading(props.tabId));
+const results = computed(() => searchUI.getResults(props.tabId));
 const hasSearchValue = computed(() =>
-  Object.values(selectedFields.value).some((field) => String(field?.value || '').trim())
-)
-
-const handleExport = (format) => {
-  if (!results.value || !results.value.length) return
-  exporter.export(results.value, format)
-}
-
-const handleSearch = async () => {
-  if (loading.value) {
-    searchUI.cancelSearch(activeTabId.value)
-    return
-  }
-  if (!hasSearchValue.value) return
-  await searchUI.search(activeTabId.value)
-}
-
-const onKeyDown = (e) => {
-  if (e.key === 'Enter') {
-    handleSearch()
+  Object.values(fields.value).some((field) => String(field?.value || '').trim()),
+);
+const hasRecords = computed(() => results.value.some((item) => item.type === 'object_data'));
+let exporter;
+async function handleExport() {
+  exportError.value = '';
+  exporting.value = true;
+  try {
+    if (!exporter) {
+      const { default: ExportManager } = await import('../../services/export/MenegerExport');
+      exporter = new ExportManager();
+    }
+    await exporter.export(results.value, exportFormat.value);
+  } catch (error) {
+    exportError.value = error?.message || 'Не удалось сохранить файл';
+  } finally {
+    exporting.value = false;
   }
 }
-
-onMounted(() => {
-  window.addEventListener('keydown', onKeyDown)
-})
-
-onBeforeUnmount(() => {
-  window.removeEventListener('keydown', onKeyDown)
-})
+function handleSearch() {
+  if (loading.value) searchUI.cancelSearch(props.tabId);
+  else if (hasSearchValue.value) searchUI.search(props.tabId);
+}
 </script>
 
 <template>
-<div class="flex justify-between items-center gap-2 mt-4">
-  <div class="flex gap-2">
+  <div class="space-y-3">
     <button
-      class="px-3 py-1.5 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-400 hover:to-green-500 text-white rounded-xl text-sm shadow-md hover:shadow-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-      :disabled="results.length === 0"
-      @click="() => handleExport('csv')"
-      title="Сохранить в CSV"
+      type="submit"
+      class="mx-button mx-button-primary w-full !py-3"
+      :disabled="!hasSearchValue && !loading"
+      @click.prevent="handleSearch"
     >
-      CSV
+      <Square v-if="loading" class="h-3.5 w-3.5 fill-current" /><Search v-else class="h-4 w-4" />
+      {{ loading ? 'Остановить поиск' : 'Найти совпадения' }}
+      <kbd
+        v-if="!loading"
+        class="ml-auto hidden rounded border border-emerald-900/20 px-1.5 text-[10px] opacity-60 sm:inline"
+        >Enter</kbd
+      >
     </button>
-
-    <button
-      class="px-3 py-1.5 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-white rounded-xl text-sm shadow-md hover:shadow-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-      :disabled="results.length === 0"
-      @click="() => handleExport('excel')"
-      title="Сохранить в EXCEL"
-    >
-      Excel
-    </button>
-
-    <button
-      class="px-3 py-1.5 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-400 hover:to-red-500 text-white rounded-xl text-sm shadow-md hover:shadow-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-      :disabled="results.length === 0"
-      @click="() => handleExport('pdf')"
-      title="Сохранить в PDF"
-    >
-      PDF
-    </button>
-
-    <button
-      class="px-3 py-1.5 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 text-white rounded-xl text-sm shadow-md hover:shadow-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-      :disabled="results.length === 0"
-      @click="() => handleExport('txt')"
-      title="Сохранить в TXT"
-    >
-      TXT
-    </button>
+    <div class="flex items-center gap-2">
+      <select
+        v-model="exportFormat"
+        class="mx-input !w-24 !py-2 text-xs"
+        aria-label="Формат экспорта"
+      >
+        <option value="csv">CSV</option>
+        <option value="excel">Excel</option>
+        <option value="pdf">PDF</option>
+        <option value="txt">TXT</option>
+      </select>
+      <button
+        type="button"
+        class="mx-button flex-1 !py-2 text-xs"
+        :disabled="!hasRecords || loading || exporting"
+        @click="handleExport"
+      >
+        <LoaderCircle v-if="exporting" class="h-3.5 w-3.5 animate-spin" /><Download
+          v-else
+          class="h-3.5 w-3.5"
+        />Экспорт
+      </button>
+    </div>
+    <p v-if="exportError" role="alert" class="text-xs text-rose-300">{{ exportError }}</p>
   </div>
-
-  <button
-    :disabled="!hasSearchValue && !loading"
-    @click="handleSearch"
-    class="flex items-center justify-center w-10 h-10 bg-neutral-800 hover:bg-neutral-700 disabled:bg-neutral-900 disabled:cursor-not-allowed text-white rounded-xl shadow-md hover:shadow-lg transition-all duration-200"
-    :title="loading ? 'Остановить поиск' : 'Найти'"
-  >
-    <Search v-if="!loading" class="w-5 h-5"/>
-    <Square v-else class="h-4 w-4 fill-current" />
-  </button>
-
-</div>
 </template>

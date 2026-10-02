@@ -1,55 +1,59 @@
 <script setup>
-import { X } from 'lucide-vue-next'
-import { useTabStore } from '../../stores/tabStore'
-import { useSearchUIStore } from '../../stores/uistore/serchStoreUI'
-
-const props = defineProps(['tab'])
-const tabStore = useTabStore()
-const searchUI = useSearchUIStore()
-
-function closeTab() {
-  if (searchUI.getLoading(props.tab.id)) searchUI.cancelSearch(props.tab.id)
-  searchUI.clearTab(props.tab.id)
-  tabStore.closeTab(props.tab.id)
+import { X, LoaderCircle } from 'lucide-vue-next';
+import { useTabStore } from '../../stores/tabStore';
+import { useSearchUIStore } from '../../stores/uistore/serchStoreUI';
+defineProps({ tab: { type: Object, required: true } });
+const tabStore = useTabStore();
+const searchUI = useSearchUIStore();
+function closeTab(id) {
+  if (tabStore.state.tabs.length <= 1) return;
+  searchUI.cancelSearch(id);
+  searchUI.clearTab(id);
+  tabStore.closeTab(id);
 }
 </script>
 
 <template>
   <div
     :class="[
-      'group relative flex items-center rounded-t-md cursor-pointer transition-all duration-200 flex-shrink-0',
-      'min-w-[120px] max-w-[180px] px-3 py-1 text-sm',
-      props.tab.id === tabStore.state.activeTabId
-        ? 'bg-neutral-700 text-white shadow-inner'
-        : 'bg-neutral-800/70 text-gray-400 hover:bg-neutral-700 hover:text-gray-200'
+      'flex shrink-0 items-center gap-2 rounded-lg border px-2 py-1',
+      tab.id === tabStore.state.activeTabId
+        ? 'border-[#3a4c60] bg-[#1b2531] text-slate-100'
+        : 'border-transparent text-slate-500 hover:bg-[#141b24]',
     ]"
-    @click="tabStore.setActive(props.tab.id)"
-    @dblclick.stop="tabStore.startEdit(props.tab)"
   >
-    <template v-if="tabStore.state.editingTabId === props.tab.id">
-      <input
-        :value="tabStore.state.editTitle"
-        @input="e => tabStore.updateEditTitle(e.target.value)"
-        @keyup.enter="tabStore.finishEdit(props.tab)"
-        @blur="tabStore.finishEdit(props.tab)"
-        class="bg-neutral-700 border border-neutral-500 rounded text-white text-sm w-[100px] outline-none px-1"
-        autofocus
-      />
-    </template>
-
-    <template v-else>
-      <span class="truncate pr-5">{{ tab.title }}</span>
-    </template>
-
+    <input
+      v-if="tabStore.state.editingTabId === tab.id"
+      :value="tabStore.state.editTitle"
+      class="mx-input !w-36 !py-1 text-xs"
+      aria-label="Название вкладки"
+      @input="tabStore.updateEditTitle($event.target.value)"
+      @keyup.enter="tabStore.finishEdit(tab)"
+      @blur="tabStore.finishEdit(tab)"
+      autofocus
+    />
+    <button
+      v-else
+      type="button"
+      class="flex max-w-[200px] items-center gap-2 px-2 py-1.5 text-xs"
+      :aria-current="tab.id === tabStore.state.activeTabId ? 'page' : undefined"
+      :title="tab.title + ' · Двойной щелчок для переименования'"
+      @click="tabStore.setActive(tab.id)"
+      @dblclick="tabStore.startEdit(tab)"
+    >
+      <LoaderCircle
+        v-if="searchUI.getLoading(tab.id)"
+        class="h-3 w-3 shrink-0 animate-spin text-emerald-300"
+      /><span class="truncate">{{ tab.title }}</span>
+    </button>
     <button
       v-if="tabStore.state.tabs.length > 1"
-      class="absolute right-1 flex items-center justify-center w-4 h-4 
-             opacity-0 group-hover:opacity-100 transition 
-             text-gray-500 hover:bg-red-500 hover:text-white rounded-full"
-      @click.stop="closeTab"
-      title="Закрыть вкладку"
+      type="button"
+      class="mx-icon-button !h-6 !w-6"
+      :aria-label="'Закрыть вкладку ' + tab.title"
+      @click="closeTab(tab.id)"
     >
-      <X class="w-3 h-3" />
+      <X class="h-3 w-3" />
     </button>
   </div>
 </template>

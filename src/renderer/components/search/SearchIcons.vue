@@ -1,35 +1,27 @@
 <script setup>
-import { computed } from 'vue'
-import { useTabStore } from '../../stores/tabStore'
-import { useSearchUIStore } from '../../stores/uistore/serchStoreUI'
-
-const tabStore = useTabStore()
-const searchUI = useSearchUIStore()
-
-const activeTabId = computed(() => tabStore.state.activeTabId)
-const selectedFields = computed(() => searchUI.getSelectedFields(activeTabId.value))
-const selectedKeys = computed(() => Object.keys(selectedFields.value))
-
-function toggleInput(option) {
-  searchUI.toggleField(activeTabId.value, option.type)
-}
+import { computed } from 'vue';
+import { useSearchUIStore } from '../../stores/uistore/serchStoreUI';
+const props = defineProps({ tabId: { type: Number, required: true } });
+const searchUI = useSearchUIStore();
+const selectedFields = computed(() => searchUI.getSelectedFields(props.tabId));
 </script>
 
 <template>
-<div class="flex flex-wrap justify-center gap-3">
-  <button
-    v-for="option in searchUI.icons"
-    :key="option.type"
-    @click="toggleInput(option)"
-    :class="[
-      'w-8 h-8 flex items-center justify-center rounded-xl shadow-md transition-all duration-200 transform',
-      selectedKeys.includes(option.type)
-        ? 'bg-gradient-to-br from-green-500 to-green-600 hover:from-green-400 hover:to-green-500 shadow-lg scale-105'
-        : 'bg-neutral-800 hover:bg-neutral-700'
-    ]"
-    :title="option.label"
-  >
-    <component :is="option.icon" class="w-5 h-5 text-white"/>
-  </button>
-</div>
+  <div class="grid grid-cols-2 gap-2">
+    <button
+      v-for="option in searchUI.icons"
+      :key="option.type"
+      type="button"
+      :aria-pressed="option.type in selectedFields"
+      :class="[
+        'flex min-w-0 items-center gap-2 rounded-lg border px-3 py-2.5 text-left text-[11px] font-medium transition-colors',
+        option.type in selectedFields
+          ? 'border-emerald-300/40 bg-emerald-300/10 text-emerald-200'
+          : 'border-[#293443] bg-[#141b24] text-slate-400 hover:border-slate-500 hover:text-slate-200',
+      ]"
+      @click="searchUI.toggleField(tabId, option.type)"
+    >
+      <component :is="option.icon" class="h-3.5 w-3.5 shrink-0" /><span>{{ option.label }}</span>
+    </button>
+  </div>
 </template>

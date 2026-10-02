@@ -1,140 +1,95 @@
 <script setup>
-import { ref, computed, watch, nextTick, reactive } from 'vue'
-import { ChevronDown, ChevronUp } from 'lucide-vue-next'
-import SearchIcons from './SearchIcons.vue'
-import SearchInputs from './SearchInputs.vue'
-import SearchButton from './SearchButton.vue'
-import { useSearchUIStore } from '../../stores/uistore/serchStoreUI'
-import { useTabStore } from '../../stores/tabStore'
-import SearchResults from './SearchResults.vue'
+import { computed, ref, watch, nextTick } from 'vue';
+import { ChevronDown, SlidersHorizontal, Database } from 'lucide-vue-next';
+import SearchIcons from './SearchIcons.vue';
+import SearchInputs from './SearchInputs.vue';
+import SearchButton from './SearchButton.vue';
+import SearchResults from './SearchResults.vue';
+import { useSearchUIStore } from '../../stores/uistore/serchStoreUI';
+import { groupSearchResults } from '../../utils/searchResults';
 
-const searchUI = useSearchUIStore()
-const tabStore = useTabStore()
-const isCollapsed = ref(false)
+const props = defineProps({ tabId: { type: Number, required: true } });
+const searchUI = useSearchUIStore();
+const resultsPane = ref(null);
+const baseGroups = computed(() => groupSearchResults(searchUI.getResults(props.tabId)));
+const activeBase = computed(() => searchUI.getActiveBase(props.tabId));
 
-const toggleCollapse = () => (isCollapsed.value = !isCollapsed.value)
-
-const activeTabId = computed(() => tabStore.state.activeTabId)
-const activeBase = computed(() => activeTabId.value ? searchUI.getActiveBase(activeTabId.value) : null)
-
-// ======= Группировка баз по type_sources =======
-const collapsedGroups = reactive({})
-
-const baseGroups = computed(() => {
-  if (!activeTabId.value) return []
-  
-  const results = searchUI.getResults(activeTabId.value)
-  const groupsMap = {}
-  
-  results.forEach(item => {
-    if (item.type === 'object_data_base') {
-      const type = item.type_sources || 'Без типа'
-      if (!groupsMap[type]) {
-        groupsMap[type] = { type, items: [] }
-        // Инициализируем группу как свернутую
-        if (collapsedGroups[type] === undefined) {
-          collapsedGroups[type] = true
-        }
-      }
-      groupsMap[type].items.push(item)
-    }
-  })
-  
-  return Object.values(groupsMap)
-})
-
-function toggleGroup(name) {
-  collapsedGroups[name] = !collapsedGroups[name]
+function submitSearch(event) {
+  if (event.submitter || searchUI.getLoading(props.tabId)) return;
+  const fields = searchUI.getSelectedFields(props.tabId);
+  if (Object.values(fields).some((field) => String(field.value).trim()))
+    searchUI.search(props.tabId);
 }
-
-function selectBase(name) {
-  if (!activeTabId.value) return
-  searchUI.setActiveBase(name, activeTabId.value)
-}
-
-watch(
-  [() => activeTabId.value, () => activeBase.value, () => baseGroups.value.length],
-  async () => {
-    await nextTick()
-    await nextTick()
-    
-    const baseName = typeof activeBase.value === 'string' ? activeBase.value : activeBase.value?.name
-    if (!baseName) return
-    
-    const container = document.querySelector('.results-container')
-    const el = container?.querySelector(`[data-base-name="${baseName}"]`)
-    if (el && container) {
-      container.scrollTo({
-        top: el.offsetTop,
-        behavior: 'smooth'
-      })
-    }
-  },
-  { immediate: true }
-)
+watch(activeBase, async (name) => {
+  await nextTick();
+  const target = [...(resultsPane.value?.querySelectorAll('[data-base-name]') || [])].find(
+    (element) => element.dataset.baseName === name,
+  );
+  target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
 </script>
 
 <template>
-  <div class="flex h-full text-white bg-gradient-to-br from-neutral-900 to-neutral-950">
-    <div class="w-[40%] p-6 border-r border-neutral-700 flex flex-col gap-4 overflow-y-auto backdrop-blur-md bg-neutral-900/70 rounded-tr-2xl rounded-br-2xl shadow-inner">
-      <SearchIcons />
-      <SearchButton />
-      
-      <!-- Поля поиска -->
-      <div class="flex items-center justify-between cursor-pointer mt-6 p-2 rounded-xl hover:bg-neutral-800/70 transition-all duration-200"
-           @click="toggleCollapse">
-        <h3 class="font-semibold text-lg">Поля поиска</h3>
-        <component :is="isCollapsed ? ChevronDown : ChevronUp" class="w-5 h-5 text-neutral-300" />
-      </div>
-      
-      <transition name="fade-slide">
-        <div v-if="!isCollapsed" class="flex flex-col gap-3 mt-3 bg-neutral-800/60 p-4 rounded-2xl shadow-inner backdrop-blur-sm">
-          <SearchInputs :tab-id="activeTabId" />
+  <div
+    class="h-full min-h-0 min-w-0 overflow-auto lg:grid lg:grid-cols-[320px_minmax(0,1fr)] lg:overflow-hidden xl:grid-cols-[340px_minmax(0,1fr)]"
+  >
+    <aside
+      class="space-y-6 border-b border-[#293443] bg-[#101720]/50 p-5 lg:overflow-y-auto lg:border-b-0 lg:border-r xl:p-6"
+    >
+      <div>
+        <div class="flex items-center gap-2">
+          <SlidersHorizontal class="h-4 w-4 text-emerald-300" />
+          <h1 class="text-lg font-semibold tracking-tight">Параметры поиска</h1>
         </div>
-      </transition>
-      
-      <!-- Группы баз по типу -->
-      <div class="mt-6 h-full overflow-y-auto">
-        <ul class="flex flex-col gap-2">
-          <li v-for="group in baseGroups" :key="group.type">
-            <div class="flex items-center justify-between cursor-pointer p-2 rounded-lg hover:bg-neutral-800/70 transition-all duration-200"
-                 @click="toggleGroup(group.type)">
-              <span class="font-semibold">{{ group.type }}</span>
-              <component :is="collapsedGroups[group.type] ? ChevronDown : ChevronUp" class="w-5 h-5 text-neutral-300" />
-            </div>
-            
-            <transition name="fade-slide">
-              <ul v-if="!collapsedGroups[group.type]" class="pl-4 mt-1 flex flex-col gap-1">
-                <li v-for="base in group.items" 
-                    :key="base.name" 
-                    @click="selectBase(base.name)"
-                    :class="[
-                      'cursor-pointer p-2 rounded-lg hover:bg-green-700 transition-colors duration-200',
-                      activeBase === base.name ? 'bg-green-700 font-semibold' : 'text-white'
-                    ]"
-                    :data-base-name="base.name">
-                  {{ base.name }}
-                </li>
-              </ul>
-            </transition>
-          </li>
-        </ul>
+        <p class="mt-2 text-xs leading-5 text-slate-500">
+          Выберите поля и введите данные. Несколько полей уточняют запрос.
+        </p>
       </div>
-    </div>
-    
-    <!-- Правая панель -->
-    <div class="w-[60%] p-6 flex flex-col gap-4 overflow-y-auto overflow-x-hidden backdrop-blur-md bg-neutral-900/60 rounded-tl-2xl rounded-bl-2xl shadow-inner">
-      <SearchResults :tab-id="activeTabId" />
-    </div>
+      <div>
+        <p class="mx-eyebrow mb-3">Тип данных</p>
+        <SearchIcons :tab-id="tabId" />
+      </div>
+      <form class="space-y-5" @submit.prevent="submitSearch">
+        <SearchInputs :tab-id="tabId" />
+        <SearchButton :tab-id="tabId" />
+      </form>
+      <div
+        class="rounded-lg border border-[#293443] px-3 py-2.5 text-[11px] leading-5 text-slate-500"
+      >
+        Для поиска по части значения используйте маски <span class="text-slate-300">%</span> и
+        <span class="text-slate-300">?</span>. Данные передаются серверу как введены.
+      </div>
+      <details v-if="baseGroups.length" open class="border-t border-[#293443] pt-5">
+        <summary class="flex cursor-pointer items-center gap-2 text-xs font-medium text-slate-300">
+          <Database class="h-3.5 w-3.5" />Источники
+          <span class="mx-badge ml-auto">{{ baseGroups.length }}</span
+          ><ChevronDown class="h-3 w-3" />
+        </summary>
+        <div class="mt-3 space-y-1">
+          <button
+            v-for="base in baseGroups"
+            :key="base.source"
+            type="button"
+            :class="[
+              'flex w-full items-start justify-between gap-2 rounded-lg px-3 py-2.5 text-left text-xs',
+              activeBase === base.name
+                ? 'bg-emerald-300/10 text-emerald-200'
+                : 'text-slate-400 hover:bg-[#1b2531]',
+            ]"
+            @click="searchUI.setActiveBase(base.name, tabId)"
+          >
+            <span class="min-w-0 break-words">{{ base.name }}</span
+            ><span class="shrink-0 text-slate-500">{{ base.data.length }}</span>
+          </button>
+        </div>
+      </details>
+    </aside>
+    <section
+      ref="resultsPane"
+      class="min-h-0 min-w-0 lg:overflow-y-auto"
+      aria-label="Результаты поиска"
+    >
+      <SearchResults :tab-id="tabId" />
+    </section>
   </div>
 </template>
-
-<style scoped>
-.fade-slide-enter-active, .fade-slide-leave-active {
-  transition: all 0.3s ease;
-}
-.fade-slide-enter-from, .fade-slide-leave-to {
-  opacity: 0;
-  transform: translateY(10px);
-}
-</style>

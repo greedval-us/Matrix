@@ -1,69 +1,101 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { Database, RefreshCw, Search, Server, ShieldCheck } from 'lucide-vue-next'
-
-const status = ref(null)
-const config = ref(null)
-const loading = ref(false)
-const error = ref('')
-let refreshTimer = null
-
-const progress = computed(() => Math.min(Number(status.value?.progress_percent || 0), 100))
-
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { RefreshCw, Database, Server, ShieldCheck } from 'lucide-vue-next';
+import PageHeading from '../components/ui/PageHeading.vue';
+const status = ref(null);
+const config = ref(null);
+const loading = ref(false);
+const error = ref('');
+let timer;
+const progress = computed(() =>
+  Math.max(0, Math.min(Number(status.value?.progress_percent || 0), 100)),
+);
 async function refresh() {
-  loading.value = true
-  error.value = ''
+  if (loading.value) return;
+  loading.value = true;
+  error.value = '';
   try {
-    const [nextConfig, nextStatus] = await Promise.all([
-      window.searchAPI.getConfig(),
-      window.searchAPI.getIndexStatus(),
-    ])
-    config.value = nextConfig
-    status.value = nextStatus
+    config.value = await window.searchAPI.getConfig();
+    status.value = await window.searchAPI.getIndexStatus();
   } catch (reason) {
-    error.value = reason?.message || String(reason)
+    status.value = null;
+    error.value = reason?.message || String(reason);
   } finally {
-    loading.value = false
+    loading.value = false;
   }
 }
-
 onMounted(() => {
-  refresh()
-  refreshTimer = window.setInterval(refresh, 15000)
-})
-onBeforeUnmount(() => window.clearInterval(refreshTimer))
+  refresh();
+  timer = window.setInterval(refresh, 15000);
+});
+onBeforeUnmount(() => window.clearInterval(timer));
 </script>
 
 <template>
-  <div class="h-full overflow-y-auto bg-[radial-gradient(circle_at_15%_10%,_rgba(34,197,94,0.1),_transparent_30%),linear-gradient(150deg,#171717,#090909)] p-6 text-white">
-    <div class="mx-auto max-w-5xl space-y-6">
-      <section class="rounded-3xl border border-neutral-700/80 bg-neutral-900/80 p-7 shadow-2xl">
-        <div class="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p class="text-xs font-semibold uppercase tracking-[0.25em] text-green-400">Matrix Search</p>
-            <h1 class="mt-2 text-3xl font-bold">Состояние поисковой системы</h1>
-            <p class="mt-2 text-sm text-neutral-400">Клиент gRPC получает готовые результаты из Manticore. MariaDB используется сервером только при построении индексов.</p>
-          </div>
-          <button :disabled="loading" class="flex items-center gap-2 rounded-xl bg-neutral-700 px-4 py-2 text-sm transition hover:bg-neutral-600 disabled:opacity-50" @click="refresh"><RefreshCw class="h-4 w-4" :class="{ 'animate-spin': loading }" />Обновить</button>
-        </div>
-      </section>
-
-      <div v-if="error" class="rounded-2xl border border-red-500/50 bg-red-950/30 px-5 py-4 text-sm text-red-200">{{ error }}</div>
-
-      <section class="grid gap-4 md:grid-cols-3">
-        <article class="rounded-3xl border border-neutral-700 bg-neutral-900/80 p-5"><Server class="h-6 w-6 text-green-400" /><p class="mt-4 text-xs uppercase tracking-wider text-neutral-500">gRPC сервер</p><p class="mt-1 break-all font-semibold">{{ config?.endpoint || 'Не настроен' }}</p></article>
-        <article class="rounded-3xl border border-neutral-700 bg-neutral-900/80 p-5"><ShieldCheck class="h-6 w-6 text-green-400" /><p class="mt-4 text-xs uppercase tracking-wider text-neutral-500">Защита</p><p class="mt-1 font-semibold">TLS + API-ключ</p></article>
-        <article class="rounded-3xl border border-neutral-700 bg-neutral-900/80 p-5"><Search class="h-6 w-6 text-green-400" /><p class="mt-4 text-xs uppercase tracking-wider text-neutral-500">Выдача</p><p class="mt-1 font-semibold">Все совпадения потоком</p></article>
-      </section>
-
-      <section class="rounded-3xl border border-neutral-700 bg-neutral-900/80 p-7">
-        <div class="flex flex-wrap items-end justify-between gap-4">
-          <div class="flex items-center gap-3"><Database class="h-7 w-7 text-green-400" /><div><p class="text-xs uppercase tracking-wider text-neutral-500">Индекс Manticore</p><h2 class="text-xl font-semibold">{{ status?.status || 'Нет соединения' }}</h2></div></div>
-          <p class="text-4xl font-bold text-green-400">{{ progress.toFixed(1) }}%</p>
-        </div>
-        <div class="mt-5 h-3 overflow-hidden rounded-full bg-neutral-800"><div class="h-full rounded-full bg-gradient-to-r from-green-700 to-green-400 transition-all duration-700" :style="{ width: `${progress}%` }"></div></div>
-        <div class="mt-4 grid gap-3 text-sm text-neutral-300 sm:grid-cols-3"><p>Готово: <strong class="text-white">{{ status?.indexed_shards || 0 }}/{{ status?.total_shards || 0 }}</strong></p><p>Текущий шард: <strong class="text-white">{{ status?.current_shard || 0 }}</strong></p><p>Обновлено: <strong class="text-white">{{ status?.updated_at || 'нет данных' }}</strong></p></div>
-      </section>
+  <div class="mx-page mx-auto max-w-5xl">
+    <PageHeading
+      title="Состояние системы"
+      description="Подключение к серверу и готовность данных для поиска."
+      ><button class="mx-button" :disabled="loading" @click="refresh">
+        <RefreshCw class="h-4 w-4" :class="{ 'animate-spin': loading }" />Обновить
+      </button></PageHeading
+    >
+    <p v-if="error" role="alert" class="mx-alert mb-5">{{ error }}</p>
+    <div class="mb-6 grid gap-4 sm:grid-cols-2">
+      <div class="mx-panel p-5">
+        <Server class="h-5 w-5 text-emerald-300" />
+        <p class="mx-eyebrow mt-5">Сервер поиска</p>
+        <p class="mt-2 break-all text-sm font-medium">{{ config?.endpoint || 'Не настроен' }}</p>
+      </div>
+      <div class="mx-panel p-5">
+        <ShieldCheck class="h-5 w-5 text-emerald-300" />
+        <p class="mx-eyebrow mt-5">Доступ</p>
+        <p class="mt-2 text-sm font-medium">
+          {{ config?.hasApiKey ? 'Ключ настроен · TLS' : 'Требуется API-ключ' }}
+        </p>
+      </div>
     </div>
+    <section class="mx-panel p-6">
+      <div class="flex flex-wrap items-start justify-between gap-4">
+        <div class="flex items-center gap-3">
+          <Database class="h-5 w-5 text-emerald-300" />
+          <div>
+            <h2 class="text-sm font-semibold">Готовность поискового индекса</h2>
+            <p class="mt-1 text-xs text-slate-500">
+              {{ status?.status || (loading ? 'Проверяем состояние…' : 'Нет соединения') }}
+            </p>
+          </div>
+        </div>
+        <strong class="text-3xl font-semibold tabular-nums text-emerald-300">{{
+          status ? progress.toFixed(1) + '%' : '—'
+        }}</strong>
+      </div>
+      <div
+        class="mt-6 h-2 overflow-hidden rounded-full bg-[#293443]"
+        role="progressbar"
+        aria-label="Готовность индекса"
+        :aria-valuenow="status ? progress : undefined"
+        aria-valuemin="0"
+        aria-valuemax="100"
+      >
+        <div
+          class="h-full rounded-full bg-emerald-300 transition-[width] duration-500"
+          :style="{ width: progress + '%' }"
+        ></div>
+      </div>
+      <p class="mt-4 text-xs leading-6 text-slate-400">
+        {{
+          status
+            ? 'Готово частей: ' + status.indexed_shards + ' из ' + status.total_shards
+            : 'Состояние индекса станет доступно после подключения.'
+        }}
+      </p>
+      <p v-if="status && progress < 100" class="mt-2 text-xs leading-6 text-amber-200/80">
+        Индекс обновляется. Поиск работает по уже готовым данным; выдача может быть неполной.
+      </p>
+      <p v-if="status?.updated_at" class="mt-4 text-[11px] text-slate-500">
+        Обновлено: {{ status.updated_at }}
+      </p>
+    </section>
   </div>
 </template>

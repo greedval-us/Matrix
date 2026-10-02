@@ -1,132 +1,124 @@
 <script setup>
-import { ref, onMounted, onBeforeMount, onBeforeUnmount } from "vue"
-import { useDatabaseStore } from "../stores/uistore/databaseStoreUI"
-
-const dbStore = useDatabaseStore()
-const dropdownOpen = ref(false)
-
-onBeforeMount(() => dbStore.reset())
-onMounted(() => dbStore.fetchAll())
-onBeforeUnmount(() => dbStore.reset())
-
-const toggleDropdown = () => {
-  dropdownOpen.value = !dropdownOpen.value
-}
-
-const selectType = (type) => {
-  dbStore.setFilter(type)
-  dropdownOpen.value = false
-}
+import { onMounted } from 'vue';
+import { RefreshCw, ArrowDown, ArrowUp, Database } from 'lucide-vue-next';
+import { useDatabaseStore } from '../stores/uistore/databaseStoreUI';
+import PageHeading from '../components/ui/PageHeading.vue';
+const dbStore = useDatabaseStore();
+const columns = [
+  { key: 'name', label: 'Источник' },
+  { key: 'info', label: 'Описание' },
+  { key: 'relevance_date', label: 'Актуальность' },
+  { key: 'type', label: 'Тип' },
+  { key: 'count', label: 'Записей' },
+  { key: 'trust', label: 'Доступность' },
+];
+onMounted(() => {
+  if (!dbStore.state.rows.length && !dbStore.state.loading) dbStore.fetchAll();
+});
 </script>
 
 <template>
-  <div class="flex flex-col h-full p-8 max-w-7xl mx-auto space-y-6 overflow-hidden">
-    <!-- Ошибки -->
-    <div
-      v-if="dbStore.state.error"
-      class="bg-red-500/10 text-red-400 p-3 rounded-xl backdrop-blur-md shadow-lg animate-fade-in"
+  <div class="mx-page mx-auto flex h-full min-h-0 max-w-[1500px] flex-col">
+    <PageHeading
+      title="Каталог источников"
+      description="Доступные базы, их актуальность и объём данных."
+      ><button class="mx-button" :disabled="dbStore.state.loading" @click="dbStore.fetchAll()">
+        <RefreshCw class="h-4 w-4" :class="{ 'animate-spin': dbStore.state.loading }" />Обновить
+      </button></PageHeading
     >
-      {{ dbStore.state.error }}
-    </div>
-
-    <!-- Панель фильтров -->
-    <div class="sticky top-0 z-20 bg-neutral-900/80 p-4 rounded-xl backdrop-blur-md shadow-md flex flex-wrap items-center justify-between gap-6">
-      <!-- Кастомный dropdown -->
-      <div class="relative">
-        <label class="font-semibold text-neutral-300 mb-1 block">Фильтр по типу:</label>
-        <div
-          @click="toggleDropdown"
-          class="bg-neutral-800/70 text-white px-4 py-2 rounded-xl shadow-inner cursor-pointer flex justify-between items-center w-48 hover:bg-neutral-800/90 transition duration-300 ease-in-out"
+    <p v-if="dbStore.state.error" role="alert" class="mx-alert mb-5">{{ dbStore.state.error }}</p>
+    <div class="mb-5 flex flex-wrap items-end justify-between gap-4">
+      <label class="space-y-2 text-xs"
+        ><span class="block text-slate-400">Тип источника</span
+        ><select
+          :value="dbStore.state.selectedType"
+          class="mx-input min-w-[180px]"
+          @change="dbStore.setFilter($event.target.value)"
         >
-          <span>{{ dbStore.state.selectedType }}</span>
-          <span :class="{'rotate-180': dropdownOpen}" class="transition-transform duration-300">▼</span>
-        </div>
-        <transition name="dropdown-fade">
-          <ul
-            v-if="dropdownOpen"
-            class="absolute left-0 mt-1 w-full bg-neutral-800/90 rounded-xl shadow-lg backdrop-blur-md max-h-60 overflow-y-auto z-30"
+          <option v-for="type in dbStore.types" :key="type">{{ type }}</option>
+        </select></label
+      >
+      <div class="flex gap-4 text-xs text-slate-500">
+        <p>
+          <strong class="mr-1 text-slate-200">{{ dbStore.filteredRowCount }}</strong
+          >источников
+        </p>
+        <p>
+          <strong class="mr-1 text-slate-200">{{
+            dbStore.filteredCountSum.toLocaleString('ru-RU')
+          }}</strong
+          >записей
+        </p>
+      </div>
+    </div>
+    <div class="mx-panel min-h-[240px] flex-1 overflow-auto">
+      <table class="w-full min-w-[800px] text-left text-xs">
+        <thead class="sticky top-0 z-10 bg-[#1b2531] text-slate-400">
+          <tr>
+            <th
+              v-for="column in columns"
+              :key="column.key"
+              class="px-4 py-3 font-medium"
+              :aria-sort="
+                dbStore.state.sortKey === column.key
+                  ? dbStore.state.sortDirection === 'asc'
+                    ? 'ascending'
+                    : 'descending'
+                  : 'none'
+              "
+            >
+              <button
+                class="flex items-center gap-2 text-left"
+                @click="dbStore.setSort(column.key)"
+              >
+                {{ column.label
+                }}<component
+                  v-if="dbStore.state.sortKey === column.key"
+                  :is="dbStore.state.sortDirection === 'asc' ? ArrowUp : ArrowDown"
+                  class="h-3 w-3"
+                />
+              </button>
+            </th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-[#293443]">
+          <tr
+            v-for="row in dbStore.filteredRows"
+            :key="row.name_table"
+            class="hover:bg-[#1b2531]/50"
           >
-            <li
-              v-for="type in dbStore.types"
-              :key="type"
-              @click="selectType(type)"
-              class="px-4 py-2 cursor-pointer hover:bg-neutral-700/80 rounded-lg transition-colors duration-200"
+            <td class="max-w-[230px] break-words px-4 py-4 font-medium text-slate-200">
+              {{ row.name }}
+            </td>
+            <td
+              class="max-w-[350px] whitespace-pre-wrap break-words px-4 py-4 leading-6 text-slate-500"
             >
-              {{ type }}
-            </li>
-          </ul>
-        </transition>
+              {{ row.info }}
+            </td>
+            <td class="whitespace-nowrap px-4 py-4 text-slate-400">
+              {{ row.relevance_date || 'Не указана' }}
+            </td>
+            <td class="px-4 py-4 text-slate-400">{{ row.type || 'Не указан' }}</td>
+            <td class="px-4 py-4 tabular-nums text-slate-300">
+              {{ Number(row.count || 0).toLocaleString('ru-RU') }}
+            </td>
+            <td class="px-4 py-4">
+              <span
+                class="mx-badge"
+                :class="
+                  row.trust === '1' ? '!border-emerald-300/20 !text-emerald-300' : '!text-slate-500'
+                "
+                >{{ row.trust === '1' ? 'Доступна' : 'Недоступна' }}</span
+              >
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <div v-if="dbStore.state.loading" role="status" class="mx-empty">Загружаем каталог…</div>
+      <div v-else-if="!dbStore.filteredRows.length && !dbStore.state.error" class="mx-empty">
+        <Database class="mx-auto mb-3 h-6 w-6 text-slate-600" />Нет источников для выбранного
+        фильтра.
       </div>
-
-      <!-- Счётчики -->
-      <div class="text-sm text-neutral-400 bg-neutral-900/70 px-4 py-2 rounded-xl backdrop-blur-md shadow-inner">
-        Баз:
-        <span class="text-white font-medium">{{ dbStore.filteredRowCount }}</span>
-        |
-        Всего записей:
-        <span class="text-white font-medium">{{ dbStore.filteredCountSum.toLocaleString() }}</span>
-      </div>
-    </div>
-
-    <!-- Таблица с фиксированным заголовком -->
-    <div class="flex-1 overflow-hidden rounded-2xl shadow-2xl bg-neutral-900/70 border border-neutral-700 backdrop-blur-xl animate-scale-in">
-      <div class="overflow-y-auto h-full">
-        <table class="w-full text-left text-sm text-white table-fixed">
-          <thead class="bg-neutral-800/70 sticky top-0 z-10">
-            <tr class="text-neutral-400 text-sm">
-              <th class="p-3 cursor-pointer w-[20%]" @click="dbStore.setSort('name')">Название</th>
-              <th class="p-3 cursor-pointer w-[25%]" @click="dbStore.setSort('info')">Описание</th>
-              <th class="p-3 cursor-pointer w-[15%]" @click="dbStore.setSort('relevance_date')">Актуальность</th>
-              <th class="p-3 cursor-pointer w-[10%]" @click="dbStore.setSort('type')">Тип</th>
-              <th class="p-3 cursor-pointer w-[10%] text-center" @click="dbStore.setSort('count')">Кол-во</th>
-              <th class="p-3 cursor-pointer w-[10%] text-center" @click="dbStore.setSort('trust')">Надёжность</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="row in dbStore.filteredRows"
-              :key="row.name_table"
-              class="border-t border-neutral-700 hover:bg-neutral-800/70 transition-colors animate-row-fade"
-            >
-              <td class="p-3 font-semibold break-words">{{ row.name }}</td>
-              <td class="p-3 text-xs text-neutral-400 break-words">{{ row.info }}</td>
-              <td class="p-3">{{ row.relevance_date ?? "Неизвестно" }}</td>
-              <td class="p-3">{{ row.type ?? "Неизвестно" }}</td>
-              <td class="p-3 text-center">{{ row.count }}</td>
-              <td class="p-3 text-center">
-                <span v-if="row.trust === '1'" class="text-green-400">Доступна</span>
-                <span v-else class="text-red-400">Недоступна</span>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- Лоадер -->
-    <div
-      v-if="dbStore.state.loading"
-      class="text-center text-neutral-400 py-4 animate-pulse"
-    >
-      Загружаем данные...
     </div>
   </div>
 </template>
-
-<style scoped>
-@keyframes fade-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
-@keyframes scale-in { from { opacity: 0; transform: scale(0.98); } to { opacity: 1; transform: scale(1); } }
-@keyframes row-fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
-
-.animate-fade-in { animation: fade-in 0.3s ease-out forwards; }
-.animate-scale-in { animation: scale-in 0.35s ease-out forwards; }
-.animate-row-fade { animation: row-fade 0.25s ease-out forwards; }
-
-.arrow-fade-enter-active, .arrow-fade-leave-active { transition: all 0.25s ease; }
-.arrow-fade-enter-from { opacity: 0; transform: translateY(-4px); }
-.arrow-fade-leave-to { opacity: 0; transform: translateY(4px); }
-
-.dropdown-fade-enter-active, .dropdown-fade-leave-active { transition: all 0.25s ease; }
-.dropdown-fade-enter-from { opacity: 0; transform: translateY(-6px); }
-.dropdown-fade-leave-to { opacity: 0; transform: translateY(-6px); }
-</style>

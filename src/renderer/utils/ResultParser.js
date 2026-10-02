@@ -1,3 +1,15 @@
+export function visibleResultFields(fields = {}) {
+  return Object.entries(fields).filter(([key]) => String(key).toLowerCase() !== 'id')
+}
+
+export function createRecordFingerprint(fields = []) {
+  return JSON.stringify(
+    [...fields]
+      .map(([key, value]) => [String(key), String(value ?? '')])
+      .sort(([left], [right]) => left.localeCompare(right))
+  )
+}
+
 export class ResultParser {
   constructor() {
     this.handlers = {
@@ -40,7 +52,7 @@ export class ResultParser {
     return {
       type: 'object_data',
       source: obj.source_name,
-      fields: Object.entries(obj.fields)
+      fields: visibleResultFields(obj.fields)
     }
   }
 

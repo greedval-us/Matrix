@@ -1,8 +1,8 @@
-import { defineStore } from "pinia";
-import { reactive, readonly } from "vue";
-import { SearchService } from "../services/SearchService";
+import { defineStore } from 'pinia';
+import { reactive, readonly } from 'vue';
+import { SearchService } from '../services/SearchService.js';
 
-export const useSearchStore = defineStore("search", () => {
+export const useSearchStore = defineStore('search', () => {
   const searchService = new SearchService(window.searchAPI);
 
   const state = reactive({
@@ -46,7 +46,6 @@ export const useSearchStore = defineStore("search", () => {
 
   const cancelSearch = (tabId) => {
     searchService.cancelSearch(tabId);
-    state.isSearching[tabId] = false;
   };
 
   const listDatabases = async (payload) => {

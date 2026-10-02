@@ -1,73 +1,57 @@
 <script setup>
-import { computed } from 'vue'
-import { useTabStore } from '../../stores/tabStore'
-import { useSearchUIStore } from '../../stores/uistore/serchStoreUI'
-import Hint from '../ui/Hint.vue'
-
-const tabStore = useTabStore()
-const searchUI = useSearchUIStore()
-
-const activeTabId = computed(() => tabStore.state.activeTabId)
-const selectedFields = computed(() => searchUI.getSelectedFields(activeTabId.value))
-
-function removeFieldHandler(type) {
-  searchUI.toggleField(activeTabId.value, type)
-}
+import { computed } from 'vue';
+import { X } from 'lucide-vue-next';
+import { useSearchUIStore } from '../../stores/uistore/serchStoreUI';
+import Hint from '../ui/Hint.vue';
+const props = defineProps({ tabId: { type: Number, required: true } });
+const searchUI = useSearchUIStore();
+const selectedFields = computed(() => searchUI.getSelectedFields(props.tabId));
 </script>
 
-
 <template>
-  <div class="flex flex-col gap-2">
-    <transition-group name="fade" tag="div" class="flex flex-col gap-2">
-      <div
-        v-for="(field, type) in selectedFields"
-        :key="type"
-        class="flex flex-col gap-1 bg-neutral-800 p-2 rounded border border-neutral-700"
-      >
-        <div class="flex justify-between items-center mb-1">
-          <span class="text-sm">{{ searchUI.getFieldLabel(type) }}</span>
-          <div class="flex items-center gap-1">
-            <Hint :tooltip="searchUI.getHelp(type)" />
-            <button
-              @click="removeFieldHandler(type)"
-              class="flex items-center justify-center w-6 h-6 
-                     text-neutral-300 hover:text-red-500 
-                     bg-neutral-700 hover:bg-neutral-600 
-                     rounded transition-colors duration-200 
-                     text-xs leading-none text-center"
-            >
-              ×
-            </button>
-          </div>
+  <div class="space-y-4">
+    <div v-for="(field, type) in selectedFields" :key="type" class="space-y-2">
+      <div class="flex items-center justify-between gap-2">
+        <label :for="'search-' + tabId + '-' + type" class="text-xs font-medium text-slate-200">{{
+          searchUI.getFieldLabel(type)
+        }}</label>
+        <div class="flex items-center gap-1">
+          <Hint :tooltip="searchUI.getHelp(type)" /><button
+            type="button"
+            class="mx-icon-button !h-6 !w-6"
+            :aria-label="'Удалить поле ' + searchUI.getFieldLabel(type)"
+            @click="searchUI.toggleField(tabId, type)"
+          >
+            <X class="h-3.5 w-3.5" />
+          </button>
         </div>
-
-        <input
-          :value="field.value"
-          @input="field.setValue($event.target.value)"
-          type="text"
-          :inputmode="['number', 'passport', 'inn', 'snils', 'imei', 'imsi'].includes(type) ? 'numeric' : 'text'"
-          :class="[
-            'w-full px-3 py-2 rounded bg-neutral-800 text-white border focus:outline-none focus:ring-neutral-600',
-            !field.value
-              ? 'border-neutral-600'
-              : field.valid
-              ? 'border-green-600'
-              : 'border-yellow-500'
-          ]"
-          :placeholder="field.placeholder || `Введите ${searchUI.getFieldLabel(type)}`"
-        />
       </div>
-    </transition-group>
+      <input
+        :id="'search-' + tabId + '-' + type"
+        :value="field.value"
+        type="text"
+        autocomplete="off"
+        class="mx-input text-sm"
+        :aria-invalid="Boolean(field.value && !field.valid)"
+        :aria-describedby="
+          field.value && !field.valid ? 'format-help-' + tabId + '-' + type : undefined
+        "
+        :inputmode="
+          ['number', 'passport', 'inn', 'snils', 'imei', 'imsi'].includes(type) ? 'numeric' : 'text'
+        "
+        :placeholder="field.placeholder"
+        @input="field.setValue($event.target.value)"
+      />
+      <p
+        v-if="field.value && !field.valid"
+        :id="'format-help-' + tabId + '-' + type"
+        class="text-xs leading-5 text-amber-300"
+      >
+        Проверьте формат: {{ field.placeholder }}
+      </p>
+    </div>
+    <p v-if="!Object.keys(selectedFields).length" class="text-xs leading-6 text-slate-500">
+      Выберите тип данных выше, чтобы добавить поле.
+    </p>
   </div>
 </template>
-
-
-<style scoped>
-.fade-enter-active, .fade-leave-active {
-  transition: all 0.2s ease;
-}
-.fade-enter-from, .fade-leave-to {
-  opacity: 0;
-  transform: translateY(-5px);
-}
-</style>

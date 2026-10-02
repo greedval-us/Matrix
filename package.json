@@ -24,7 +24,7 @@
       "buildResources": "src/public"
     },
     "files": [
-      "dist/",
+      "build/renderer/",
       "src/"
     ],
     "win": {

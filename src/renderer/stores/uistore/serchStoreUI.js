@@ -1,247 +1,175 @@
-import { defineStore } from 'pinia'
-import { reactive, ref } from 'vue'
-import { Field } from '../../utils/Field'
-import { iconsSerchs, defaultPatterns, defaultPlaceholders } from '../../../shared/constants/searchItems'
-import { key as translateKey } from '../../../shared/constants/translateKey'
-import { help } from '../../../shared/constants/help'
-import { useSearchStore } from '../searchStore'
-import { useTabStore } from '../tabStore'
-import { ResultParser } from '../../utils/ResultParser'
-import { useHistoryStore } from '../historyStore'
+import { defineStore } from 'pinia';
+import { reactive, shallowRef } from 'vue';
+import { Field } from '../../utils/Field.js';
+import {
+  iconsSerchs,
+  defaultPatterns,
+  defaultPlaceholders,
+} from '../../../shared/constants/searchItems.js';
+import { key as translateKey } from '../../../shared/constants/translateKey.js';
+import { help } from '../../../shared/constants/help.js';
+import { useSearchStore } from '../searchStore.js';
+import { useTabStore } from '../tabStore.js';
+import { createRecordFingerprint, ResultParser } from '../../utils/ResultParser.js';
+import { useHistoryStore } from '../historyStore.js';
 
 export const useSearchUIStore = defineStore('searchUI', () => {
-  // ========================
-  // State
-  // ========================
-  const tabStore = useTabStore()
-  const historyStore = useHistoryStore()
-  const parser = new ResultParser()
-  const icons = ref(iconsSerchs)
+  const tabStore = useTabStore();
+  const historyStore = useHistoryStore();
+  const parser = new ResultParser();
+  const icons = shallowRef(iconsSerchs);
+  const recordKeysByTab = new Map();
+  const pendingSearches = new Map();
+  const activeBases = reactive({});
 
-  // Активная база для каждой вкладки
-  const activeBases = reactive({}) // { tabId: 'База 1' }
+  const getTab = (id) => tabStore.getSearchState(id);
+  const getSelectedFields = (id) => getTab(id)?.selectedFields || {};
+  const getResults = (id) => getTab(id)?.results || [];
+  const getLoading = (id) => getTab(id)?.loading || false;
+  const getError = (id) => getTab(id)?.error || '';
+  const getMeta = (id) => getTab(id)?.meta || null;
+  const getReceived = (id) => getTab(id)?.received || 0;
+  const getFieldValue = (id, type) => getTab(id)?.selectedFields[type]?.value || '';
+  const getFieldLabel = (type) => translateKey[type] || type;
+  const getPlaceholder = (type) => defaultPlaceholders[type] || '';
+  const getPattern = (type) => defaultPatterns[type] || '.*';
+  const getHelp = (type) => (help[type] || '') + (help.wildcards || '');
 
-  // ========================
-  // Helpers
-  // ========================
-  function getTab(tabId) {
-    return tabStore.state.searchStates[tabId]
+  function updateState(id, key, value) {
+    const tab = getTab(id);
+    if (tab) tab[key] = value;
   }
+  const setLoading = (id, value) => updateState(id, 'loading', value);
+  const setError = (id, value) => updateState(id, 'error', value || '');
+  const setMeta = (id, value) => updateState(id, 'meta', value || null);
+  const setReceived = (id, value) => updateState(id, 'received', Number(value) || 0);
 
-  // ========================
-  // Getters
-  // ========================
-  function getSelectedFields(tabId) {
-    return getTab(tabId)?.selectedFields || {}
+  function getFullQuery(id) {
+    const fields = getSelectedFields(id);
+    return Object.fromEntries(iconsSerchs.map(({ type }) => [type, fields[type]?.value ?? '']));
   }
-
-  function getResults(tabId) {
-    return getTab(tabId)?.results || []
+  function setFieldValue(id, type, value) {
+    getTab(id)?.selectedFields[type]?.setValue(value);
   }
-
-  function getLoading(tabId) {
-    return getTab(tabId)?.loading || false
-  }
-
-  function getError(tabId) {
-    return getTab(tabId)?.error || ''
-  }
-
-  function getMeta(tabId) {
-    return getTab(tabId)?.meta || null
-  }
-
-  function getReceived(tabId) {
-    return getTab(tabId)?.received || 0
-  }
-
-  function getFieldValue(tabId, type) {
-    const field = getTab(tabId)?.selectedFields[type]
-    return field ? field.value : ''
-  }
-
-  function getFieldLabel(type) {
-    return translateKey[type] || type
-  }
-
-  function getPlaceholder(type) {
-    return defaultPlaceholders[type] || ''
-  }
-
-  function getPattern(type) {
-    return defaultPatterns[type] || '.*'
-  }
-
-  function getHelp(type) {
-    return (help[type] || '') + (help['wildcards'] || '')
-  }
-
-  function getFullQuery(tabId) {
-    const fields = getSelectedFields(tabId)
-    const query = {}
-    iconsSerchs.forEach(({ type }) => {
-      query[type] = fields[type]?.value ?? ''
-    })
-    return query
-  }
-
-  // ========================
-  // Actions / Setters
-  // ========================
-  function setFieldValue(tabId, type, value) {
-    const tab = getTab(tabId)
-    const field = tab?.selectedFields[type]
-    if (!field) return
-    field.setValue(value)
-  }
-
-  function toggleField(tabId, type) {
-    const tab = getTab(tabId)
-    if (!tab) return
+  function toggleField(id, type) {
+    const tab = getTab(id);
+    if (!tab || !iconsSerchs.some((item) => item.type === type)) return;
     if (type in tab.selectedFields) {
-      delete tab.selectedFields[type]
-      delete tab.collapsedFields[type]
+      delete tab.selectedFields[type];
+      delete tab.collapsedFields[type];
     } else {
-      tab.selectedFields[type] = reactive(new Field(type, '', getPattern(type)))
-      tab.selectedFields[type].placeholder = getPlaceholder(type)
-      tab.collapsedFields[type] = false
+      const field = reactive(new Field(type, '', getPattern(type)));
+      field.placeholder = getPlaceholder(type);
+      tab.selectedFields[type] = field;
+      tab.collapsedFields[type] = false;
     }
   }
-
-  function toggleCollapse(tabId, type) {
-    const tab = getTab(tabId)
-    if (!tab) return
-    tab.collapsedFields[type] = !tab.collapsedFields[type]
+  function toggleCollapse(id, type) {
+    const tab = getTab(id);
+    if (tab) tab.collapsedFields[type] = !tab.collapsedFields[type];
   }
-
-  function appendResults(tabId, data) {
-    if (!Array.isArray(data) || data.length === 0) return
-    const normalized = data.map(item => parser.parse(item))
-    const tab = getTab(tabId)
-    if (tab) {
-      tab.results.push(...normalized)
-    }
-  }
-
-  function setLoading(tabId, value) {
-    const tab = getTab(tabId)
-    if (tab) tab.loading = value
-  }
-
-  function setError(tabId, value) {
-    const tab = getTab(tabId)
-    if (tab) tab.error = value || ''
-  }
-
-  function setMeta(tabId, value) {
-    const tab = getTab(tabId)
-    if (tab) tab.meta = value || null
-  }
-
-  function setReceived(tabId, value) {
-    const tab = getTab(tabId)
-    if (tab) tab.received = Number(value) || 0
-  }
-
-  function clearTab(tabId) {
-    delete activeBases[tabId]
-  }
-
-async function search(tabId) {
-  const searchStore = useSearchStore()
-  const query = getFullQuery(tabId)
-
-  const newTitle = Object.values(query).filter(v => v).join(', ')
-  tabStore.updateTabTitleBySearch(tabId, newTitle)
-
-  try {
-    clearResults(tabId)
-    setError(tabId, '')
-    setMeta(tabId, null)
-    setReceived(tabId, 0)
-    setLoading(tabId, true)
-    await searchStore.createClient(tabId)
-    const response = await searchStore.search(tabId, query, {
-      onChunk: (items, received) => {
-        appendResults(tabId, items)
-        setReceived(tabId, received)
+  function appendResults(id, data) {
+    const tab = getTab(id);
+    if (!tab || !Array.isArray(data)) return;
+    if (!recordKeysByTab.has(id)) recordKeysByTab.set(id, new Set());
+    const recordKeys = recordKeysByTab.get(id);
+    const normalized = [];
+    for (const rawItem of data) {
+      const item = parser.parse(rawItem);
+      if (item.type === 'object_data') {
+        const fingerprint = JSON.stringify([item.source, createRecordFingerprint(item.fields)]);
+        if (recordKeys.has(fingerprint)) continue;
+        recordKeys.add(fingerprint);
       }
-    })
-    setMeta(tabId, response?.meta)
-
-    const fields = getSelectedFields(tabId)
-    iconsSerchs.forEach(({ type }) => {
-      const value = fields[type]?.value
-      if (value) historyStore.addHistoryItem(type, value)
-    })
-  } catch (e) {
-    console.error('Search error:', e)
-    setError(tabId, e?.message || String(e))
-  } finally {
-    setLoading(tabId, false)
-    await searchStore.destroyClient(tabId)
-  }
-}
-
-  function cancelSearch(tabId) {
-    const searchStore = useSearchStore()
-    searchStore.cancelSearch(tabId)
-  }
-
-  function quickSearch(tabId, fieldUpdates) {
-    resetAllFields(tabId)
-    for (const [key, value] of Object.entries(fieldUpdates)) {
-      toggleField(tabId, value.key)
-      setFieldValue(tabId, value.key, value.value)
+      normalized.push(item);
     }
-    search(tabId)
+    tab.results.push(...normalized);
+  }
+  function clearResults(id) {
+    recordKeysByTab.delete(id);
+    delete activeBases[id];
+    const tab = getTab(id);
+    if (tab)
+      Object.assign(tab, { results: [], error: '', meta: null, received: 0, hasSearched: false });
+  }
+  function resetAllFields(id) {
+    const tab = getTab(id);
+    if (tab) Object.assign(tab, { selectedFields: {}, collapsedFields: {} });
+  }
+  function clearTab(id) {
+    delete activeBases[id];
+    recordKeysByTab.delete(id);
   }
 
-  function clearResults(tabId) {
-    const tab = getTab(tabId)
-    if (tab) {
-      tab.results = []
-      tab.error = ''
-      tab.meta = null
-      tab.received = 0
+  async function search(id) {
+    if (!getTab(id) || pendingSearches.has(id)) return;
+    const query = getFullQuery(id);
+    if (!Object.values(query).some((value) => String(value).trim())) return;
+    const operation = { cancelled: false };
+    pendingSearches.set(id, operation);
+    const searchStore = useSearchStore();
+    clearResults(id);
+    updateState(id, 'hasSearched', true);
+    setLoading(id, true);
+    tabStore.updateTabTitleBySearch(id, Object.values(query).filter(Boolean).join(', '));
+
+    try {
+      await searchStore.createClient(id);
+      if (operation.cancelled || !getTab(id)) {
+        setMeta(id, { cancelled: true });
+        return;
+      }
+      const response = await searchStore.search(id, query, {
+        onChunk(items, received) {
+          if (!getTab(id)) return;
+          appendResults(id, items);
+          setReceived(id, received);
+        },
+      });
+      setMeta(id, response?.meta);
+      await Promise.allSettled(
+        Object.entries(query)
+          .filter(([, value]) => value)
+          .map(([key, value]) => historyStore.addHistoryItem(key, value)),
+      );
+    } catch (error) {
+      if (operation.cancelled) setMeta(id, { cancelled: true });
+      else setError(id, error?.message || String(error));
+    } finally {
+      try {
+        await searchStore.destroyClient(id);
+      } catch (error) {
+        if (!getError(id)) setError(id, error?.message || 'Не удалось закрыть подключение');
+      } finally {
+        pendingSearches.delete(id);
+        setLoading(id, false);
+      }
     }
   }
-
-  function resetAllFields(tabId) {
-    const tab = getTab(tabId)
-    if (tab) {
-      tab.selectedFields = {}
-      tab.collapsedFields = {}
+  function cancelSearch(id) {
+    const operation = pendingSearches.get(id);
+    if (!operation) return;
+    operation.cancelled = true;
+    useSearchStore().cancelSearch(id);
+  }
+  function quickSearch(id, updates) {
+    resetAllFields(id);
+    for (const { key, value } of Object.values(updates)) {
+      toggleField(id, key);
+      setFieldValue(id, key, value);
     }
+    return search(id);
   }
-
-  // ========================
-  // Навигация по базам
-  // ========================
-  function setActiveBase(name, tabId = tabStore.state.activeTabId) {
-    if (!tabId) return
-    activeBases[tabId] = name
-    // Прокрутка к выбранной базе
-    const el = document.querySelector(`[data-base-name="${name}"]`)
-    el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  function setActiveBase(name, id = tabStore.state.activeTabId) {
+    if (getTab(id)) activeBases[id] = name;
   }
+  const getActiveBase = (id = tabStore.state.activeTabId) => activeBases[id] || null;
 
-  function getActiveBase(tabId = tabStore.state.activeTabId) {
-    return activeBases[tabId] || null
-  }
-
-  // ========================
-  // Return
-  // ========================
   return {
     icons,
-
-    // Навигация
     activeBases,
     setActiveBase,
     getActiveBase,
-
-    // Getters
     getSelectedFields,
     getResults,
     getLoading,
@@ -254,8 +182,6 @@ async function search(tabId) {
     getPattern,
     getHelp,
     getFullQuery,
-
-    // Actions
     setFieldValue,
     toggleField,
     toggleCollapse,
@@ -269,6 +195,6 @@ async function search(tabId) {
     cancelSearch,
     quickSearch,
     clearResults,
-    resetAllFields
-  }
-})
+    resetAllFields,
+  };
+});

@@ -1,30 +1,23 @@
-import { defineConfig } from "vite";
-import vue from "@vitejs/plugin-vue";
-import { resolve } from "path";
-
+import { defineConfig } from 'vite';
+import vue from '@vitejs/plugin-vue';
+import { fileURLToPath } from 'node:url';
+const projectRoot = fileURLToPath(new URL('.', import.meta.url));
 export default defineConfig({
   plugins: [vue()],
-  root: "src/renderer",
-  base: "./",
-  resolve: {
-    alias: {
-      "@": resolve(__dirname, "src/"),
-    },
-  },
+  root: 'src/renderer',
+  base: './',
+  cacheDir: '.cache/vite',
+  resolve: { alias: { '@': projectRoot + 'src/' } },
   build: {
-    outDir: "../../dist",
+    outDir: '../../build/renderer',
     emptyOutDir: true,
     rollupOptions: {
       output: {
         manualChunks(id) {
-          if (id.includes("node_modules")) {
-            if (id.includes("vue")) return "vendor-vue";
-            if (id.includes("pinia") || id.includes("vue-router")) return "vendor-state";
-            if (id.includes("pdfmake") || id.includes("pdf-parse") || id.includes("xlsx")) {
-              return "vendor-data";
-            }
-            return "vendor-misc";
-          }
+          if (!id.includes('node_modules')) return;
+          if (id.includes('pdfmake') || id.includes('xlsx')) return 'vendor-export';
+          if (id.includes('vue') || id.includes('pinia')) return 'vendor-vue';
+          return undefined;
         },
       },
     },
