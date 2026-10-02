@@ -3,12 +3,12 @@ import { computed, onMounted, ref } from 'vue';
 import { ShieldCheck, Wifi, RefreshCw, Check } from 'lucide-vue-next';
 import PageHeading from '../components/ui/PageHeading.vue';
 const config = ref({
-  endpoint: 'arm-5:50051',
+  endpoint: '192.168.1.46:50051',
   apiKey: '',
   caCertificatePath: '',
   bundledCertificatePath: '',
   pageSize: 1000,
-  connectionTimeoutMs: 10000,
+  connectionTimeoutMs: 30000,
   hasApiKey: false,
 });
 const indexStatus = ref(null);
@@ -92,7 +92,7 @@ onMounted(loadConfig);
           ><input
             v-model.trim="config.endpoint"
             required
-            placeholder="arm-5:50051"
+            placeholder="192.168.1.46:50051"
             class="mx-input"
             autocomplete="off"
           /><span class="block leading-5 text-matrix-muted"

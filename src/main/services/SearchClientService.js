@@ -21,6 +21,8 @@ function grpcError(error) {
       return new Error(details);
     case grpc.status.RESOURCE_EXHAUSTED:
       return new Error("Сервер занят. Повторите поиск через несколько секунд");
+    case grpc.status.DEADLINE_EXCEEDED:
+      return new Error("Не удалось подключиться к серверу за отведённое время. Повторите попытку");
     default:
       return new Error(details);
   }
@@ -49,6 +51,10 @@ export class SearchClientService {
       "grpc.keepalive_timeout_ms": 10000,
       "grpc.max_receive_message_length": 32 * 1024 * 1024,
     };
+    if (this.config.tlsServerName) {
+      options["grpc.ssl_target_name_override"] = this.config.tlsServerName;
+      options["grpc.default_authority"] = this.config.tlsServerName;
+    }
     const baseSearch = this.loadProto("base_search.proto").base_search;
     const databaseAll = this.loadProto("database_all.proto").database_all;
     this.searchClient = new baseSearch.BaseSearches(this.config.endpoint, credentials, options);

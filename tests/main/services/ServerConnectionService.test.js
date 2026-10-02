@@ -26,6 +26,8 @@ test("server connection config normalizes endpoints and never exposes the API ke
     "-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----\n"
   );
   const service = new ServerConnectionService(memoryStore());
+  assert.equal(service.getPublicConfig().endpoint, "192.168.1.46:50051");
+  assert.equal(service.getPublicConfig().connectionTimeoutMs, 30000);
 
   const publicConfig = await service.updateConfig({
     endpoint: "grpcs://matrix.local:50051/",
@@ -42,4 +44,17 @@ test("server connection config normalizes endpoints and never exposes the API ke
 
 test("endpoint validation rejects addresses without a port", () => {
   assert.throws(() => normalizeEndpoint("matrix.local"), /host:port/);
+});
+
+test("legacy default hostname migrates to the LAN address without changing custom endpoints", () => {
+  const legacyService = new ServerConnectionService(
+    memoryStore({ searchServer: { endpoint: "arm-5:50051", apiKey: "secret" } })
+  );
+  const customService = new ServerConnectionService(
+    memoryStore({ searchServer: { endpoint: "matrix.local:50051" } })
+  );
+
+  assert.equal(legacyService.getPublicConfig().endpoint, "192.168.1.46:50051");
+  assert.equal(legacyService.getPublicConfig().hasApiKey, true);
+  assert.equal(customService.getPublicConfig().endpoint, "matrix.local:50051");
 });

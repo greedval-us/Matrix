@@ -6,12 +6,15 @@ const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
 const bundledCertificatePath = path.resolve(moduleDirectory, "../../public/certs/arm-5.crt");
 
 const DEFAULT_CONFIG = Object.freeze({
-  endpoint: "arm-5:50051",
+  endpoint: "192.168.1.46:50051",
+  tlsServerName: "arm-5",
   apiKey: "",
   caCertificatePath: "",
   pageSize: 1000,
-  connectionTimeoutMs: 10000,
+  connectionTimeoutMs: 30000,
 });
+
+const LEGACY_DEFAULT_ENDPOINTS = new Set(["arm-5:50051"]);
 
 function boundedInteger(value, fallback, minimum, maximum) {
   const parsed = Number.parseInt(value, 10);
@@ -31,6 +34,11 @@ function normalizeEndpoint(value) {
   return `${match[1]}:${port}`;
 }
 
+function migrateStoredEndpoint(value) {
+  const endpoint = String(value || "").trim();
+  return LEGACY_DEFAULT_ENDPOINTS.has(endpoint) ? DEFAULT_CONFIG.endpoint : endpoint;
+}
+
 export class ServerConnectionService {
   constructor(storeService) {
     this.storeService = storeService;
@@ -38,10 +46,11 @@ export class ServerConnectionService {
 
   getStoredConfig() {
     const stored = this.storeService.get("searchServer") || {};
+    const storedEndpoint = migrateStoredEndpoint(stored.endpoint);
     return {
       ...DEFAULT_CONFIG,
       ...stored,
-      endpoint: String(stored.endpoint || DEFAULT_CONFIG.endpoint),
+      endpoint: storedEndpoint || DEFAULT_CONFIG.endpoint,
       apiKey: String(stored.apiKey || ""),
       caCertificatePath: String(stored.caCertificatePath || ""),
       pageSize: boundedInteger(stored.pageSize, DEFAULT_CONFIG.pageSize, 50, 10000),
@@ -94,6 +103,7 @@ export class ServerConnectionService {
       ...stored,
       ...overrides,
       endpoint: normalizeEndpoint(overrides.endpoint ?? stored.endpoint),
+      tlsServerName: String(overrides.tlsServerName ?? stored.tlsServerName).trim(),
       apiKey: String(
         overrides.apiKey || process.env.MATRIX_API_KEY || stored.apiKey || ""
       ).trim(),

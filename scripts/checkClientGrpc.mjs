@@ -4,7 +4,7 @@ import { ServerConnectionService } from "../src/main/services/ServerConnectionSe
 
 function parseArgs(argv) {
   const result = {
-    endpoint: process.env.MATRIX_GRPC_ENDPOINT || "arm-5:50051",
+    endpoint: process.env.MATRIX_GRPC_ENDPOINT || "192.168.1.46:50051",
     field: "number",
     value: "",
     pageSize: 50,
