@@ -21,6 +21,15 @@ const results = computed(() =>
 const loading = computed(() =>
   activeTabId.value ? searchUI.getLoading(activeTabId.value) : false
 )
+const error = computed(() =>
+  activeTabId.value ? searchUI.getError(activeTabId.value) : ''
+)
+const meta = computed(() =>
+  activeTabId.value ? searchUI.getMeta(activeTabId.value) : null
+)
+const received = computed(() =>
+  activeTabId.value ? searchUI.getReceived(activeTabId.value) : 0
+)
 const selectedFields = computed(() =>
   activeTabId.value ? searchUI.getSelectedFields(activeTabId.value) : {}
 )
@@ -104,14 +113,24 @@ const preparedResults = computed(() => {
   return Object.values(basesMap)
 })
 
-function onClickFind(preload, type) {
-  if (type === 0) {
-    const newTabId = tabStore.addTab()
-    searchUI.quickSearch(newTabId, preload)
-    return
-  }
+function onClickFind(preload) {
+  const newTabId = tabStore.addTab()
+  searchUI.quickSearch(newTabId, preload)
+}
 
-  searchUI.quickSearch(activeTabId.value, preload)
+const visibleCounts = ref({})
+
+function visibleData(base) {
+  return (base.data || []).slice(0, visibleCounts.value[base.source] || 200)
+}
+
+function showMore(base) {
+  visibleCounts.value[base.source] = (visibleCounts.value[base.source] || 200) + 200
+}
+
+function formatCount(value) {
+  const count = Number(value)
+  return Number.isFinite(count) ? count.toLocaleString('ru-RU') : '0'
 }
 
 const savedStatus = ref(null)
@@ -165,8 +184,19 @@ async function saveBaseToNotes(base) {
 
 <template>
   <div class="flex-1 p-4 flex flex-col gap-4 overflow-y-auto overflow-x-hidden results-container">
-    <div v-if="loading" class="text-center text-neutral-400 text-sm">
-      Загрузка результатов...
+    <div v-if="loading || meta" class="flex flex-wrap items-center gap-3 rounded-xl border border-neutral-700 bg-neutral-900/70 px-4 py-3 text-sm text-neutral-300">
+      <span v-if="loading" class="h-2 w-2 animate-pulse rounded-full bg-green-400"></span>
+      <span v-if="loading">Получено записей: {{ formatCount(received) }}</span>
+      <span v-else-if="meta?.cancelled" class="text-amber-300">Поиск остановлен. Получено: {{ formatCount(received) }}</span>
+      <span v-else>Получено: {{ formatCount(meta?.returned_hits) }} из {{ formatCount(meta?.total_hits) }}</span>
+      <span v-if="meta?.took_ms">Manticore: {{ Number(meta.took_ms).toLocaleString('ru-RU') }} мс</span>
+      <span v-if="meta?.partial" class="text-amber-300">
+        Индекс еще строится: {{ meta.indexed_shards }}/{{ meta.total_shards }} шардов
+      </span>
+    </div>
+
+    <div v-if="error" class="rounded-xl border border-red-500/60 bg-red-950/40 px-4 py-3 text-sm text-red-200">
+      {{ error }}
     </div>
 
     <div v-if="!loading && recommendedSearches.length" class="bg-gray-850 rounded-2xl p-4 shadow-md">
@@ -176,10 +206,9 @@ async function saveBaseToNotes(base) {
           <button
             v-for="item in recommendedSearches"
             :key="`${item.fieldKey}:${item.fieldValue}`"
-            @click.left="onClickFind(item.preload, 1)"
-            @click.right.prevent="onClickFind(item.preload, 0)"
+            @click="onClickFind(item.preload)"
             class="px-3 py-2 text-sm font-medium text-white bg-neutral-800 rounded-xl hover:bg-green-700 active:bg-green-600 transition-colors duration-150 shadow-sm text-left"
-            title="ЛКМ - поиск здесь, ПКМ - поиск в новой вкладке"
+            title="Открыть поиск в новой вкладке"
           >
             <span class="text-gray-400">{{ searchUI.getFieldLabel(item.fieldKey) }}:</span>
             <span class="ml-1">{{ item.fieldValue }}</span>
@@ -189,7 +218,7 @@ async function saveBaseToNotes(base) {
     </div>
 
     <div
-      v-if="!loading && preparedResults.length === 0 && recommendedSearches.length === 0"
+      v-if="!loading && !error && preparedResults.length === 0 && recommendedSearches.length === 0"
       class="text-center text-neutral-400 py-10 text-sm"
     >
       Ничего не найдено по этому запросу.
@@ -216,9 +245,28 @@ async function saveBaseToNotes(base) {
             <Hint :tooltip="item.info" />
           </div>
 
+          <div class="flex flex-wrap gap-2 text-xs text-neutral-300">
+            <span v-if="item.type_sources" class="rounded-full bg-neutral-800 px-3 py-1">
+              {{ item.type_sources }}
+            </span>
+            <span v-if="item.country" class="rounded-full bg-neutral-800 px-3 py-1">
+              {{ item.country }}
+            </span>
+            <span v-if="item.relevance_date" class="rounded-full bg-neutral-800 px-3 py-1">
+              Актуальность: {{ item.relevance_date }}
+            </span>
+            <span v-if="item.count" class="rounded-full bg-neutral-800 px-3 py-1">
+              В базе: {{ formatCount(item.count) }}
+            </span>
+          </div>
+
+          <p v-if="item.info" class="text-sm leading-relaxed text-neutral-400 whitespace-pre-wrap">
+            {{ item.info }}
+          </p>
+
           <div v-if="item.data?.length" class="mt-2 grid gap-3">
             <div
-              v-for="(fields, i) in item.data"
+              v-for="(fields, i) in visibleData(item)"
               :key="i"
               class="bg-neutral-800 rounded-xl p-3 hover:bg-neutral-700 transition-colors duration-200 shadow-sm"
             >
@@ -229,6 +277,13 @@ async function saveBaseToNotes(base) {
                 </template>
               </div>
             </div>
+            <button
+              v-if="visibleData(item).length < item.data.length"
+              class="rounded-xl border border-neutral-600 px-4 py-2 text-sm text-neutral-200 transition hover:border-green-500 hover:text-white"
+              @click="showMore(item)"
+            >
+              Показать еще 200 (отображено {{ visibleData(item).length }} из {{ item.data.length }})
+            </button>
           </div>
         </div>
       </div>

@@ -7,16 +7,18 @@ export const useSearchStore = defineStore("search", () => {
 
   const state = reactive({
     clients: {},
-    searchResults: {},
     isSearching: {},
     isLoading: false,
+    indexStatus: null,
   });
 
-  const createClient = async (tabId, endpoint) => {
+  const createClient = async (tabId) => {
     state.isLoading = true;
     try {
-      await searchService.createClient(tabId, endpoint);
+      const status = await searchService.createClient(tabId);
       state.clients[tabId] = searchService.clients[tabId];
+      state.indexStatus = status;
+      return status;
     } finally {
       state.isLoading = false;
     }
@@ -27,7 +29,6 @@ export const useSearchStore = defineStore("search", () => {
     try {
       await searchService.destroyClient(tabId);
       delete state.clients[tabId];
-      delete state.searchResults[tabId];
       delete state.isSearching[tabId];
     } finally {
       state.isLoading = false;
@@ -36,17 +37,8 @@ export const useSearchStore = defineStore("search", () => {
 
   const search = async (tabId, payload, options = {}) => {
     state.isSearching[tabId] = true;
-    state.searchResults[tabId] = [];
     try {
-      const results = await searchService.search(tabId, payload, {
-        onChunk: (items) => {
-          const current = state.searchResults[tabId] || [];
-          current.push(...items);
-          state.searchResults[tabId] = current;
-          options.onChunk?.(items);
-        },
-      });
-      return results;
+      return await searchService.search(tabId, payload, options);
     } finally {
       state.isSearching[tabId] = false;
     }
@@ -66,6 +58,14 @@ export const useSearchStore = defineStore("search", () => {
     }
   };
 
+  const getConfig = () => searchService.getConfig();
+  const setConfig = (config) => searchService.setConfig(config);
+  const testConnection = (config) => searchService.testConnection(config);
+  const getIndexStatus = async () => {
+    state.indexStatus = await searchService.getIndexStatus();
+    return state.indexStatus;
+  };
+
   return {
     state: readonly(state),
     searchService,
@@ -76,7 +76,9 @@ export const useSearchStore = defineStore("search", () => {
     cancelSearch,
     listDatabases,
     databaseAll: listDatabases,
+    getConfig,
+    setConfig,
+    testConnection,
+    getIndexStatus,
   };
 });
-
-export const useGrpcStore = useSearchStore;

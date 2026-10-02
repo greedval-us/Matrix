@@ -8,6 +8,7 @@ export class FileDialogHandler {
 
   register() {
     ipcMain.handle("dialog:openFile", wrapHandler("dialog:openFile", () => this.fileService.openFile()));
+    ipcMain.handle("dialog:openCertificate", wrapHandler("dialog:openCertificate", () => this.fileService.openCertificate()));
     ipcMain.handle("dialog:openFolder", wrapHandler("dialog:openFolder", () => this.fileService.openFolder()));
 
     ipcMain.handle("dialog:saveFile", wrapHandler("dialog:saveFile", (_, { defaultName, filters }) =>
@@ -18,8 +19,8 @@ export class FileDialogHandler {
       this.fileService.readFile(filePath)
     ));
 
-    ipcMain.handle("file:write", wrapHandler("file:write", (_, { filePath, data }) =>
-      this.fileService.writeFile(filePath, data)
+    ipcMain.handle("file:write", wrapHandler("file:write", (_, { filePath, data, isBinary }) =>
+      this.fileService.writeFile(filePath, data, isBinary)
     ));
   }
 }

@@ -2,13 +2,14 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("fileDialog", {
   openFile: () => ipcRenderer.invoke("dialog:openFile"),
+  openCertificate: () => ipcRenderer.invoke("dialog:openCertificate"),
   openFolder: () => ipcRenderer.invoke("dialog:openFolder"),
 });
 
 contextBridge.exposeInMainWorld("fileAPI", {
   saveDialog: (defaultName, filters) => ipcRenderer.invoke("dialog:saveFile", { defaultName, filters }),
   read: (filePath) => ipcRenderer.invoke("file:read", filePath),
-  write: (filePath, data) => ipcRenderer.invoke("file:write", { filePath, data }),
+  write: (filePath, data, isBinary = false) => ipcRenderer.invoke("file:write", { filePath, data, isBinary }),
 });
 
 contextBridge.exposeInMainWorld("storeAPI", {
@@ -36,11 +37,15 @@ contextBridge.exposeInMainWorld("storeAPI", {
 });
 
 const searchAPI = {
-  createClient: (tabId, endpoint) => ipcRenderer.invoke("search:create-client", tabId, endpoint),
+  createClient: (tabId) => ipcRenderer.invoke("search:create-client", tabId),
   run: (tabId, payload) => ipcRenderer.invoke("search:run", tabId, payload),
   cancel: (tabId) => ipcRenderer.send("search:cancel", tabId),
   destroyClient: (tabId) => ipcRenderer.invoke("search:destroy-client", tabId),
   listDatabases: (payload) => ipcRenderer.invoke("search:list-databases", payload),
+  getConfig: () => ipcRenderer.invoke("search:get-config"),
+  setConfig: (config) => ipcRenderer.invoke("search:set-config", config),
+  testConnection: (config) => ipcRenderer.invoke("search:test-connection", config),
+  getIndexStatus: () => ipcRenderer.invoke("search:get-index-status"),
   onProgress: (callback) => {
     const listener = (_event, payload) => callback(payload);
     ipcRenderer.on("search:progress", listener);
@@ -49,41 +54,3 @@ const searchAPI = {
 };
 
 contextBridge.exposeInMainWorld("searchAPI", searchAPI);
-
-contextBridge.exposeInMainWorld("databaseStorageAPI", {
-  getRootPath: () => ipcRenderer.invoke("database-storage:get-root-path"),
-  setRootPath: (rootPath) => ipcRenderer.invoke("database-storage:set-root-path", rootPath),
-  getStatus: (rootPath) => ipcRenderer.invoke("database-storage:get-status", rootPath),
-  initialize: (rootPath) => ipcRenderer.invoke("database-storage:initialize", rootPath),
-  getSearchBackend: () => ipcRenderer.invoke("database-storage:get-search-backend"),
-  setSearchBackend: (config) => ipcRenderer.invoke("database-storage:set-search-backend", config),
-});
-
-contextBridge.exposeInMainWorld("importAPI", {
-  getLastStatus: () => ipcRenderer.invoke("import:get-last-status"),
-  runFolder: (folderPath, options) => ipcRenderer.invoke("import:run-folder", folderPath, options),
-  onProgress: (callback) => {
-    const listener = (_event, payload) => callback(payload);
-    ipcRenderer.on("import:progress", listener);
-    return () => ipcRenderer.removeListener("import:progress", listener);
-  },
-});
-
-contextBridge.exposeInMainWorld("indexAPI", {
-  getLastStatus: () => ipcRenderer.invoke("index:get-last-status"),
-  build: () => ipcRenderer.invoke("index:build"),
-  cancel: () => ipcRenderer.invoke("index:cancel"),
-  onProgress: (callback) => {
-    const listener = (_event, payload) => callback(payload);
-    ipcRenderer.on("index:progress", listener);
-    return () => ipcRenderer.removeListener("index:progress", listener);
-  },
-});
-
-contextBridge.exposeInMainWorld("grpcAPI", {
-  createSearchClient: (tabId, endpoint) => searchAPI.createClient(tabId, endpoint),
-  baseSearch: (tabId, payload) => searchAPI.run(tabId, payload),
-  cancelSearch: (tabId) => searchAPI.cancel(tabId),
-  destroySearchClient: (tabId) => searchAPI.destroyClient(tabId),
-  databaseAll: (payload) => searchAPI.listDatabases(payload),
-});

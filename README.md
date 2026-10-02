@@ -1,20 +1,39 @@
-# Matrix
+# Matrix Client
 
-Desktop application for local database import, indexing, and search.
+Этот каталог содержит только Electron/Vue-клиент Matrix. Серверный gRPC/Manticore-проект
+развернут отдельно на Ubuntu `arm-5`. Клиент не подключается к MariaDB напрямую и не хранит
+локальную копию базы.
 
-Project docs:
-
-- [Local Database Guide](docs/local-database.md)
-
-Useful commands:
+## Запуск
 
 ```bash
-npm run documents:split -- --db-root /path/to/MatrixData --max-size-gb 2
-npm run sqlite:check
-npm run sqlite:index -- --db-root /path/to/MatrixData --batch-size 100000
-npm run sqlite:index -- --db-root /path/to/MatrixData --wildcards-only
-npm run sqlite:migrate-fields -- --db-root /path/to/MatrixData
+npm install
+npm run dev
 ```
 
-Matrix uses an embedded sharded SQLite/FTS5 search engine. No database server is required.
-See the safe migration procedure in the local database guide.
+В разделе «Настройки» укажите `arm-5:50051` и API-ключ из
+`/etc/matrix-search/grpc.env`. Публичный сертификат сервера уже включен в клиент; при замене
+сертификата можно выбрать новый `.crt` вручную.
+
+Поиск поддерживает поля `number`, `mail`, `snils`, `inn`, `passport`, `fio`,
+`date_of_birth`, `telegram`, `vk`, `facebook`, `imei`, `imsi`, `grz` и `vin`.
+Обычные значения передаются без преобразования. `%` и `?` работают как маски только при
+явном вводе пользователем.
+
+Manticore отдает все совпадения через Scroll, а gRPC передает их клиенту потоком. Параметр
+«Размер страницы потока» управляет одной страницей и не ограничивает общее число результатов.
+Длинный поиск можно остановить кнопкой в активной вкладке.
+
+## Сборка
+
+```bash
+npm run build:win
+npm run build:linux
+```
+
+## Проверки
+
+```bash
+npm test
+npm run build
+```

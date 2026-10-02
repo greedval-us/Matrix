@@ -1,6 +1,6 @@
 <script setup>
 import { ChevronLeft, ChevronRight } from 'lucide-vue-next'
-import { ref, nextTick, onMounted } from 'vue'
+import { ref, nextTick, onBeforeUnmount, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useTabStore } from '../stores/tabStore'
 import TabHeader from '../components/panel/TabHeaderPanel.vue'
@@ -51,6 +51,12 @@ onMounted(async () => {
   if (key && value) {
     const activeTabId = tabStore.state.activeTabId
     searchUI.quickSearch(activeTabId, { [0]: route.query })
+  }
+})
+
+onBeforeUnmount(() => {
+  for (const tab of tabStore.state.tabs) {
+    if (searchUI.getLoading(tab.id)) searchUI.cancelSearch(tab.id)
   }
 })
 </script>

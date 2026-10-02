@@ -25,6 +25,9 @@ export const useTabStore = defineStore("tabs", () => {
       collapsedFields: {},
       results: [],
       loading: false,
+      error: '',
+      meta: null,
+      received: 0,
       searchValue: initialSearch
     })
   }
@@ -38,6 +41,9 @@ export const useTabStore = defineStore("tabs", () => {
       collapsedFields: {},
       results: [],
       loading: false,
+      error: '',
+      meta: null,
+      received: 0,
       searchValue
     })
     return newTab.id
@@ -62,6 +68,9 @@ export const useTabStore = defineStore("tabs", () => {
         collapsedFields: {},
         results: [],
         loading: false,
+        error: '',
+        meta: null,
+        received: 0,
         searchValue: ''
       })
     }
@@ -74,6 +83,9 @@ export const useTabStore = defineStore("tabs", () => {
         collapsedFields: {},
         results: [],
         loading: false,
+        error: '',
+        meta: null,
+        received: 0,
         searchValue: ''
       })
     }

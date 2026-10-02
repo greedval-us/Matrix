@@ -57,7 +57,8 @@ export class FileService {
     if (!filePath) throw new Error("Нет пути к файлу для записи")
     this.isLoading = true
     try {
-      await this.fileAPI.write(filePath, data)
+      const isBinary = data instanceof Uint8Array || data instanceof ArrayBuffer
+      await this.fileAPI.write(filePath, data, isBinary)
       this.currentData = data
     } finally {
       this.isLoading = false

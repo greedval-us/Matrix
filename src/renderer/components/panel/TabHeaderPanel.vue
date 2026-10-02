@@ -1,9 +1,17 @@
 <script setup>
 import { X } from 'lucide-vue-next'
 import { useTabStore } from '../../stores/tabStore'
+import { useSearchUIStore } from '../../stores/uistore/serchStoreUI'
 
 const props = defineProps(['tab'])
 const tabStore = useTabStore()
+const searchUI = useSearchUIStore()
+
+function closeTab() {
+  if (searchUI.getLoading(props.tab.id)) searchUI.cancelSearch(props.tab.id)
+  searchUI.clearTab(props.tab.id)
+  tabStore.closeTab(props.tab.id)
+}
 </script>
 
 <template>
@@ -38,7 +46,7 @@ const tabStore = useTabStore()
       class="absolute right-1 flex items-center justify-center w-4 h-4 
              opacity-0 group-hover:opacity-100 transition 
              text-gray-500 hover:bg-red-500 hover:text-white rounded-full"
-      @click.stop="tabStore.closeTab(props.tab.id)"
+      @click.stop="closeTab"
       title="Закрыть вкладку"
     >
       <X class="w-3 h-3" />

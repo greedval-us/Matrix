@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { reactive, ref, computed } from 'vue'
+import { reactive, ref } from 'vue'
 import { Field } from '../../utils/Field'
 import { iconsSerchs, defaultPatterns, defaultPlaceholders } from '../../../shared/constants/searchItems'
 import { key as translateKey } from '../../../shared/constants/translateKey'
@@ -13,7 +13,6 @@ export const useSearchUIStore = defineStore('searchUI', () => {
   // ========================
   // State
   // ========================
-  const tabsData = reactive({})
   const tabStore = useTabStore()
   const historyStore = useHistoryStore()
   const parser = new ResultParser()
@@ -42,6 +41,18 @@ export const useSearchUIStore = defineStore('searchUI', () => {
 
   function getLoading(tabId) {
     return getTab(tabId)?.loading || false
+  }
+
+  function getError(tabId) {
+    return getTab(tabId)?.error || ''
+  }
+
+  function getMeta(tabId) {
+    return getTab(tabId)?.meta || null
+  }
+
+  function getReceived(tabId) {
+    return getTab(tabId)?.received || 0
   }
 
   function getFieldValue(tabId, type) {
@@ -103,12 +114,6 @@ export const useSearchUIStore = defineStore('searchUI', () => {
     tab.collapsedFields[type] = !tab.collapsedFields[type]
   }
 
-  function setResults(tabId, data) {
-    const normalized = Array.isArray(data) ? data.map(item => parser.parse(item)) : []
-    const tab = getTab(tabId)
-    if (tab) tab.results = normalized
-  }
-
   function appendResults(tabId, data) {
     if (!Array.isArray(data) || data.length === 0) return
     const normalized = data.map(item => parser.parse(item))
@@ -123,19 +128,23 @@ export const useSearchUIStore = defineStore('searchUI', () => {
     if (tab) tab.loading = value
   }
 
-  function resetFields(tabId) {
-    const fields = getSelectedFields(tabId)
-    Object.values(fields).forEach(field => field.setValue(''))
+  function setError(tabId, value) {
+    const tab = getTab(tabId)
+    if (tab) tab.error = value || ''
+  }
+
+  function setMeta(tabId, value) {
+    const tab = getTab(tabId)
+    if (tab) tab.meta = value || null
+  }
+
+  function setReceived(tabId, value) {
+    const tab = getTab(tabId)
+    if (tab) tab.received = Number(value) || 0
   }
 
   function clearTab(tabId) {
-    delete tabsData[tabId]
     delete activeBases[tabId]
-  }
-
-  function clearAll() {
-    for (const tabId in tabsData) delete tabsData[tabId]
-    for (const tabId in activeBases) delete activeBases[tabId]
   }
 
 async function search(tabId) {
@@ -147,17 +156,18 @@ async function search(tabId) {
 
   try {
     clearResults(tabId)
+    setError(tabId, '')
+    setMeta(tabId, null)
+    setReceived(tabId, 0)
     setLoading(tabId, true)
     await searchStore.createClient(tabId)
     const response = await searchStore.search(tabId, query, {
-      onChunk: (items) => appendResults(tabId, items)
+      onChunk: (items, received) => {
+        appendResults(tabId, items)
+        setReceived(tabId, received)
+      }
     })
-
-    if (Array.isArray(response)) {
-      setResults(tabId, response)
-    } else if (Array.isArray(response?.items) && response.items.length > 0) {
-      setResults(tabId, response.items)
-    }
+    setMeta(tabId, response?.meta)
 
     const fields = getSelectedFields(tabId)
     iconsSerchs.forEach(({ type }) => {
@@ -166,13 +176,17 @@ async function search(tabId) {
     })
   } catch (e) {
     console.error('Search error:', e)
-    setResults(tabId, [])
-    throw e
+    setError(tabId, e?.message || String(e))
   } finally {
     setLoading(tabId, false)
-    searchStore.destroyClient(tabId)
+    await searchStore.destroyClient(tabId)
   }
 }
+
+  function cancelSearch(tabId) {
+    const searchStore = useSearchStore()
+    searchStore.cancelSearch(tabId)
+  }
 
   function quickSearch(tabId, fieldUpdates) {
     resetAllFields(tabId)
@@ -185,7 +199,12 @@ async function search(tabId) {
 
   function clearResults(tabId) {
     const tab = getTab(tabId)
-    if (tab) tab.results = []
+    if (tab) {
+      tab.results = []
+      tab.error = ''
+      tab.meta = null
+      tab.received = 0
+    }
   }
 
   function resetAllFields(tabId) {
@@ -199,13 +218,6 @@ async function search(tabId) {
   // ========================
   // Навигация по базам
   // ========================
-  const baseItems = computed(() => {
-    const tabId = tabStore.state.activeTabId
-    if (!tabId) return []
-    const results = getResults(tabId) || []
-    return results.filter(item => item.type === 'object_data_base')
-  })
-
   function setActiveBase(name, tabId = tabStore.state.activeTabId) {
     if (!tabId) return
     activeBases[tabId] = name
@@ -222,11 +234,9 @@ async function search(tabId) {
   // Return
   // ========================
   return {
-    tabsData,
     icons,
 
     // Навигация
-    baseItems,
     activeBases,
     setActiveBase,
     getActiveBase,
@@ -235,6 +245,9 @@ async function search(tabId) {
     getSelectedFields,
     getResults,
     getLoading,
+    getError,
+    getMeta,
+    getReceived,
     getFieldValue,
     getFieldLabel,
     getPlaceholder,
@@ -246,13 +259,14 @@ async function search(tabId) {
     setFieldValue,
     toggleField,
     toggleCollapse,
-    setResults,
     appendResults,
     setLoading,
-    resetFields,
+    setError,
+    setMeta,
+    setReceived,
     clearTab,
-    clearAll,
     search,
+    cancelSearch,
     quickSearch,
     clearResults,
     resetAllFields

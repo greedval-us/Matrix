@@ -19,6 +19,8 @@ const fields = [
   { value: "telegram", label: "Telegram" },
   { value: "vk", label: "ВКонтакте" },
   { value: "facebook", label: "Facebook" },
+  { value: "imei", label: "IMEI" },
+  { value: "imsi", label: "IMSI" },
   { value: "grz", label: "Госномер (ГРЗ)" },
   { value: "vin", label: "VIN" },
 ]

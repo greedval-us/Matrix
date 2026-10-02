@@ -55,11 +55,11 @@ export const useDatabaseStore = defineStore("database", () => {
 
   const filteredRowCount = computed(() => filteredRows.value.length)
 
-  async function fetchAll(email = "john.doe@example.com") {
+  async function fetchAll() {
     state.loading = true
     state.error = null
     try {
-      const payload = { request: email }
+      const payload = { request: "catalog" }
       const result = await searchStore.listDatabases(payload)
       state.rows = result
     } catch (e) {

@@ -5,15 +5,11 @@ import { StoreService } from "../services/StoreService.js";
 import { StoreHandler } from "./StoreHandler.js";
 
 import { SearchHandler } from "./SearchHandler.js";
-import { DatabaseCatalogHandler } from "./DatabaseCatalogHandler.js";
-import { LocalDatabaseHandler } from "./LocalDatabaseHandler.js";
-import { ImportHandler } from "./ImportHandler.js";
-import { IndexHandler } from "./IndexHandler.js";
 
 export class IPCManager {
   constructor() {
     this.handlers = [];
-    this.indexHandler = null;
+    this.searchHandler = null;
   }
 
   init() {
@@ -26,17 +22,13 @@ export class IPCManager {
     });
     this.handlers.push(new StoreHandler(storeService));
 
-    this.handlers.push(new SearchHandler());
-    this.handlers.push(new DatabaseCatalogHandler());
-    this.handlers.push(new LocalDatabaseHandler());
-    this.handlers.push(new ImportHandler());
-    this.indexHandler = new IndexHandler();
-    this.handlers.push(this.indexHandler);
+    this.searchHandler = new SearchHandler(storeService);
+    this.handlers.push(this.searchHandler);
 
     this.handlers.forEach((handler) => handler.register());
   }
 
   shutdown() {
-    this.indexHandler?.requestStop("app-close");
+    this.searchHandler?.shutdown();
   }
 }

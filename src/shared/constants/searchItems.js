@@ -1,6 +1,6 @@
 import {
   User, Phone, FileText, BookUser, Mail, Car, FileBadge,
-  CarFront, IdCard, FacebookIcon, Send, Calendar
+  CarFront, IdCard, FacebookIcon, Send, Calendar, Smartphone, Radio
 } from 'lucide-vue-next'
 
 export const iconsSerchs = [
@@ -14,6 +14,8 @@ export const iconsSerchs = [
   { type: 'telegram', label: 'Telegram ID', icon: Send },
   { type: 'vk', label: 'VK ID', icon: BookUser },
   { type: 'facebook', label: 'Facebook ID', icon: FacebookIcon },
+  { type: 'imei', label: 'IMEI', icon: Smartphone },
+  { type: 'imsi', label: 'IMSI', icon: Radio },
   { type: 'grz', label: 'ГРЗ', icon: Car },
   { type: 'vin', label: 'VIN', icon: CarFront },
 ]
@@ -29,6 +31,8 @@ export const defaultPatterns = {
   telegram: '^[a-zA-Z0-9_]{5,32}$', // Telegram ID — латиница, цифры и _, 5-32 символа
   vk: '^[0-9]{5,}$', // VK ID — только цифры, минимум 5
   facebook: '^[a-zA-Z0-9.]{5,50}$', // Facebook ID — латиница, цифры, точка, 5-50 символов
+  imei: '^\\d{15}$',
+  imsi: '^\\d{14,15}$',
   grz: '^([АВЕКМНОРСТУХ]\\d{3}[АВЕКМНОРСТУХ]{2}|\\d{4}[АВЕКМНОРСТУХ]{2})$', // ГРЗ — русские буквы + цифры, до 9
   vin: '^[A-HJ-NPR-Z0-9]{0,17}$' // VIN — буквы (без I,O,Q) + цифры, до 17
 }
@@ -41,4 +45,6 @@ export const defaultPlaceholders = {
   vin: 'VIN (17 символов)',
   mail: 'example@example.com',
   grz: 'М000ММ или 0000ММ',
+  imei: 'IMEI устройства',
+  imsi: 'IMSI SIM-карты',
 }

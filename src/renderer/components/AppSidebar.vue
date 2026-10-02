@@ -2,7 +2,7 @@
 import SidebarHeader from './sidebar/SidebarHeader.vue'
 import SidebarNav from './sidebar/SidebarNav.vue'
 import SidebarToggleChevron from './sidebar/SidebarToggleChevron.vue'
-import SidebarToggleMenu from './sidebar/sidebarToggleMenu.vue'
+import SidebarToggleMenu from './sidebar/SidebarToggleMenu.vue'
 import SidebarBot from './sidebar/SidebarBot.vue'
 
 const isCollapsed = defineModel()

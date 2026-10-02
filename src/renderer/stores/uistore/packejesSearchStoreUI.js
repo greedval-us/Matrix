@@ -31,6 +31,8 @@ export const usePackagesSearchStoreUI = defineStore('packagesSearchUI', () => {
   { value: "telegram", label: "Telegram" },
   { value: "vk", label: "ВКонтакте" },
   { value: "facebook", label: "Facebook" },
+  { value: "imei", label: "IMEI" },
+  { value: "imsi", label: "IMSI" },
   { value: "grz", label: "Госномер (ГРЗ)" },
   { value: "vin", label: "VIN" },
 ]
@@ -45,6 +47,14 @@ export const usePackagesSearchStoreUI = defineStore('packagesSearchUI', () => {
 
   function setQuery(val) {
     queryText.value = val
+  }
+
+  function safeFileName(value, fallback) {
+    const normalized = String(value || '')
+      .replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_')
+      .replace(/[. ]+$/g, '')
+      .slice(0, 120)
+    return normalized || fallback
   }
 
   function toggleFormat(key) {
@@ -137,20 +147,17 @@ export const usePackagesSearchStoreUI = defineStore('packagesSearchUI', () => {
       payload[searchField.value] = line
 
       try {
-        const results = await searchService.search(tabId, payload)
-        addLog(`✅ Результаты получены для строки ${index + 1}`)
-        console.log(results)
-
-        const resultItems = Array.isArray(results)
-          ? results
-          : Array.isArray(results?.items)
-            ? results.items
-            : []
+        const resultItems = []
+        const response = await searchService.search(tabId, payload, {
+          onChunk: (items) => resultItems.push(...items),
+        })
+        const returned = response?.meta?.returned_hits || resultItems.length
+        addLog(`Получено записей для строки ${index + 1}: ${returned}`)
 
         const selectedFormats = Object.keys(formats.value).filter(f => formats.value[f])
         for (const format of selectedFormats) {
           const ext = format === 'excel' ? 'xlsx' : format
-          const fileName = line || 'результат'
+          const fileName = safeFileName(line, `result-${index + 1}`)
           const filePath = `${saveFolder}/${fileName}.${ext}`
         
           const normalized = resultItems.map(item => parser.parse(item))

@@ -3,7 +3,7 @@ import { onMounted, onBeforeUnmount, computed } from 'vue'
 import { useTabStore } from '../../stores/tabStore'
 import { useSearchUIStore } from '../../stores/uistore/serchStoreUI'
 import MenegerExport from '../../services/export/MenegerExport'
-import { Search } from 'lucide-vue-next'
+import { Search, Square } from 'lucide-vue-next'
 
 const tabStore = useTabStore()
 const searchUI = useSearchUIStore()
@@ -13,7 +13,9 @@ const activeTabId = computed(() => tabStore.state.activeTabId)
 const selectedFields = computed(() => searchUI.getSelectedFields(activeTabId.value))
 const results = computed(() => searchUI.getResults(activeTabId.value))
 const loading = computed(() => searchUI.getLoading(activeTabId.value))
-const hasSelectedFields = computed(() => Object.keys(selectedFields.value).length > 0)
+const hasSearchValue = computed(() =>
+  Object.values(selectedFields.value).some((field) => String(field?.value || '').trim())
+)
 
 const handleExport = (format) => {
   if (!results.value || !results.value.length) return
@@ -21,7 +23,11 @@ const handleExport = (format) => {
 }
 
 const handleSearch = async () => {
-  if (!hasSelectedFields.value || loading.value) return
+  if (loading.value) {
+    searchUI.cancelSearch(activeTabId.value)
+    return
+  }
+  if (!hasSearchValue.value) return
   await searchUI.search(activeTabId.value)
 }
 
@@ -81,30 +87,14 @@ onBeforeUnmount(() => {
   </div>
 
   <button
-    :disabled="!hasSelectedFields || loading"
+    :disabled="!hasSearchValue && !loading"
     @click="handleSearch"
     class="flex items-center justify-center w-10 h-10 bg-neutral-800 hover:bg-neutral-700 disabled:bg-neutral-900 disabled:cursor-not-allowed text-white rounded-xl shadow-md hover:shadow-lg transition-all duration-200"
-    title="Найти"
+    :title="loading ? 'Остановить поиск' : 'Найти'"
   >
     <Search v-if="!loading" class="w-5 h-5"/>
-    <span v-else class="loader w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+    <Square v-else class="h-4 w-4 fill-current" />
   </button>
 
 </div>
 </template>
-
-<style scoped>
-.loader {
-  border-radius: 50%;
-  border-width: 2px;
-  width: 1.25rem;
-  height: 1.25rem;
-  border-top-color: transparent;
-  animation: spin 0.7s linear infinite;
-}
-
-@keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
-}
-</style>

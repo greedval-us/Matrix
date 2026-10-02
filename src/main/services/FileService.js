@@ -13,6 +13,14 @@ export class FileService {
     return canceled ? null : filePaths[0];
   }
 
+  async openCertificate() {
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+      properties: ["openFile"],
+      filters: [{ name: "TLS certificate", extensions: ["crt", "pem", "cer"] }],
+    });
+    return canceled ? null : filePaths[0];
+  }
+
 
   async openFolder() {
     const { canceled, filePaths } = await dialog.showOpenDialog({

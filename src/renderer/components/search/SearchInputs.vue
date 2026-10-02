@@ -45,7 +45,7 @@ function removeFieldHandler(type) {
           :value="field.value"
           @input="field.setValue($event.target.value)"
           type="text"
-          :inputmode="['date_of_birth', 'mail'].includes(type) ? 'text' : 'numeric'"
+          :inputmode="['number', 'passport', 'inn', 'snils', 'imei', 'imsi'].includes(type) ? 'numeric' : 'text'"
           :class="[
             'w-full px-3 py-2 rounded bg-neutral-800 text-white border focus:outline-none focus:ring-neutral-600',
             !field.value

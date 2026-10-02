@@ -28,7 +28,11 @@ export class ResultParser {
       source: obj.name_table,
       name: obj.name,
       type_sources: obj.type,
-      info: obj.info
+      info: obj.info,
+      country: obj.country,
+      count: obj.count,
+      relevance_date: obj.relevance_date,
+      trust: obj.trust
     }
   }
 

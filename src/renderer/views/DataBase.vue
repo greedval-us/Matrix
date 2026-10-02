@@ -94,8 +94,8 @@ const selectType = (type) => {
               <td class="p-3">{{ row.type ?? "Неизвестно" }}</td>
               <td class="p-3 text-center">{{ row.count }}</td>
               <td class="p-3 text-center">
-                <span v-if="row.trust" class="text-green-500 text-lg">🟢</span>
-                <span v-else class="text-red-500 text-lg">🔴</span>
+                <span v-if="row.trust === '1'" class="text-green-400">Доступна</span>
+                <span v-else class="text-red-400">Недоступна</span>
               </td>
             </tr>
           </tbody>

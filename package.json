@@ -1,24 +1,19 @@
 {
   "name": "matrix",
   "version": "1.0.2",
-  "description": "Desktop application for local database import, indexing, and search.",
+  "description": "Desktop gRPC client for Matrix Search powered by Manticore.",
   "author": "Matrix Team",
   "type": "module",
   "main": "src/main/index.js",
   "scripts": {
     "dev": "concurrently -k \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "start": "electron .",
-    "build": "cross-env ELECTRON_CACHE=.electron-cache vite build && cross-env ELECTRON_CACHE=.electron-cache electron-builder",
-    "build:linux": "cross-env ELECTRON_CACHE=.electron-cache vite build && cross-env ELECTRON_CACHE=.electron-cache electron-builder --linux AppImage",
-    "build:win": "cross-env ELECTRON_CACHE=.electron-cache vite build && cross-env ELECTRON_CACHE=.electron-cache electron-builder --win nsis portable",
-    "documents:split": "node scripts/splitDocumentsCli.mjs",
-    "sqlite:index": "cross-env ELECTRON_RUN_AS_NODE=1 electron scripts/buildSqliteIndexesCli.mjs",
-    "sqlite:migrate-fields": "cross-env ELECTRON_RUN_AS_NODE=1 electron scripts/migrateSqliteFieldIndexesCli.mjs",
-    "sqlite:check": "cross-env ELECTRON_RUN_AS_NODE=1 electron scripts/checkSqliteRuntime.cjs",
-    "search:bench": "cross-env ELECTRON_RUN_AS_NODE=1 electron scripts/benchmarkSqliteSearchCli.mjs",
-    "test": "npm run test:core && npm run test:sqlite",
-    "test:core": "node --test tests/main/localdb/*.test.js tests/main/services/*.test.js",
-    "test:sqlite": "cross-env ELECTRON_RUN_AS_NODE=1 electron --test tests/main/sqlite/*.test.js",
+    "build": "cross-env ELECTRON_CACHE=.electron-cache vite build && cross-env ELECTRON_CACHE=.electron-cache ELECTRON_BUILDER_CACHE=.electron-builder-cache electron-builder",
+    "build:linux": "cross-env ELECTRON_CACHE=.electron-cache vite build && cross-env ELECTRON_CACHE=.electron-cache ELECTRON_BUILDER_CACHE=.electron-builder-cache electron-builder --linux AppImage",
+    "build:win": "cross-env ELECTRON_CACHE=.electron-cache vite build && cross-env ELECTRON_CACHE=.electron-cache ELECTRON_BUILDER_CACHE=.electron-builder-cache electron-builder --win nsis portable",
+    "test": "npm run test:client",
+    "test:client": "node --test tests/main/services/*.test.js",
+    "client:check": "node scripts/checkClientGrpc.mjs",
     "postinstall": "electron-builder install-app-deps"
   },
   "build": {
@@ -37,7 +32,8 @@
         "nsis",
         "portable"
       ],
-      "icon": "src/public/matrix.ico"
+      "icon": "matrix.ico",
+      "signAndEditExecutable": false
     },
     "nsis": {
       "oneClick": false,
@@ -49,16 +45,16 @@
     },
     "linux": {
       "target": "AppImage",
-      "icon": "src/public/matrix.png",
+      "icon": "matrix.png",
       "category": "Utility"
     }
   },
   "dependencies": {
     "@grpc/grpc-js": "^1.13.4",
+    "@grpc/proto-loader": "^0.7.15",
     "electron-log": "^5.4.3",
     "electron-store": "^10.1.0",
     "lucide-vue-next": "^0.536.0",
-    "pdf-parse": "^1.1.1",
     "pdfmake": "^0.2.20",
     "pinia": "^3.0.3",
     "vue-router": "^4.5.1",

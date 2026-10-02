@@ -1,1 +1,0 @@
-export { useGrpcStore } from "./searchStore";
