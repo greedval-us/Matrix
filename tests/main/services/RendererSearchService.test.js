@@ -67,3 +67,30 @@ test('renderer removes progress listener when server rejects the request', async
   assert.equal(removed, true);
   assert.equal(service.isSearching[1], false);
 });
+
+test('listener setup failure releases the tab so a subsequent search can run', async () => {
+  let failSetup = true;
+  const service = new SearchService({
+    createClient: async () => ({}),
+    onProgress() {
+      if (failSetup) throw new Error('listener unavailable');
+      return () => {};
+    },
+    run: async () => ({ returned_hits: '0' }),
+  });
+  await service.createClient(1);
+  await assert.rejects(service.search(1, {}), /listener unavailable/);
+  failSetup = false;
+  assert.equal((await service.search(1, {})).meta.returned_hits, '0');
+});
+
+test('listener cleanup failure releases the tab and preserves the request error', async () => {
+  const service = new SearchService({
+    createClient: async () => ({}),
+    onProgress: () => () => { throw new Error('listener cleanup failed'); },
+    run: async () => { throw new Error('request failed'); },
+  });
+  await service.createClient(1);
+  await assert.rejects(service.search(1, {}), /request failed/);
+  assert.equal(service.isSearching[1], false);
+});

@@ -8,9 +8,9 @@ import log from "./logger.js";
 export function wrapHandler(channel, handler) {
   return async (event, ...args) => {
     try {
-      log.info(`[IPC] Call ${channel}`); // args=${JSON.stringify(args)}
+      log.info(`[IPC] Call ${channel}`);
       const result = await handler(event, ...args);
-      log.info(`[IPC] Success ${channel}`); //result=${JSON.stringify(result)}
+      log.info(`[IPC] Success ${channel}`);
       return result;
     } catch (err) {
       log.error(`[IPC] Error ${channel}:`, err);

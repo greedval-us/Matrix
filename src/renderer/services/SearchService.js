@@ -1,5 +1,7 @@
+import { getSearchApi } from '../infrastructure/desktopApi.js';
+
 export class SearchService {
-  constructor(searchAPI) {
+  constructor(searchAPI = getSearchApi()) {
     this.searchAPI = searchAPI;
 
     this.clients = {};
@@ -23,19 +25,28 @@ export class SearchService {
     if (this.isSearching[tabId]) throw new Error('Поиск в этой вкладке уже выполняется');
     this.isSearching[tabId] = true;
 
-    const removeProgressListener = this.searchAPI.onProgress((eventPayload) => {
-      if (!eventPayload || eventPayload.tabId !== tabId) return;
-      options.onProgress?.(eventPayload);
-      if (eventPayload.type === 'chunk' && Array.isArray(eventPayload.items)) {
-        options.onChunk?.(eventPayload.items, eventPayload.received);
-      }
-    });
-
+    let removeProgressListener;
+    let requestError;
     try {
+      removeProgressListener = this.searchAPI.onProgress((eventPayload) => {
+        if (!eventPayload || eventPayload.tabId !== tabId) return;
+        options.onProgress?.(eventPayload);
+        if (eventPayload.type === 'chunk' && Array.isArray(eventPayload.items)) {
+          options.onChunk?.(eventPayload.items, eventPayload.received);
+        }
+      });
       return { meta: await this.searchAPI.run(tabId, payload) };
+    } catch (error) {
+      requestError = error;
+      throw error;
     } finally {
-      removeProgressListener();
-      this.isSearching[tabId] = false;
+      try {
+        removeProgressListener?.();
+      } catch (error) {
+        if (!requestError) throw error;
+      } finally {
+        this.isSearching[tabId] = false;
+      }
     }
   }
 

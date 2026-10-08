@@ -1,24 +1,22 @@
 import { defineStore } from 'pinia';
 import { reactive, shallowRef } from 'vue';
-import { Field } from '../../utils/Field.js';
-import {
-  iconsSerchs,
-  defaultPatterns,
-  defaultPlaceholders,
-} from '../../../shared/constants/searchItems.js';
+import { defaultPatterns, defaultPlaceholders } from '../../../shared/constants/searchItems.js';
+import { iconsSerchs } from '../../constants/searchFields.js';
+import { buildSearchQuery, createSearchField, hasSearchValues, getQueryTitle } from '../../utils/searchQuery.js';
+import { createSearchResultState } from '../../utils/searchState.js';
+import { createResultAccumulator } from '../../services/search/resultAccumulator.js';
+import { withSearchClient } from '../../services/search/searchSession.js';
 import { key as translateKey } from '../../../shared/constants/translateKey.js';
 import { help } from '../../../shared/constants/help.js';
 import { useSearchStore } from '../searchStore.js';
 import { useTabStore } from '../tabStore.js';
-import { createRecordFingerprint, ResultParser } from '../../utils/ResultParser.js';
 import { useHistoryStore } from '../historyStore.js';
 
 export const useSearchUIStore = defineStore('searchUI', () => {
   const tabStore = useTabStore();
   const historyStore = useHistoryStore();
-  const parser = new ResultParser();
   const icons = shallowRef(iconsSerchs);
-  const recordKeysByTab = new Map();
+  const resultsByTab = new Map();
   const pendingSearches = new Map();
   const activeBases = reactive({});
 
@@ -46,21 +44,20 @@ export const useSearchUIStore = defineStore('searchUI', () => {
 
   function getFullQuery(id) {
     const fields = getSelectedFields(id);
-    return Object.fromEntries(iconsSerchs.map(({ type }) => [type, fields[type]?.value ?? '']));
+    return buildSearchQuery(fields);
   }
   function setFieldValue(id, type, value) {
     getTab(id)?.selectedFields[type]?.setValue(value);
   }
   function toggleField(id, type) {
     const tab = getTab(id);
-    if (!tab || !iconsSerchs.some((item) => item.type === type)) return;
+    const newField = createSearchField(type);
+    if (!tab || !newField) return;
     if (type in tab.selectedFields) {
       delete tab.selectedFields[type];
       delete tab.collapsedFields[type];
     } else {
-      const field = reactive(new Field(type, '', getPattern(type)));
-      field.placeholder = getPlaceholder(type);
-      tab.selectedFields[type] = field;
+      tab.selectedFields[type] = reactive(newField);
       tab.collapsedFields[type] = false;
     }
   }
@@ -71,26 +68,14 @@ export const useSearchUIStore = defineStore('searchUI', () => {
   function appendResults(id, data) {
     const tab = getTab(id);
     if (!tab || !Array.isArray(data)) return;
-    if (!recordKeysByTab.has(id)) recordKeysByTab.set(id, new Set());
-    const recordKeys = recordKeysByTab.get(id);
-    const normalized = [];
-    for (const rawItem of data) {
-      const item = parser.parse(rawItem);
-      if (item.type === 'object_data') {
-        const fingerprint = JSON.stringify([item.source, createRecordFingerprint(item.fields)]);
-        if (recordKeys.has(fingerprint)) continue;
-        recordKeys.add(fingerprint);
-      }
-      normalized.push(item);
-    }
-    tab.results.push(...normalized);
+    if (!resultsByTab.has(id)) resultsByTab.set(id, createResultAccumulator());
+    tab.results.push(...resultsByTab.get(id).append(data));
   }
   function clearResults(id) {
-    recordKeysByTab.delete(id);
+    resultsByTab.delete(id);
     delete activeBases[id];
     const tab = getTab(id);
-    if (tab)
-      Object.assign(tab, { results: [], error: '', meta: null, received: 0, hasSearched: false });
+    if (tab) Object.assign(tab, createSearchResultState());
   }
   function resetAllFields(id) {
     const tab = getTab(id);
@@ -98,52 +83,51 @@ export const useSearchUIStore = defineStore('searchUI', () => {
   }
   function clearTab(id) {
     delete activeBases[id];
-    recordKeysByTab.delete(id);
+    resultsByTab.delete(id);
   }
 
   async function search(id) {
     if (!getTab(id) || pendingSearches.has(id)) return;
     const query = getFullQuery(id);
-    if (!Object.values(query).some((value) => String(value).trim())) return;
+    if (!hasSearchValues(query)) return;
     const operation = { cancelled: false };
     pendingSearches.set(id, operation);
     const searchStore = useSearchStore();
     clearResults(id);
     updateState(id, 'hasSearched', true);
     setLoading(id, true);
-    tabStore.updateTabTitleBySearch(id, Object.values(query).filter(Boolean).join(', '));
+    tabStore.updateTabTitleBySearch(id, getQueryTitle(query));
 
     try {
-      await searchStore.createClient(id);
-      if (operation.cancelled || !getTab(id)) {
-        setMeta(id, { cancelled: true });
-        return;
-      }
-      const response = await searchStore.search(id, query, {
-        onChunk(items, received) {
-          if (!getTab(id)) return;
-          appendResults(id, items);
-          setReceived(id, received);
+      await withSearchClient(searchStore, id, async () => {
+        if (operation.cancelled || !getTab(id)) {
+          setMeta(id, { cancelled: true });
+          return;
+        }
+        const response = await searchStore.search(id, query, {
+          onChunk(items, received) {
+            if (operation.cancelled || !getTab(id)) return;
+            appendResults(id, items);
+            setReceived(id, received);
+          },
+        });
+        setMeta(id, response?.meta);
+        await Promise.allSettled(
+          Object.entries(query)
+            .filter(([, value]) => value)
+            .map(([key, value]) => historyStore.addHistoryItem(key, value)),
+        );
+      }, {
+        onCleanupError(error) {
+          if (!getError(id)) setError(id, error?.message || 'Не удалось закрыть подключение');
         },
       });
-      setMeta(id, response?.meta);
-      await Promise.allSettled(
-        Object.entries(query)
-          .filter(([, value]) => value)
-          .map(([key, value]) => historyStore.addHistoryItem(key, value)),
-      );
     } catch (error) {
       if (operation.cancelled) setMeta(id, { cancelled: true });
       else setError(id, error?.message || String(error));
     } finally {
-      try {
-        await searchStore.destroyClient(id);
-      } catch (error) {
-        if (!getError(id)) setError(id, error?.message || 'Не удалось закрыть подключение');
-      } finally {
-        pendingSearches.delete(id);
-        setLoading(id, false);
-      }
+      pendingSearches.delete(id);
+      setLoading(id, false);
     }
   }
   function cancelSearch(id) {

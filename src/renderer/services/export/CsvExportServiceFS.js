@@ -1,12 +1,4 @@
-import { groupExportFieldArrays as groupBySource } from '../../utils/searchResults.js';
-
-function escapeCsv(value) {
-  if (value === undefined || value === null) return '';
-  const str = String(value);
-  return str.includes('"') || str.includes(',') || str.includes('\n')
-    ? `"${str.replace(/"/g, '""')}"`
-    : str;
-}
+import { buildCsvContent } from './exportContent.js';
 
 export default class CsvExportServiceFS {
   /**
@@ -15,37 +7,6 @@ export default class CsvExportServiceFS {
    * @returns {string} – готовый CSV текст (с BOM для Excel)
    */
   export(data) {
-    const grouped = groupBySource(data);
-    let csv = '';
-
-    grouped.forEach((group, index) => {
-      csv += `Источник: ${escapeCsv(group.name)}\n`;
-      if (group.info) csv += `${escapeCsv(group.info)}\n`;
-      csv += '\n';
-
-      if (group.records.length) {
-        // собираем уникальные ключи
-        const headersSet = new Set();
-        group.records.forEach((fields) => {
-          fields.forEach(([key]) => headersSet.add(key));
-        });
-        const headers = Array.from(headersSet);
-
-        csv += headers.map(escapeCsv).join(',') + '\n';
-
-        group.records.forEach((fields) => {
-          const rowMap = Object.fromEntries(fields);
-          const row = headers.map((key) => escapeCsv(rowMap[key] ?? ''));
-          csv += row.join(',') + '\n';
-        });
-      } else {
-        csv += '"Нет данных"\n';
-      }
-
-      if (index < grouped.length - 1) csv += '\n';
-    });
-
-    // BOM нужен для корректного открытия в Excel
-    return '\uFEFF' + csv;
+    return buildCsvContent(data);
   }
 }

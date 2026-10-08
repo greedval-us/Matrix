@@ -1,122 +1,71 @@
-import { ipcMain } from "electron";
+import electron from "electron";
+import { IPC_CHANNELS as channels } from "../../shared/constants/ipcChannels.js";
 import { wrapHandler } from "../utils/ipcWrapper.js";
+import { registerIpcHandlers } from "./registerIpcHandlers.js";
 import { SearchClientService } from "../services/SearchClientService.js";
 import { ServerConnectionService } from "../services/ServerConnectionService.js";
+import { SearchSessionRegistry } from "../services/SearchSessionRegistry.js";
+import log from "../utils/logger.js";
 
 export class SearchHandler {
-  constructor(storeService) {
-    this.clients = new Map();
-    this.connectionService = new ServerConnectionService(storeService);
+  constructor(storeService, { ipc = electron.ipcMain, wrap = wrapHandler, connectionService, createClient } = {}) {
+    this.ipc = ipc;
+    this.wrap = wrap;
+    this.connectionService = connectionService || new ServerConnectionService(storeService);
+    this.sessions = new SearchSessionRegistry({
+      createClient: createClient || ((configOverride) => this.createService(configOverride)),
+      onCleanupError: (error) => log.error("Failed to dispose search client:", error),
+    });
   }
 
   createService(configOverride) {
     return new SearchClientService({ connectionService: this.connectionService, configOverride });
   }
 
-  async disposeClients() {
-    await Promise.all([...this.clients.values()].map((client) => client.dispose()));
-    this.clients.clear();
+  sendProgress(owner, payload) {
+    if (!owner.isDestroyed()) owner.send(channels.search.progress, payload);
+  }
+
+  async run(owner, tabId, payload) {
+    const client = this.sessions.get(tabId, owner);
+    if (!client) throw new Error(`Клиент поиска не найден для вкладки ${tabId}`);
+    let received = 0;
+    this.sendProgress(owner, { tabId, type: "started", received });
+    const result = await client.search(payload, {
+      onChunk: (items) => {
+        received += items.filter((item) => item.object_data).length;
+        this.sendProgress(owner, { tabId, type: "chunk", items, received });
+      },
+    });
+    this.sendProgress(owner, {
+      tabId, type: result.cancelled ? "cancelled" : "completed", meta: result, received,
+    });
+    return result;
   }
 
   register() {
-    ipcMain.handle(
-      "search:create-client",
-      wrapHandler("search:create-client", async (_event, tabId) => {
-        await this.clients.get(tabId)?.dispose();
-        const service = this.createService();
-        const status = await service.connect();
-        this.clients.set(tabId, service);
-        return status;
-      })
-    );
-
-    ipcMain.handle(
-      "search:run",
-      wrapHandler("search:run", async (event, tabId, payload) => {
-        const client = this.clients.get(tabId);
-        if (!client) throw new Error(`Клиент поиска не найден для вкладки ${tabId}`);
-        let received = 0;
-        event.sender.send("search:progress", { tabId, type: "started", received });
-        const result = await client.search(payload, {
-          onChunk: (items) => {
-            received += items.filter((item) => item.object_data).length;
-            event.sender.send("search:progress", {
-              tabId,
-              type: "chunk",
-              items,
-              received,
-            });
-          },
-        });
-        event.sender.send("search:progress", {
-          tabId,
-          type: result.cancelled ? "cancelled" : "completed",
-          meta: result,
-          received,
-        });
-        return result;
-      })
-    );
-
-    ipcMain.on("search:cancel", (_event, tabId) => this.clients.get(tabId)?.cancel());
-    ipcMain.handle(
-      "search:destroy-client",
-      wrapHandler("search:destroy-client", async (_event, tabId) => {
-        await this.clients.get(tabId)?.dispose();
-        this.clients.delete(tabId);
-        return true;
-      })
-    );
-
-    ipcMain.handle(
-      "search:list-databases",
-      wrapHandler("search:list-databases", async (_event, payload) => {
-        const service = this.createService();
-        try {
-          return await service.listDatabases(payload);
-        } finally {
-          await service.dispose();
-        }
-      })
-    );
-    ipcMain.handle(
-      "search:get-config",
-      wrapHandler("search:get-config", () => this.connectionService.getPublicConfig())
-    );
-    ipcMain.handle(
-      "search:set-config",
-      wrapHandler("search:set-config", async (_event, config) => {
+    this.unregister?.();
+    const temporary = (event, operation, config) => this.sessions.withTemporary(event.sender, operation, config);
+    this.unregister = registerIpcHandlers(this.ipc, {
+      [channels.search.createClient]: (event, tabId) => this.sessions.create(tabId, event.sender),
+      [channels.search.run]: (event, tabId, payload) => this.run(event.sender, tabId, payload),
+      [channels.search.destroyClient]: async (event, tabId) => { await this.sessions.destroy(tabId, event.sender); return true; },
+      [channels.search.listDatabases]: (event, payload) => temporary(event, (client) => client.listDatabases(payload)),
+      [channels.search.getConfig]: () => this.connectionService.getPublicConfig(),
+      [channels.search.setConfig]: async (_event, config) => {
         const result = await this.connectionService.updateConfig(config);
-        await this.disposeClients();
+        await this.sessions.reset();
         return result;
-      })
-    );
-    ipcMain.handle(
-      "search:test-connection",
-      wrapHandler("search:test-connection", async (_event, config) => {
-        const service = this.createService(config);
-        try {
-          return await service.connect();
-        } finally {
-          await service.dispose();
-        }
-      })
-    );
-    ipcMain.handle(
-      "search:get-index-status",
-      wrapHandler("search:get-index-status", async () => {
-        const service = this.createService();
-        try {
-          return await service.connect();
-        } finally {
-          await service.dispose();
-        }
-      })
-    );
+      },
+      [channels.search.testConnection]: (event, config) => temporary(event, (client) => client.connect(), config),
+      [channels.search.getIndexStatus]: (event) => temporary(event, (client) => client.connect()),
+    }, {
+      [channels.search.cancel]: (event, tabId) => this.sessions.get(tabId, event.sender)?.cancel(),
+    }, this.wrap);
   }
 
-  shutdown() {
-    for (const client of this.clients.values()) client.dispose();
-    this.clients.clear();
+  async shutdown() {
+    this.unregister?.();
+    await this.sessions.reset();
   }
 }

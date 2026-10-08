@@ -1,0 +1,11 @@
+{
+    "schema_version": 2,
+    "commit": "e639f8f76e61afdbce7cbac3f6471d16899c5056",
+    "indexed_at": "2026-10-08T23:40:07Z",
+    "project": "matrix",
+    "nodes": 2190,
+    "edges": 5216,
+    "original_size": 16384000,
+    "compressed_size": 1249753,
+    "compression_level": 9
+}

@@ -137,6 +137,7 @@ release
 
 # Electron builder artifacts
 build/renderer/
+build/main/
 release-next/
 *.blockmap
 latest*.yml

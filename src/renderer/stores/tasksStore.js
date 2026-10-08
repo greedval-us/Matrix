@@ -1,65 +1,34 @@
-import { defineStore } from "pinia"
-import { reactive, readonly } from "vue"
-import { TasksService } from "../services/TasksService"
+import { defineStore } from 'pinia';
+import { TasksService } from '../services/TasksService.js';
+import { usePendingOperations } from './usePendingOperations.js';
 
-export const useTasksStore = defineStore("tasks", () => {
-  const tasksService = new TasksService(window.storeAPI)
+export const useTasksStore = defineStore('tasks', () => {
+  const service = new TasksService();
+  const { state, publicState, run } = usePendingOperations({ tasks: [] });
 
-  const state = reactive({
-    tasks: [],
-    isLoading: false
-  })
+  const loadTasks = () => run(async () => { state.tasks = await service.loadTasks(); });
+  const addTask = (title, text) => run(async () => {
+    const task = await service.addTask(title, text);
+    state.tasks.push(task);
+    return task;
+  });
+  const updateTask = (id, title, text) => run(async () => {
+    await service.updateTask(id, title, text);
+    const task = state.tasks.find(item => item.id === id);
+    if (task) {
+      task.title = title ?? task.title;
+      task.text = text ?? task.text;
+    }
+  });
+  const toggleTaskDone = id => run(async () => {
+    await service.toggleTaskDone(id);
+    state.tasks = await service.loadTasks();
+  });
+  const deleteTask = id => run(async () => {
+    await service.deleteTask(id);
+    state.tasks = state.tasks.filter(item => item.id !== id);
+  });
+  const clearTasks = () => { state.tasks = []; };
 
-  const loadTasks = async () => {
-    state.isLoading = true
-    await tasksService.loadTasks()
-    state.tasks = tasksService.tasks
-    state.isLoading = false
-  }
-
-  const addTask = async (title, text) => {
-    state.isLoading = true
-    const task = await tasksService.addTask(title, text)
-    state.tasks = tasksService.tasks
-    state.isLoading = false
-    return task
-  }
-
-  const updateTask = async (id, title, text) => {
-    state.isLoading = true
-    await tasksService.updateTask(id, title, text)
-    state.tasks = tasksService.tasks
-    state.isLoading = false
-  }
-
-  const toggleTaskDone = async (id) => {
-    state.isLoading = true
-    await tasksService.toggleTaskDone(id)
-    state.tasks = tasksService.tasks
-    loadTasks()
-    state.isLoading = false
-  }
-
-  const deleteTask = async (id) => {
-    state.isLoading = true
-    await tasksService.deleteTask(id)
-    state.tasks = tasksService.tasks
-    state.isLoading = false
-  }
-
-  const clearTasks = () => {
-    tasksService.clear()
-    state.tasks = []
-  }
-
-  return {
-    state: readonly(state),
-    tasksService,
-    loadTasks,
-    addTask,
-    updateTask,
-    toggleTaskDone,
-    deleteTask,
-    clearTasks
-  }
-})
+  return { state: publicState, loadTasks, addTask, updateTask, toggleTaskDone, deleteTask, clearTasks };
+});

@@ -58,3 +58,25 @@ test("legacy default hostname migrates to the LAN address without changing custo
   assert.equal(legacyService.getPublicConfig().hasApiKey, true);
   assert.equal(customService.getPublicConfig().endpoint, "matrix.local:50051");
 });
+
+test("resolved configuration keeps explicit, environment and stored API-key precedence", async () => {
+  const store = memoryStore({ searchServer: { apiKey: "stored-key", caCertificatePath: "stored.crt", tlsServerName: "stored-name" } });
+  const paths = [];
+  const service = new ServerConnectionService(store, {
+    environment: { MATRIX_API_KEY: "environment-key" },
+    readCertificate: async (filePath) => { paths.push(filePath); return Buffer.from("-----BEGIN CERTIFICATE-----"); },
+  });
+  const explicit = await service.getResolvedConfig({ apiKey: "override-key", caCertificatePath: "override.crt", tlsServerName: "override-name" });
+  assert.equal(explicit.apiKey, "override-key");
+  assert.equal(explicit.tlsServerName, "override-name");
+  assert.equal((await service.getResolvedConfig()).apiKey, "environment-key");
+  assert.deepEqual(paths, ["override.crt", "stored.crt"]);
+  const storedOnly = new ServerConnectionService(store, { environment: {}, readCertificate: service.readCertificate });
+  assert.equal((await storedOnly.getResolvedConfig()).apiKey, "stored-key");
+  const updated = await service.updateConfig({ pageSize: 0, connectionTimeoutMs: 999999 });
+  assert.equal(updated.pageSize, 50);
+  assert.equal(updated.connectionTimeoutMs, 120000);
+  assert.equal(store.get("searchServer").tlsServerName, "stored-name");
+  assert.equal(store.get("searchServer").apiKey, "stored-key");
+  assert.equal("apiKey" in updated, false);
+});

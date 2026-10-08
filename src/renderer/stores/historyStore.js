@@ -1,50 +1,25 @@
 import { defineStore } from 'pinia';
-import { reactive, readonly } from 'vue';
 import { HistoryService } from '../services/HistoryService.js';
+import { usePendingOperations } from './usePendingOperations.js';
 
 export const useHistoryStore = defineStore('history', () => {
-  const historyService = new HistoryService(window.storeAPI);
+  const service = new HistoryService();
+  const { state, publicState, run } = usePendingOperations({ history: [] });
 
-  const state = reactive({
-    history: [],
-    isLoading: false,
+  const loadHistory = () => run(async () => { state.history = await service.loadHistory(); });
+  const addHistoryItem = (key, value) => run(async () => {
+    const item = await service.addHistoryItem(key, value);
+    state.history.unshift(item);
+    return item;
+  });
+  const deleteHistoryItem = id => run(async () => {
+    await service.deleteHistoryItem(id);
+    state.history = state.history.filter(item => item.id !== id);
+  });
+  const clearHistory = () => run(async () => {
+    await service.clearHistory();
+    state.history = [];
   });
 
-  const loadHistory = async () => {
-    state.isLoading = true;
-    await historyService.loadHistory();
-    state.history = historyService.history;
-    state.isLoading = false;
-  };
-
-  const addHistoryItem = async (key, value) => {
-    state.isLoading = true;
-    const item = await historyService.addHistoryItem(key, value);
-    state.history = historyService.history;
-    state.isLoading = false;
-    return item;
-  };
-
-  const deleteHistoryItem = async (id) => {
-    state.isLoading = true;
-    await historyService.deleteHistoryItem(id);
-    state.history = historyService.history;
-    state.isLoading = false;
-  };
-
-  const clearHistory = async () => {
-    state.isLoading = true;
-    await historyService.clearHistory();
-    state.history = historyService.history;
-    state.isLoading = false;
-  };
-
-  return {
-    state: readonly(state),
-    historyService,
-    loadHistory,
-    addHistoryItem,
-    deleteHistoryItem,
-    clearHistory,
-  };
+  return { state: publicState, loadHistory, addHistoryItem, deleteHistoryItem, clearHistory };
 });

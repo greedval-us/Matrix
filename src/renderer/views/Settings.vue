@@ -1,80 +1,12 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { onMounted } from 'vue';
 import { ShieldCheck, Wifi, RefreshCw, Check } from 'lucide-vue-next';
 import PageHeading from '../components/ui/PageHeading.vue';
-const config = ref({
-  endpoint: '192.168.1.46:50051',
-  apiKey: '',
-  caCertificatePath: '',
-  bundledCertificatePath: '',
-  pageSize: 1000,
-  connectionTimeoutMs: 30000,
-  hasApiKey: false,
-});
-const indexStatus = ref(null);
-const loading = ref(true);
-const saving = ref(false);
-const testing = ref(false);
-const message = ref('');
-const error = ref('');
-const busy = computed(() => loading.value || saving.value || testing.value);
-const certificateLabel = computed(
-  () => config.value.caCertificatePath || 'Встроенный сертификат сервера',
-);
-function draftConfig() {
-  const { endpoint, apiKey, caCertificatePath, pageSize, connectionTimeoutMs } = config.value;
-  return { endpoint, apiKey, caCertificatePath, pageSize, connectionTimeoutMs };
-}
-function applyConfig(value) {
-  config.value = { ...config.value, ...value, apiKey: '' };
-}
-async function loadConfig() {
-  try {
-    applyConfig(await window.searchAPI.getConfig());
-  } catch (reason) {
-    error.value = reason?.message || String(reason);
-  } finally {
-    loading.value = false;
-  }
-}
-async function chooseCertificate() {
-  try {
-    const selected = await window.fileDialog.openCertificate();
-    if (selected) config.value.caCertificatePath = selected;
-  } catch (reason) {
-    error.value = reason?.message || String(reason);
-  }
-}
-async function saveConfig() {
-  if (busy.value) return;
-  saving.value = true;
-  message.value = '';
-  error.value = '';
-  indexStatus.value = null;
-  try {
-    applyConfig(await window.searchAPI.setConfig(draftConfig()));
-    message.value = 'Настройки подключения сохранены';
-  } catch (reason) {
-    error.value = reason?.message || String(reason);
-  } finally {
-    saving.value = false;
-  }
-}
-async function testConnection() {
-  if (busy.value) return;
-  testing.value = true;
-  message.value = '';
-  error.value = '';
-  indexStatus.value = null;
-  try {
-    indexStatus.value = await window.searchAPI.testConnection(draftConfig());
-    message.value = 'Соединение с сервером установлено';
-  } catch (reason) {
-    error.value = reason?.message || String(reason);
-  } finally {
-    testing.value = false;
-  }
-}
+import { useConnectionSettings } from '../composables/useConnectionSettings.js';
+import { DEFAULT_SERVER_CONFIG, SERVER_CONFIG_LIMITS } from '../../shared/constants/serverConfig.js';
+
+const { config, indexStatus, loading, saving, testing, message, error, busy,
+  certificateLabel, loadConfig, chooseCertificate, saveConfig, testConnection } = useConnectionSettings();
 onMounted(loadConfig);
 </script>
 
@@ -92,7 +24,7 @@ onMounted(loadConfig);
           ><input
             v-model.trim="config.endpoint"
             required
-            placeholder="192.168.1.46:50051"
+            :placeholder="DEFAULT_SERVER_CONFIG.endpoint"
             class="mx-input"
             autocomplete="off"
           /><span class="block leading-5 text-matrix-muted"
@@ -141,8 +73,8 @@ onMounted(loadConfig);
               ><input
                 v-model.number="config.pageSize"
                 type="number"
-                min="50"
-                max="10000"
+                :min="SERVER_CONFIG_LIMITS.pageSize.min"
+                :max="SERVER_CONFIG_LIMITS.pageSize.max"
                 required
                 class="mx-input"
               /><span class="block leading-5 text-matrix-muted"
@@ -154,9 +86,9 @@ onMounted(loadConfig);
               ><input
                 v-model.number="config.connectionTimeoutMs"
                 type="number"
-                min="1000"
-                max="120000"
-                step="1000"
+                :min="SERVER_CONFIG_LIMITS.requestTimeoutMs.min"
+                :max="SERVER_CONFIG_LIMITS.requestTimeoutMs.max"
+                :step="SERVER_CONFIG_LIMITS.requestTimeoutMs.step"
                 required
                 class="mx-input"
             /></label>

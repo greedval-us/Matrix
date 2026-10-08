@@ -1,16 +1,13 @@
 import Store from "electron-store";
-import { randomUUID } from "crypto";
+import { randomUUID } from "node:crypto";
+import { RENDERER_COLLECTION_KEYS } from "./rendererStorePolicy.js";
+
+const COLLECTION_SCHEMA = Object.fromEntries(RENDERER_COLLECTION_KEYS.map((key) => [key, { type: "array", default: [] }]));
+const timestamp = () => new Date().toISOString();
 
 export class StoreService {
-  constructor(schema = {}) {
-    this.store = new Store({
-      schema: {
-        notes: { type: "array", default: [] },
-        tasks: { type: "array", default: [] },
-        history: { type: "array", default: [] },
-        ...schema,
-      },
-    });
+  constructor(schema = {}, { store } = {}) {
+    this.store = store || new Store({ schema: { ...COLLECTION_SCHEMA, ...schema } });
   }
 
   get(key) { return this.store.get(key); }
@@ -19,113 +16,43 @@ export class StoreService {
   has(key) { return this.store.has(key); }
   clear() { this.store.clear(); }
 
-  getNotes() {
-    return this.store.get("notes");
-  }
+  collection(key) { return this.store.get(key) || []; }
 
-  addNote(text) {
-    const notes = this.getNotes();
-    const note = {
-      id: randomUUID(),
-      text,
-      createdAt: new Date().toISOString(),
-    };
-    notes.push(note);
-    this.store.set("notes", notes);
-    return note;
-  }
-
-  updateNote(id, newText) {
-    let notes = this.getNotes();
-    notes = notes.map(n =>
-      n.id === id ? { ...n, text: newText, updatedAt: new Date().toISOString() } : n
-    );
-    this.store.set("notes", notes);
+  updateCollection(key, transform) {
+    this.store.set(key, transform(this.collection(key)));
     return true;
   }
 
-  deleteNote(id) {
-    const notes = this.getNotes().filter(n => n.id !== id);
-    this.store.set("notes", notes);
-    return true;
-  }
-
-  getTasks() {
-    return this.store.get("tasks");
-  }
-
-  addTask(title, text = "") {
-    const tasks = this.getTasks();
-    const task = {
-      id: randomUUID(),
-      title,
-      text,
-      done: false,
-      createdAt: new Date().toISOString(),
-    };
-    tasks.push(task);
-    this.store.set("tasks", tasks);
-    return task;
-  }
-
-  updateTask(id, newTitle, newText) {
-    let tasks = this.getTasks();
-    tasks = tasks.map(t =>
-      t.id === id
-        ? {
-            ...t,
-            title: newTitle ?? t.title,
-            text: newText ?? t.text,
-            updatedAt: new Date().toISOString(),
-          }
-        : t
-    );
-    this.store.set("tasks", tasks);
-    return true;
-  }
-
-  toggleTaskDone(id) {
-    let tasks = this.getTasks();
-    tasks = tasks.map(t =>
-      t.id === id
-        ? { ...t, done: !t.done, updatedAt: new Date().toISOString() }
-        : t
-    );
-    this.store.set("tasks", tasks);
-    return true;
-  }
-
-  deleteTask(id) {
-    const tasks = this.getTasks().filter(t => t.id !== id);
-    this.store.set("tasks", tasks);
-    return true;
-  }
-
-  getHistory() {
-    return this.store.get("history");
-  }
-
-  addHistoryItem(key, value) {
-    const history = this.getHistory();
-    const item = {
-      id: randomUUID(),
-      key,
-      value,
-      createdAt: new Date().toISOString(),
-    };
-    history.unshift(item);
-    this.store.set("history", history);
+  addCollectionItem(key, data, { prepend = false } = {}) {
+    const item = { id: randomUUID(), ...data, createdAt: timestamp() };
+    this.updateCollection(key, (items) => prepend ? [item, ...items] : [...items, item]);
     return item;
   }
 
-  deleteHistoryItem(id) {
-    const history = this.getHistory().filter(h => h.id !== id);
-    this.store.set("history", history);
-    return true;
+  updateCollectionItem(key, id, transform) {
+    return this.updateCollection(key, (items) => items.map((item) =>
+      item.id === id ? { ...transform(item), updatedAt: timestamp() } : item));
   }
 
-  clearHistory() {
-    this.store.set("history", []);
-    return true;
+  deleteCollectionItem(key, id) {
+    return this.updateCollection(key, (items) => items.filter((item) => item.id !== id));
   }
+
+  getNotes() { return this.collection("notes"); }
+  addNote(text) { return this.addCollectionItem("notes", { text }); }
+  updateNote(id, text) { return this.updateCollectionItem("notes", id, (note) => ({ ...note, text })); }
+  deleteNote(id) { return this.deleteCollectionItem("notes", id); }
+
+  getTasks() { return this.collection("tasks"); }
+  addTask(title, text = "") { return this.addCollectionItem("tasks", { title, text, done: false }); }
+  updateTask(id, title, text) {
+    return this.updateCollectionItem("tasks", id, (task) => ({ ...task, title: title ?? task.title, text: text ?? task.text }));
+  }
+  toggleTaskDone(id) { return this.updateCollectionItem("tasks", id, (task) => ({ ...task, done: !task.done })); }
+  deleteTask(id) { return this.deleteCollectionItem("tasks", id); }
+
+  getHistory() { return this.collection("history"); }
+  addHistoryItem(key, value) { return this.addCollectionItem("history", { key, value }, { prepend: true }); }
+  deleteHistoryItem(id) { return this.deleteCollectionItem("history", id); }
+  clearHistory() { return this.updateCollection("history", () => []); }
 }

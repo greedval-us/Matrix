@@ -2,10 +2,11 @@
 import { computed } from 'vue';
 import { useSearchUIStore } from '../../stores/uistore/serchStoreUI';
 import SearchFieldOption from './SearchFieldOption.vue';
+import { PRIMARY_SEARCH_FIELD_IDS } from '../../../shared/constants/searchItems.js';
 const props = defineProps({ tabId: { type: Number, required: true } });
 const searchUI = useSearchUIStore();
 const selectedFields = computed(() => searchUI.getSelectedFields(props.tabId));
-const primaryTypes = new Set(['fio', 'date_of_birth', 'number', 'mail']);
+const primaryTypes = new Set(PRIMARY_SEARCH_FIELD_IDS);
 const primaryOptions = computed(() =>
   searchUI.icons.filter((option) => primaryTypes.has(option.type)),
 );

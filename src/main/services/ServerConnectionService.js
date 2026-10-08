@@ -1,25 +1,23 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { DEFAULT_SERVER_CONFIG, SERVER_CONFIG_LIMITS, boundedConfigInteger } from "../../shared/constants/serverConfig.js";
 
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
 const bundledCertificatePath = path.resolve(moduleDirectory, "../../public/certs/arm-5.crt");
 
 const DEFAULT_CONFIG = Object.freeze({
-  endpoint: "192.168.1.46:50051",
-  tlsServerName: "arm-5",
+  ...DEFAULT_SERVER_CONFIG,
   apiKey: "",
-  caCertificatePath: "",
-  pageSize: 1000,
-  connectionTimeoutMs: 30000,
 });
 
 const LEGACY_DEFAULT_ENDPOINTS = new Set(["arm-5:50051"]);
 
-function boundedInteger(value, fallback, minimum, maximum) {
-  const parsed = Number.parseInt(value, 10);
-  if (!Number.isInteger(parsed)) return fallback;
-  return Math.min(Math.max(parsed, minimum), maximum);
+function configLimits(input, fallback) {
+  return {
+    pageSize: boundedConfigInteger(input.pageSize, fallback.pageSize, SERVER_CONFIG_LIMITS.pageSize),
+    connectionTimeoutMs: boundedConfigInteger(input.connectionTimeoutMs, fallback.connectionTimeoutMs, SERVER_CONFIG_LIMITS.requestTimeoutMs),
+  };
 }
 
 function normalizeEndpoint(value) {
@@ -40,8 +38,10 @@ function migrateStoredEndpoint(value) {
 }
 
 export class ServerConnectionService {
-  constructor(storeService) {
+  constructor(storeService, { environment = process.env, readCertificate = fs.readFile } = {}) {
     this.storeService = storeService;
+    this.environment = environment;
+    this.readCertificate = readCertificate;
   }
 
   getStoredConfig() {
@@ -53,13 +53,7 @@ export class ServerConnectionService {
       endpoint: storedEndpoint || DEFAULT_CONFIG.endpoint,
       apiKey: String(stored.apiKey || ""),
       caCertificatePath: String(stored.caCertificatePath || ""),
-      pageSize: boundedInteger(stored.pageSize, DEFAULT_CONFIG.pageSize, 50, 10000),
-      connectionTimeoutMs: boundedInteger(
-        stored.connectionTimeoutMs,
-        DEFAULT_CONFIG.connectionTimeoutMs,
-        1000,
-        120000
-      ),
+      ...configLimits(stored, DEFAULT_CONFIG),
     };
   }
 
@@ -71,7 +65,7 @@ export class ServerConnectionService {
       bundledCertificatePath,
       pageSize: config.pageSize,
       connectionTimeoutMs: config.connectionTimeoutMs,
-      hasApiKey: Boolean(config.apiKey || process.env.MATRIX_API_KEY),
+      hasApiKey: Boolean(config.apiKey || this.environment.MATRIX_API_KEY),
     };
   }
 
@@ -79,17 +73,12 @@ export class ServerConnectionService {
     const current = this.getStoredConfig();
     const next = {
       endpoint: normalizeEndpoint(input.endpoint ?? current.endpoint),
+      tlsServerName: String(input.tlsServerName ?? current.tlsServerName).trim(),
       apiKey: input.clearApiKey
         ? ""
         : String(input.apiKey || "").trim() || current.apiKey,
       caCertificatePath: String(input.caCertificatePath ?? current.caCertificatePath).trim(),
-      pageSize: boundedInteger(input.pageSize, current.pageSize, 50, 10000),
-      connectionTimeoutMs: boundedInteger(
-        input.connectionTimeoutMs,
-        current.connectionTimeoutMs,
-        1000,
-        120000
-      ),
+      ...configLimits(input, current),
     };
 
     await this.validateCertificate(next.caCertificatePath || bundledCertificatePath);
@@ -105,18 +94,12 @@ export class ServerConnectionService {
       endpoint: normalizeEndpoint(overrides.endpoint ?? stored.endpoint),
       tlsServerName: String(overrides.tlsServerName ?? stored.tlsServerName).trim(),
       apiKey: String(
-        overrides.apiKey || process.env.MATRIX_API_KEY || stored.apiKey || ""
+        overrides.apiKey || this.environment.MATRIX_API_KEY || stored.apiKey || ""
       ).trim(),
       caCertificatePath: String(
         overrides.caCertificatePath ?? stored.caCertificatePath
       ).trim(),
-      pageSize: boundedInteger(overrides.pageSize, stored.pageSize, 50, 10000),
-      connectionTimeoutMs: boundedInteger(
-        overrides.connectionTimeoutMs,
-        stored.connectionTimeoutMs,
-        1000,
-        120000
-      ),
+      ...configLimits(overrides, stored),
     };
     if (!config.apiKey) throw new Error("API-ключ сервера не настроен");
 
@@ -128,7 +111,7 @@ export class ServerConnectionService {
   async validateCertificate(certificatePath) {
     let certificate;
     try {
-      certificate = await fs.readFile(certificatePath);
+      certificate = await this.readCertificate(certificatePath);
     } catch (error) {
       throw new Error(`Не удалось прочитать TLS-сертификат: ${certificatePath}`, {
         cause: error,
