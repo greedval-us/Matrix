@@ -16,10 +16,10 @@ function closeTab(id) {
 <template>
   <div
     :class="[
-      'flex shrink-0 items-center gap-2 rounded-lg border px-2 py-1',
+      'search-tab flex shrink-0 items-center gap-1 rounded-xl border px-2 py-1',
       tab.id === tabStore.state.activeTabId
-        ? 'border-matrix-control bg-matrix-raised text-matrix-strong'
-        : 'border-transparent text-matrix-muted hover:bg-matrix-panel',
+        ? 'search-tab-active text-matrix-strong'
+        : 'border-transparent text-matrix-muted hover:bg-matrix-panel/70',
     ]"
   >
     <input
@@ -35,7 +35,7 @@ function closeTab(id) {
     <button
       v-else
       type="button"
-      class="flex max-w-[200px] items-center gap-2 px-2 py-1.5 text-xs"
+      class="flex max-w-[200px] items-center gap-2 px-2 py-1.5 text-[13px] font-medium"
       :aria-current="tab.id === tabStore.state.activeTabId ? 'page' : undefined"
       :title="tab.title + ' · Двойной щелчок для переименования'"
       @click="tabStore.setActive(tab.id)"
@@ -50,7 +50,7 @@ function closeTab(id) {
     <button
       v-if="tabStore.state.tabs.length > 1"
       type="button"
-      class="mx-icon-button mx-icon-button-compact"
+      class="mx-icon-button mx-icon-button-compact search-tab-close"
       :aria-label="'Закрыть вкладку ' + tab.title"
       @click="closeTab(tab.id)"
     >
@@ -58,3 +58,17 @@ function closeTab(id) {
     </button>
   </div>
 </template>
+
+<style scoped>
+.search-tab {
+  min-height: 38px;
+  transition: color var(--mx-motion-fast), background var(--mx-motion-standard),
+    border-color var(--mx-motion-standard), box-shadow var(--mx-motion-standard);
+}
+.search-tab-active {
+  background: rgb(var(--mx-panel-rgb));
+  border-color: rgb(var(--mx-border-rgb) / 0.8);
+  box-shadow: 0 2px 5px rgb(0 0 0 / 0.04), 0 1px 2px rgb(0 0 0 / 0.03);
+}
+.search-tab-close { width: 24px; height: 24px; border-radius: 7px; }
+</style>

@@ -40,7 +40,7 @@ function handleSearch() {
   <div class="space-y-3">
     <button
       type="submit"
-      class="mx-button mx-button-primary w-full !py-3"
+      class="mx-button mx-button-primary search-primary-action w-full !py-3"
       :disabled="!hasSearchValue && !loading"
       @click.prevent="handleSearch"
     >
@@ -52,11 +52,11 @@ function handleSearch() {
       {{ loading ? 'Остановить поиск' : 'Найти совпадения' }}
       <kbd
         v-if="!loading"
-        class="ml-auto hidden rounded border border-matrix-on-accent/30 px-1.5 text-xs sm:inline"
+        class="search-enter-key ml-auto hidden rounded-md px-1.5 py-0.5 text-[11px] sm:inline"
         >Enter</kbd
       >
     </button>
-    <div class="flex items-center gap-2">
+    <div v-if="hasRecords" class="search-export-controls flex items-center gap-2 pt-1">
       <select
         v-model="exportFormat"
         class="mx-input !w-24 !py-2 text-xs"
@@ -80,6 +80,12 @@ function handleSearch() {
         /><Download aria-hidden="true" v-else class="h-3.5 w-3.5" />Экспорт
       </button>
     </div>
-    <p v-if="exportError" role="alert" class="text-xs text-rose-300">{{ exportError }}</p>
+    <p v-if="exportError" role="alert" class="mx-alert text-xs">{{ exportError }}</p>
   </div>
 </template>
+
+<style scoped>
+.search-primary-action { min-height: 48px; border-radius: 12px; }
+.search-enter-key { background: rgb(var(--mx-on-accent-rgb) / 0.16); }
+.search-export-controls .mx-input, .search-export-controls .mx-button { min-height: 38px; }
+</style>

@@ -143,6 +143,7 @@ release-next/
 latest*.yml
 .electron-cache/
 .electron-builder-cache/
+output/visuals/
 
 # yarn v2
 .yarn/cache

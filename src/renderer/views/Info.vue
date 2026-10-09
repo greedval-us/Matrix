@@ -72,7 +72,7 @@ onBeforeUnmount(stop);
             : 'Состояние индекса станет доступно после подключения.'
         }}
       </p>
-      <p v-if="status && progress < PERCENT_COMPLETE" class="mt-2 text-xs leading-6 text-amber-200/80">
+      <p v-if="status && progress < PERCENT_COMPLETE" class="mx-warning mt-4 text-sm">
         Индекс обновляется. Поиск работает по уже готовым данным; выдача может быть неполной.
       </p>
       <p v-if="status?.updated_at" class="mt-4 text-xs text-matrix-muted">

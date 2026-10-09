@@ -1,5 +1,6 @@
 <script setup>
-import { computed } from 'vue';
+import { computed, shallowRef, watch } from 'vue';
+import { ChevronDown } from 'lucide-vue-next';
 import { useSearchUIStore } from '../../stores/uistore/serchStoreUI';
 import SearchFieldOption from './SearchFieldOption.vue';
 import { PRIMARY_SEARCH_FIELD_IDS } from '../../../shared/constants/searchItems.js';
@@ -16,6 +17,10 @@ const additionalOptions = computed(() =>
 const additionalSelected = computed(
   () => additionalOptions.value.filter((option) => option.type in selectedFields.value).length,
 );
+const expanded = shallowRef(additionalSelected.value > 0);
+watch(additionalSelected, (count, previousCount) => {
+  if (count > previousCount) expanded.value = true;
+});
 </script>
 
 <template>
@@ -29,14 +34,19 @@ const additionalSelected = computed(
         @toggle="searchUI.toggleField(tabId, option.type)"
       />
     </div>
-    <details :open="additionalSelected > 0" class="rounded-lg border border-matrix-border px-3">
-      <summary class="cursor-pointer py-3 text-[13px] font-medium text-matrix-secondary">
-        Другие поля · {{ additionalOptions.length }}
-        <span v-if="additionalSelected" class="ml-2 text-matrix-accent">
-          Выбрано: {{ additionalSelected }}
-        </span>
-      </summary>
-      <div class="grid grid-cols-2 gap-2 pb-3">
+    <div>
+      <button
+        type="button"
+        class="search-fields-disclosure flex w-full items-center justify-between gap-2 rounded-xl px-1 py-2 text-left text-[13px] font-medium text-matrix-muted"
+        :aria-expanded="expanded"
+        :aria-controls="'additional-fields-' + tabId"
+        @click="expanded = !expanded"
+      >
+        <span>Другие поля<span v-if="additionalSelected" class="ml-2 text-matrix-accent">{{ additionalSelected }} выбрано</span></span>
+        <ChevronDown aria-hidden="true" class="h-3.5 w-3.5 transition-transform" :class="{ 'rotate-180': expanded }" />
+      </button>
+      <Transition name="search-options">
+      <div v-if="expanded" :id="'additional-fields-' + tabId" class="grid grid-cols-2 gap-2 pt-1">
         <SearchFieldOption
           v-for="option in additionalOptions"
           :key="option.type"
@@ -45,6 +55,16 @@ const additionalSelected = computed(
           @toggle="searchUI.toggleField(tabId, option.type)"
         />
       </div>
-    </details>
+      </Transition>
+    </div>
   </div>
 </template>
+
+<style scoped>
+.search-fields-disclosure { transition: color var(--mx-motion-fast); }
+.search-fields-disclosure:hover { color: rgb(var(--mx-secondary-rgb)); }
+.search-options-enter-active { transition: opacity 180ms ease, transform 180ms ease; }
+.search-options-leave-active { transition: opacity 100ms ease; }
+.search-options-enter-from { opacity: 0; transform: translateY(-4px); }
+.search-options-leave-to { opacity: 0; }
+</style>

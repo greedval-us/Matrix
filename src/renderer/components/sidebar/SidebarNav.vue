@@ -6,7 +6,7 @@ defineProps({ collapsed: Boolean });
 </script>
 
 <template>
-  <nav class="px-2 space-y-1 mt-4">
+  <nav class="space-y-1 px-2" aria-label="Основная навигация">
     <SidebarItem
       v-for="item in sidebarItems"
       :key="item.to"

@@ -13,20 +13,19 @@ const { loading, error, meta, received, hasSearched, activeBase, bases, recordCo
 </script>
 
 <template>
-  <div class="mx-page space-y-5">
+  <div class="mx-page search-results-page space-y-5">
     <header class="flex flex-wrap items-start justify-between gap-4">
       <div>
-        <p class="mx-eyebrow mb-1.5">Выдача сервера</p>
-        <h2 class="text-2xl font-semibold tracking-tight">Результаты поиска</h2>
-        <p class="mt-1.5 text-sm text-matrix-muted">
+        <h2 class="text-[26px] font-semibold tracking-tight">Результаты поиска</h2>
+        <p class="mt-1.5 max-w-xl text-sm leading-6 text-matrix-muted">
           {{
             hasSearched
-              ? 'Записи сгруппированы по источникам. Повторы внутри источника объединены.'
+              ? 'Совпадения сгруппированы по источникам.'
               : 'Совпадения появятся здесь после отправки запроса.'
           }}
         </p>
       </div>
-      <span v-if="hasSearched" class="mx-badge">{{ formatResultCount(bases.length) }} источников</span>
+      <span v-if="hasSearched" class="mx-badge mt-1">{{ formatResultCount(bases.length) }} источников</span>
     </header>
     <SearchResultsStatus
       :has-searched="hasSearched" :loading="loading" :meta="meta" :error="error"
@@ -39,19 +38,19 @@ const { loading, error, meta, received, hasSearched, activeBase, bases, recordCo
     />
     <div
       v-if="!bases.length && !error"
-      class="mx-panel flex min-h-[300px] flex-col items-center justify-center px-6 text-center"
+      class="search-results-empty flex min-h-[380px] flex-col items-center justify-center rounded-3xl px-6 py-12 text-center"
     >
       <span
-        class="mb-5 flex h-14 w-14 items-center justify-center rounded-2xl border border-matrix-border bg-matrix-raised"
+        class="search-empty-icon mb-6 flex h-[72px] w-[72px] items-center justify-center rounded-[22px]"
         ><LoaderCircle
           aria-hidden="true"
           v-if="loading"
-          class="h-6 w-6 animate-spin text-matrix-accent" /><Search
+          class="h-7 w-7 animate-spin text-matrix-accent" /><Search
           aria-hidden="true"
           v-else
-          class="h-6 w-6 text-matrix-accent"
+          class="h-7 w-7 text-matrix-accent"
       /></span>
-      <h3 class="text-base font-medium">
+      <h3 class="text-lg font-semibold tracking-tight">
         {{
           loading
             ? 'Ищем совпадения'
@@ -81,3 +80,12 @@ const { loading, error, meta, received, hasSearched, activeBase, bases, recordCo
     />
   </div>
 </template>
+
+<style scoped>
+.search-results-page { max-width: 1100px; margin: 0 auto; }
+.search-results-empty { background: rgb(var(--mx-panel-rgb) / 0.38); }
+.search-empty-icon {
+  background: rgb(var(--mx-accent-rgb) / 0.08);
+  border: 1px solid rgb(var(--mx-accent-rgb) / 0.08);
+}
+</style>

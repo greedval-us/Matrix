@@ -16,6 +16,7 @@
     "test": "npm run test:client",
     "test:client": "node --test tests/main/services/*.test.js",
     "test:ui": "node scripts/checkClientUi.mjs",
+    "test:visual": "electron scripts/checkVisuals.mjs",
     "test:preload": "npm run build:preload && node scripts/checkPreload.mjs",
     "client:check": "node scripts/checkClientGrpc.mjs",
     "postinstall": "electron-builder install-app-deps"

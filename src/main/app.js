@@ -16,7 +16,7 @@ export default function createWindow() {
 
   const main = new BrowserWindow({
     width: 1200, height: 700, minWidth: 820, minHeight: 560,
-    show: false, backgroundColor: "#0d1117", icon: publicPath("matrix.ico"),
+    show: false, backgroundColor: "#f5f5f7", icon: publicPath("matrix.ico"),
     webPreferences: {
       preload: path.resolve(moduleDirectory, "../../build/main/preload.cjs"),
       contextIsolation: true,

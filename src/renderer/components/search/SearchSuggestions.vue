@@ -8,17 +8,17 @@ const emit = defineEmits(['search']);
 </script>
 
 <template>
-    <div class="mx-panel p-4">
+    <div class="search-suggestions rounded-2xl p-4">
       <details>
         <summary class="cursor-pointer text-sm font-medium text-matrix-secondary">
-          Продолжить поиск по найденным данным
+          Связанные данные
           <span class="ml-1 text-matrix-muted">· {{ suggestions.length }}</span>
         </summary>
         <div class="mt-3 flex flex-wrap gap-2">
           <button
             v-for="item in suggestions"
             :key="item.fieldKey + ':' + item.fieldValue"
-            class="mx-button max-w-full !px-2.5 !py-2 text-left !text-sm"
+            class="mx-button search-suggestion max-w-full !px-3 !py-2 text-left !text-sm"
             title="Поиск в новой вкладке"
             @click="emit('search', item.preload)"
           >
@@ -30,3 +30,8 @@ const emit = defineEmits(['search']);
       </details>
     </div>
 </template>
+
+<style scoped>
+.search-suggestions { border: 1px solid rgb(var(--mx-border-rgb) / 0.65); background: rgb(var(--mx-panel-rgb) / 0.5); }
+.search-suggestion { min-height: 38px; border-radius: 10px; }
+</style>

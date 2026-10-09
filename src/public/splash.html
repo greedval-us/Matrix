@@ -67,53 +67,78 @@
       0%, 100% { opacity: 1; }
       50% { opacity: 0.6; }
     }
+
+    @media (prefers-reduced-motion: reduce) {
+      .logo, .text { animation: none; }
+    }
   </style>
 </head>
 <body>
-  <canvas id="matrix"></canvas>
+  <canvas id="matrix" aria-hidden="true"></canvas>
 
   <div class="loader">
     <img src="matrix.png" class="logo" alt="Matrix logo" />
-    <div class="text">Загрузка Matrix...</div>
+    <div class="text" role="status">Загрузка Matrix...</div>
   </div>
 
   <script>
+    const RAIN_CHARACTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#$%^&*()*&^%";
+    const RAIN_COLOR = "#0f0";
+    const FONT_SIZE_PX = 16;
+    const FRAME_INTERVAL_MS = 50;
+    const TRAIL_OPACITY = 0.05;
+    const DROP_RESTART_THRESHOLD = 0.975;
     const canvas = document.getElementById("matrix");
     const ctx = canvas.getContext("2d");
-
-    let width = canvas.width = window.innerWidth;
-    let height = canvas.height = window.innerHeight;
-
-    const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#$%^&*()*&^%";
-    const fontSize = 16;
-    const columns = Math.floor(width / fontSize);
-    const drops = Array(columns).fill(1);
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    let width;
+    let height;
+    let drops;
+    let animationTimer;
 
     function draw() {
-      ctx.fillStyle = "rgba(0, 0, 0, 0.05)";
+      ctx.fillStyle = `rgba(0, 0, 0, ${TRAIL_OPACITY})`;
       ctx.fillRect(0, 0, width, height);
-
-      ctx.fillStyle = "#0f0";
-      ctx.font = fontSize + "px monospace";
+      ctx.fillStyle = RAIN_COLOR;
+      ctx.font = FONT_SIZE_PX + "px monospace";
 
       for (let i = 0; i < drops.length; i++) {
-        const text = letters[Math.floor(Math.random() * letters.length)];
-        ctx.fillText(text, i * fontSize, drops[i] * fontSize);
-
-        if (drops[i] * fontSize > height && Math.random() > 0.975) {
+        const text = RAIN_CHARACTERS[Math.floor(Math.random() * RAIN_CHARACTERS.length)];
+        ctx.fillText(text, i * FONT_SIZE_PX, drops[i] * FONT_SIZE_PX);
+        if (drops[i] * FONT_SIZE_PX > height && Math.random() > DROP_RESTART_THRESHOLD) {
           drops[i] = 0;
         }
-
         drops[i]++;
       }
     }
 
-    setInterval(draw, 50);
+    function drawStillRain() {
+      // Paint one complete trail without moving it when motion is reduced.
+      const trailRows = Math.ceil(height / FONT_SIZE_PX);
+      for (let row = 0; row < trailRows; row++) draw();
+    }
 
-    window.addEventListener("resize", () => {
+    function resizeCanvas() {
       width = canvas.width = window.innerWidth;
       height = canvas.height = window.innerHeight;
-    });
+      drops = Array(Math.floor(width / FONT_SIZE_PX)).fill(1);
+      if (reducedMotion.matches) drawStillRain();
+    }
+
+    function updateMotion() {
+      clearInterval(animationTimer);
+      resizeCanvas();
+      if (!reducedMotion.matches) animationTimer = setInterval(draw, FRAME_INTERVAL_MS);
+    }
+
+    updateMotion();
+    window.addEventListener("resize", resizeCanvas);
+    reducedMotion.addEventListener("change", updateMotion);
+    window.addEventListener("pagehide", () => {
+      clearInterval(animationTimer);
+      window.removeEventListener("resize", resizeCanvas);
+      reducedMotion.removeEventListener("change", updateMotion);
+    }, { once: true });
   </script>
 </body>
 </html>

@@ -15,7 +15,7 @@ const emit = defineEmits(['retry']);
 <template>
     <div
       v-if="hasSearched"
-      class="mx-panel flex flex-wrap items-center gap-x-6 gap-y-3 px-5 py-4"
+      class="search-result-status flex flex-wrap items-center gap-x-6 gap-y-3 rounded-2xl px-5 py-4"
       role="status"
     >
       <div class="flex items-center gap-3">
@@ -49,13 +49,13 @@ const emit = defineEmits(['retry']);
     </div>
     <div
       v-if="meta?.partial"
-      class="flex items-start gap-3 rounded-lg border border-amber-400/25 bg-amber-400/5 px-4 py-3 text-sm leading-5 text-amber-200"
+      class="mx-warning flex items-start gap-3 px-4 py-3 text-sm leading-5"
       role="status"
     >
       <AlertTriangle aria-hidden="true" class="mt-0.5 h-4 w-4 shrink-0" />
       <div>
         <strong>Частичная выдача</strong>
-        <p class="text-amber-200">
+        <p>
           Сервер ещё обновляет индекс: готово {{ meta.indexed_shards }} из
           {{ meta.total_shards }} частей. Поиск охватывает только готовые данные.
         </p>
@@ -76,3 +76,10 @@ const emit = defineEmits(['retry']);
       </div>
     </div>
 </template>
+
+<style scoped>
+.search-result-status {
+  border: 1px solid rgb(var(--mx-border-rgb) / 0.6);
+  background: rgb(var(--mx-panel-rgb) / 0.65);
+}
+</style>

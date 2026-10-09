@@ -9,10 +9,11 @@ const selectedFields = computed(() => searchUI.getSelectedFields(props.tabId));
 </script>
 
 <template>
-  <div class="space-y-4">
+  <div>
+    <TransitionGroup name="search-field" tag="div" class="space-y-5">
     <div v-for="(field, type) in selectedFields" :key="type" class="space-y-2">
       <div class="flex items-center justify-between gap-2">
-        <label :for="'search-' + tabId + '-' + type" class="text-sm font-medium text-matrix-text">{{
+        <label :for="'search-' + tabId + '-' + type" class="text-[13px] font-medium text-matrix-secondary">{{
           searchUI.getFieldLabel(type)
         }}</label>
         <div class="flex items-center gap-1">
@@ -31,7 +32,7 @@ const selectedFields = computed(() => searchUI.getSelectedFields(props.tabId));
         :value="field.value"
         type="text"
         autocomplete="off"
-        class="mx-input text-sm"
+        class="mx-input search-value-input text-sm"
         :aria-invalid="Boolean(field.value && !field.valid)"
         :aria-describedby="
           field.value && !field.valid ? 'format-help-' + tabId + '-' + type : undefined
@@ -45,13 +46,22 @@ const selectedFields = computed(() => searchUI.getSelectedFields(props.tabId));
       <p
         v-if="field.value && !field.valid"
         :id="'format-help-' + tabId + '-' + type"
-        class="text-xs leading-5 text-amber-300"
+        class="mx-warning search-format-hint text-xs leading-5"
       >
         Проверьте формат: {{ field.placeholder }}
       </p>
     </div>
+    </TransitionGroup>
     <p v-if="!Object.keys(selectedFields).length" class="text-xs leading-6 text-matrix-muted">
       Выберите тип данных выше, чтобы добавить поле.
     </p>
   </div>
 </template>
+
+<style scoped>
+.search-value-input { min-height: 48px; border-radius: 12px; }
+.search-format-hint { padding: 8px 10px; border-radius: 9px; }
+.search-field-enter-active { transition: opacity 180ms ease, transform 180ms ease; }
+.search-field-leave-active { transition: opacity 100ms ease, transform 100ms ease; }
+.search-field-enter-from, .search-field-leave-to { opacity: 0; transform: translateY(-4px); }
+</style>
