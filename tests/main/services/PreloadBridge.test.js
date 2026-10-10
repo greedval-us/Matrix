@@ -32,3 +32,23 @@ test('generic renderer storage accepts collections and blocks connection secrets
   assert.throws(() => assertRendererStoreKey('searchServer.apiKey'), /недоступ/);
   assert.throws(() => assertRendererStoreKey('__proto__'), /недоступ/);
 });
+
+test('records preload API exposes only named record and attachment actions', async () => {
+  const calls = [];
+  const { recordsAPI } = createPreloadApis({ invoke: async (...args) => { calls.push(args); return true; } });
+  assert.deepEqual(Object.keys(recordsAPI).sort(), ['downloadFile', 'getCapabilities', 'list', 'removeFile', 'uploadFiles']);
+  const query = { query: 'Иван', page: 2, pageSize: 25, sort: { key: 'имя', direction: 'asc' } };
+  const row = { rowId: 'row-1' };
+  const file = { ...row, fileId: 'file-1' };
+  await recordsAPI.getCapabilities();
+  await recordsAPI.list(query);
+  await recordsAPI.uploadFiles(row);
+  await recordsAPI.downloadFile(file);
+  await recordsAPI.removeFile(file);
+  assert.deepEqual(calls, [
+    [IPC_CHANNELS.records.getCapabilities], [IPC_CHANNELS.records.list, query],
+    [IPC_CHANNELS.records.uploadFiles, row], [IPC_CHANNELS.records.downloadFile, file], [IPC_CHANNELS.records.removeFile, file],
+  ]);
+  assert.equal('read' in recordsAPI, false);
+  assert.equal('write' in recordsAPI, false);
+});

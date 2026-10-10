@@ -57,7 +57,25 @@ try {
   assert.match(suggestions, /Телефон/);
   assert.match(suggestions, /&lt;123&gt;/);
   assert.match(suggestions, /Поиск в новой вкладке/);
-  console.log('UI smoke passed: source pagination/escaping, status/errors, suggestions.');
+  const records = await renderComponent('/components/records/RecordsTable.vue', {
+    available: true,
+    columns: [{ key: 'files', label: '<Dynamic column>' }, { key: '__proto__', label: 'Special key' }],
+    rows: [{ id: 'row-1', values: JSON.parse('{"files":"<unsafe>","__proto__":false}'),
+      files: [{ id: 'file-1', name: '<script>.pdf', size: 0 }] }],
+    sort: { key: 'files', direction: 'asc' },
+    capabilities: { upload: true, download: false, remove: false },
+  });
+  assert.match(records, /&lt;Dynamic column&gt;/);
+  assert.match(records, /&lt;unsafe&gt;/);
+  assert.match(records, /&lt;script&gt;\.pdf/);
+  assert.match(records, /aria-sort="ascending"/);
+  assert.match(records, /Нет/);
+  assert.match(records, /0 Б/);
+  assert.doesNotMatch(records, /<script>/);
+  assert.equal((records.match(/class="records-cell/g) || []).length, 3);
+  assert.match(records, /aria-label="Скачать файл [^"]+"[^>]*disabled/);
+  assert.match(records, /aria-label="Удалить файл [^"]+"[^>]*disabled/);
+  console.log('UI smoke passed: source pagination/escaping, status/errors, suggestions, dynamic records and attachment permissions.');
 } finally {
   await vite.close();
 }

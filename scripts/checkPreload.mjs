@@ -26,7 +26,11 @@ vm.runInNewContext(source, {
     return electron;
   },
 }, { filename: 'preload.cjs' });
-assert.deepEqual(Object.keys(apis).sort(), ['fileAPI', 'fileDialog', 'searchAPI', 'storeAPI']);
+assert.deepEqual(Object.keys(apis).sort(), ['fileAPI', 'fileDialog', 'recordsAPI', 'searchAPI', 'storeAPI']);
+await apis.recordsAPI.downloadFile({ rowId: 'row-1', fileId: 'file-1' });
+assert.equal(calls.at(-1).channel, IPC_CHANNELS.records.downloadFile);
+assert.equal(calls.at(-1).args[0].rowId, 'row-1');
+assert.equal(calls.at(-1).args[0].fileId, 'file-1');
 await apis.searchAPI.run(12, { number: '123' });
 assert.equal(calls.at(-1).channel, IPC_CHANNELS.search.run);
 assert.equal(calls.at(-1).args[0], 12);

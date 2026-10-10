@@ -3,6 +3,8 @@ import { FileDialogHandler } from "./FileDialogHandler.js";
 import { StoreService } from "../services/StoreService.js";
 import { StoreHandler } from "./StoreHandler.js";
 import { SearchHandler } from "./SearchHandler.js";
+import { RecordsService } from "../services/RecordsService.js";
+import { RecordsHandler } from "./RecordsHandler.js";
 
 export class IPCManager {
   constructor() { this.handlers = []; }
@@ -17,6 +19,7 @@ export class IPCManager {
       new FileDialogHandler(new FileService()),
       new StoreHandler(storeService),
       new SearchHandler(storeService),
+      new RecordsHandler(new RecordsService()),
     ];
     this.handlers.forEach((handler) => handler.register());
   }

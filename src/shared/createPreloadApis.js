@@ -4,6 +4,13 @@ import { IPC_CHANNELS as channels } from "./constants/ipcChannels.js";
 export function createPreloadApis(ipcRenderer) {
   const invoke = (channel, ...args) => ipcRenderer.invoke(channel, ...args);
   return {
+    recordsAPI: {
+      getCapabilities: () => invoke(channels.records.getCapabilities),
+      list: (payload) => invoke(channels.records.list, payload),
+      uploadFiles: (payload) => invoke(channels.records.uploadFiles, payload),
+      downloadFile: (payload) => invoke(channels.records.downloadFile, payload),
+      removeFile: (payload) => invoke(channels.records.removeFile, payload),
+    },
     fileDialog: {
       openFile: () => invoke(channels.dialog.openFile),
       openCertificate: () => invoke(channels.dialog.openCertificate),

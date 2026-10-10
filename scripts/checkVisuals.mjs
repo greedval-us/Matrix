@@ -38,6 +38,20 @@ const rendererErrors = [];
 const screenshots = [];
 const checks = [];
 const primaryAccents = {};
+const recordsColumns = [
+  { key: 'title', label: 'Название', type: 'string', sortable: true },
+  { key: 'score', label: 'Рейтинг', type: 'number', sortable: true },
+  { key: 'team', label: 'Группа', type: 'string', sortable: true },
+];
+const recordsFixture = {
+  mode: 'available', nextFileOutcome: 'success', requests: [], fileActions: [],
+  rows: Array.from({ length: 55 }, (_, index) => ({
+    id: `record-${index + 1}`,
+    values: { title: index === 54 ? 'Дальний результат' : `Тестовая запись ${index + 1}`,
+      score: index < 3 ? [2, 10, 100][index] : index - 2, team: index % 2 ? 'Архив' : 'Основная' },
+    files: index === 0 ? [{ id: 'file-original', name: 'Пояснение.pdf', size: 12288, mimeType: 'application/pdf' }] : [],
+  })),
+};
 const logoSource = readFileSync(path.join(projectDirectory, 'src', 'public', 'matrix.png'));
 const expectedLogoSize = { width: logoSource.readUInt32BE(16), height: logoSource.readUInt32BE(20) };
 let sidebarLogo;
@@ -143,6 +157,65 @@ function registerFixtureApis() {
   for (const channel of Object.values(channels.dialog)) handle(channel, () => null);
   handle(channels.file.read, () => '');
   handle(channels.file.write, () => true);
+  registerRecordsFixtures();
+}
+
+function registerRecordsFixtures() {
+  handle(channels.records.getCapabilities, () => {
+    const available = recordsFixture.mode !== 'unavailable';
+    return { available, list: available, upload: available, download: available, remove: available,
+      message: available ? '' : 'Тестовый сервер записей недоступен' };
+  });
+  handle(channels.records.list, async (_event, request) => {
+    recordsFixture.requests.push(structuredClone(request));
+    if (request.query === 'ошибка сервера') throw new Error('Тестовая ошибка загрузки записей');
+    let rows = recordsFixture.mode === 'empty' ? [] : [...recordsFixture.rows];
+    if (request.query === 'медленный' || request.query === 'быстрый') {
+      rows = [{ id: request.query, values: { title: request.query === 'медленный' ? 'Запоздавший результат' : 'Актуальный результат',
+        score: 1, team: 'Тест' }, files: [] }];
+    } else if (request.query) {
+      const query = request.query.toLocaleLowerCase('ru');
+      rows = rows.filter(row => Object.values(row.values).some(value => String(value).toLocaleLowerCase('ru').includes(query)) ||
+        row.files.some(file => file.name.toLocaleLowerCase('ru').includes(query)));
+    }
+    if (request.sort) {
+      const { key, direction } = request.sort;
+      rows.sort((left, right) => {
+        const a = left.values[key];
+        const b = right.values[key];
+        const comparison = typeof a === 'number' && typeof b === 'number' ? a - b : String(a).localeCompare(String(b), 'ru');
+        return direction === 'desc' ? -comparison : comparison;
+      });
+    }
+    const total = rows.length;
+    const start = (request.page - 1) * request.pageSize;
+    const response = structuredClone({ columns: recordsColumns, rows: rows.slice(start, start + request.pageSize), total });
+    if (request.query === 'медленный') await pause(700);
+    return response;
+  });
+  for (const operation of ['uploadFiles', 'downloadFile', 'removeFile']) {
+    handle(channels.records[operation], (_event, payload) => {
+      const expectedKeys = operation === 'uploadFiles' ? ['rowId'] : ['fileId', 'rowId'];
+      assert.deepEqual(Object.keys(payload).sort(), expectedKeys, 'File bridge must send IDs only');
+      const row = recordsFixture.rows.find(item => item.id === payload.rowId);
+      assert.ok(row, 'File operation must address an existing fixture row');
+      recordsFixture.fileActions.push({ operation, ...payload });
+      const outcome = recordsFixture.nextFileOutcome;
+      recordsFixture.nextFileOutcome = 'success';
+      if (outcome === 'error') throw new Error('Тестовая ошибка операции с файлом');
+      if (outcome === 'cancelled') return operation === 'uploadFiles'
+        ? { cancelled: true, files: [] } : { cancelled: true, saved: false };
+      if (operation === 'uploadFiles') {
+        const file = { id: 'file-uploaded', name: 'Приложение.txt', size: 2048, mimeType: 'text/plain' };
+        row.files.push(file);
+        return { cancelled: false, files: [file] };
+      }
+      assert.ok(row.files.some(file => file.id === payload.fileId));
+      if (operation === 'downloadFile') return { cancelled: false, saved: true };
+      row.files = row.files.filter(file => file.id !== payload.fileId);
+      return { removed: true };
+    });
+  }
 }
 
 function cancelFixtureSearch() {}
@@ -178,6 +251,34 @@ async function navigate(route) {
   await evaluate(route => { location.hash = route; }, route);
   await waitFor(() => document.querySelector('#main-content')?.children.length > 0);
   await pause(TRANSITION_SETTLE_MS);
+}
+
+async function setInput(selector, value) {
+  await evaluate((selector, value) => {
+    const input = document.querySelector(selector);
+    if (!input || input.disabled) throw new Error(`Input unavailable: ${selector}`);
+    input.value = value;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  }, selector, value);
+}
+
+async function clickText(text, selector = 'button') {
+  await waitFor((text, selector) => [...document.querySelectorAll(selector)]
+    .some(button => button.textContent.trim() === text && !button.disabled), text, selector);
+  await evaluate((text, selector) => {
+    const button = [...document.querySelectorAll(selector)].find(button => button.textContent.trim() === text);
+    button.focus();
+    button.click();
+  }, text, selector);
+  await pause(TRANSITION_SETTLE_MS);
+}
+
+async function waitForFixture(predicate) {
+  const deadline = Date.now() + WAIT_TIMEOUT_MS;
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error('Timed out waiting for fixture IPC request');
+    await pause(25);
+  }
 }
 
 async function assertNoHorizontalOverflow(label) {
@@ -436,6 +537,163 @@ async function runVisualChecks() {
   assert.deepEqual(rendererErrors, [], 'Renderer must not log runtime errors');
 }
 
+async function runRecordsChecks() {
+  progress('records-checks');
+  window.setContentSize(VIEWPORT.width, VIEWPORT.height);
+  await window.webContents.debugger.sendCommand('Emulation.setDeviceMetricsOverride', {
+    ...VIEWPORT, deviceScaleFactor: await evaluate(() => devicePixelRatio), mobile: false,
+  });
+  await window.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', { features: [] });
+  await navigate('/records');
+  await waitFor(() => document.querySelectorAll('.records-row').length > 0 &&
+    !document.querySelector('.records-table-viewport')?.matches('[aria-busy="true"]'));
+  const rowValues = () => [...document.querySelectorAll('.records-row')].map(row =>
+    [...row.querySelectorAll('.records-value')].map(cell => cell.textContent.trim()));
+  assert.deepEqual(await evaluate(() => [...document.querySelectorAll('.records-heading-label')].map(label => label.textContent)),
+    recordsColumns.map(column => column.label));
+  assert.equal((await evaluate(rowValues)).length, recordsFixture.requests.at(-1).pageSize);
+  assert.deepEqual(recordsFixture.requests.at(-1), { query: '', sort: null, page: 1, pageSize: 25 });
+  assert.equal(await evaluate(() => document.querySelector('.records-table').textContent.includes('Дальний результат')), false);
+  checks.push('Records: dynamic server columns and page DTO render through the real preload');
+  await capture('records-light');
+
+  await click('button[aria-label="Сортировать «Рейтинг» по возрастанию"]');
+  await waitFor(() => document.querySelector('.records-row .records-value:nth-child(1)') &&
+    [...document.querySelector('.records-row').querySelectorAll('.records-value')][1]?.textContent === '1');
+  assert.deepEqual(recordsFixture.requests.at(-1).sort, { key: 'score', direction: 'asc' });
+  assert.equal(await evaluate(() => document.querySelector('th[aria-sort="ascending"] .records-heading-label').textContent), 'Рейтинг');
+  await click('button[aria-label="Сортировать «Рейтинг» по убыванию"]');
+  await waitFor(() => [...document.querySelector('.records-row').querySelectorAll('.records-value')][1]?.textContent === '100');
+  assert.deepEqual(recordsFixture.requests.at(-1).sort, { key: 'score', direction: 'desc' });
+  checks.push('Records: numeric ascending/descending order and accessible sort state');
+
+  const firstPage = await evaluate(rowValues);
+  await click('button[aria-label="Следующая страница"]');
+  assert.equal(recordsFixture.requests.at(-1).page, 2);
+  assert.notDeepEqual(await evaluate(rowValues), firstPage);
+  await click('button[aria-label="Предыдущая страница"]');
+  assert.deepEqual(await evaluate(rowValues), firstPage);
+  await evaluate(() => {
+    const select = document.querySelector('.records-page-select');
+    select.value = '50';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await waitFor(() => document.querySelectorAll('.records-row').length === 50);
+  assert.equal(recordsFixture.requests.at(-1).pageSize, 50);
+  assert.equal(recordsFixture.requests.at(-1).page, 1);
+  checks.push('Records: server pagination and page-size changes reset the requested page');
+
+  await setInput('.records-search-input', 'Дальний результат');
+  await waitFor(() => document.querySelectorAll('.records-row').length === 1 &&
+    document.querySelector('.records-row').textContent.includes('Дальний результат'));
+  assert.equal(recordsFixture.requests.at(-1).query, 'Дальний результат');
+  assert.equal(recordsFixture.requests.at(-1).page, 1);
+  checks.push('Records: global search finds a server row outside the original first page');
+  await capture('records-filtered-light');
+
+  await setInput('.records-search-input', 'медленный');
+  await waitForFixture(() => recordsFixture.requests.at(-1)?.query === 'медленный');
+  await setInput('.records-search-input', 'быстрый');
+  await waitFor(() => document.querySelector('.records-row')?.textContent.includes('Актуальный результат'));
+  await pause(750);
+  assert.equal(await evaluate(() => document.querySelector('.records-row')?.textContent.includes('Запоздавший результат')), false);
+  checks.push('Records: a delayed older request cannot replace the current query result');
+
+  const beforeError = await evaluate(rowValues);
+  await setInput('.records-search-input', 'ошибка сервера');
+  await waitFor(() => document.querySelector('[role="alert"]')?.textContent.includes('Тестовая ошибка загрузки записей'));
+  assert.deepEqual(await evaluate(rowValues), beforeError);
+  assert.equal(await evaluate(() => Boolean(document.querySelector('.records-page .mx-success'))), false);
+  checks.push('Records: list errors preserve visible rows and do not report success');
+  await capture('records-error-light');
+
+  await setInput('.records-search-input', 'Пояснение.pdf');
+  await waitFor(() => document.querySelectorAll('.records-row').length === 1 &&
+    Boolean(document.querySelector('button[aria-label="Добавить файлы к записи record-1"]')));
+  const fileSelector = (action, name) => `button[aria-label="${action} файл «${name}» из записи record-1"]`;
+  const uploadSelector = 'button[aria-label="Добавить файлы к записи record-1"]';
+  const originalFiles = await evaluate(() => [...document.querySelectorAll('.record-file-name')].map(file => file.textContent));
+  recordsFixture.nextFileOutcome = 'cancelled';
+  await click(uploadSelector);
+  assert.deepEqual(await evaluate(() => [...document.querySelectorAll('.record-file-name')].map(file => file.textContent)), originalFiles);
+  assert.equal(await evaluate(() => Boolean(document.querySelector('.records-page .mx-success'))), false);
+  recordsFixture.nextFileOutcome = 'error';
+  await click(uploadSelector);
+  await waitFor(() => document.querySelector('[role="alert"]')?.textContent.includes('Тестовая ошибка операции с файлом'));
+  assert.deepEqual(await evaluate(() => [...document.querySelectorAll('.record-file-name')].map(file => file.textContent)), originalFiles);
+  assert.equal(await evaluate(() => Boolean(document.querySelector('.records-page .mx-success'))), false);
+  await click(uploadSelector);
+  await waitFor(() => document.querySelector('.records-page .mx-success')?.textContent === 'Файлы добавлены.' &&
+    document.body.textContent.includes('Приложение.txt'));
+  checks.push('Records attachments: upload cancellation/error preserve files; confirmed upload updates the row');
+
+  recordsFixture.nextFileOutcome = 'cancelled';
+  await click(fileSelector('Скачать', 'Приложение.txt'));
+  assert.equal(await evaluate(() => Boolean(document.querySelector('.records-page .mx-success'))), false);
+  recordsFixture.nextFileOutcome = 'error';
+  await click(fileSelector('Скачать', 'Приложение.txt'));
+  await waitFor(() => document.querySelector('[role="alert"]')?.textContent.includes('Тестовая ошибка операции с файлом'));
+  assert.equal(await evaluate(() => Boolean(document.querySelector('.records-page .mx-success'))), false);
+  await click(fileSelector('Скачать', 'Приложение.txt'));
+  await waitFor(() => document.querySelector('.records-page .mx-success')?.textContent === 'Файл сохранён.');
+  checks.push('Records attachments: download cancellation/error do not claim a saved file; success requires confirmation');
+
+  const removesBeforeCancel = recordsFixture.fileActions.filter(action => action.operation === 'removeFile').length;
+  await click(fileSelector('Удалить', 'Приложение.txt'));
+  await waitFor(() => document.querySelector('dialog')?.open);
+  await capture('records-remove-dialog-light');
+  await clickText('Отмена', 'dialog button');
+  await waitFor(() => !document.querySelector('dialog'));
+  assert.equal(recordsFixture.fileActions.filter(action => action.operation === 'removeFile').length, removesBeforeCancel);
+  assert.ok(await evaluate(() => document.body.textContent.includes('Приложение.txt')));
+  await click(fileSelector('Удалить', 'Приложение.txt'));
+  recordsFixture.nextFileOutcome = 'error';
+  await clickText('Удалить файл', 'dialog button');
+  await waitFor(() => document.querySelector('dialog [role="alert"]')?.textContent.includes('Тестовая ошибка операции с файлом'));
+  assert.ok(await evaluate(() => document.querySelector('dialog').open &&
+    [...document.querySelectorAll('.record-file-name')].some(file => file.textContent === 'Приложение.txt')));
+  assert.equal(await evaluate(() => Boolean(document.querySelector('.records-page .mx-success'))), false);
+  await clickText('Удалить файл', 'dialog button');
+  await waitFor(() => !document.querySelector('dialog') &&
+    ![...document.querySelectorAll('.record-file-name')].some(file => file.textContent === 'Приложение.txt'));
+  assert.equal(await evaluate(() => document.querySelector('.records-page .mx-success')?.textContent), 'Файл удалён.');
+  checks.push('Records attachments: delete confirmation/cancellation, recoverable failure and confirmed removal');
+
+  await setInput('.records-search-input', '');
+  await waitFor(() => document.querySelectorAll('.records-row').length === 50);
+  await click('button[aria-label="Включить тёмную тему"]');
+  await capture('records-dark');
+  await click('button[aria-label="Включить светлую тему"]');
+  window.setContentSize(measuredMinimumViewport.width, measuredMinimumViewport.height);
+  await window.webContents.debugger.sendCommand('Emulation.setDeviceMetricsOverride', {
+    ...measuredMinimumViewport, deviceScaleFactor: await evaluate(() => devicePixelRatio), mobile: false,
+  });
+  await capture('records-minimum-light');
+  const viewportScroll = await evaluate(() => {
+    const table = document.querySelector('.records-table-viewport');
+    return { width: table.clientWidth, contentWidth: table.scrollWidth, focusable: table.tabIndex === 0 };
+  });
+  assert.ok(viewportScroll.contentWidth > viewportScroll.width && viewportScroll.focusable,
+    'Wide columns must scroll inside the focusable table region at the native minimum width');
+  checks.push('Records: wide columns scroll inside the accessible table region at minimum window size');
+
+  recordsFixture.mode = 'empty';
+  await clickText('Обновить', '.records-refresh');
+  await waitFor(() => document.body.textContent.includes('В таблице пока нет записей'));
+  await capture('records-empty-light');
+  recordsFixture.mode = 'unavailable';
+  const requestsBeforeUnavailable = recordsFixture.requests.length;
+  await navigate('/info');
+  await navigate('/records');
+  await waitFor(() => document.body.textContent.includes('Тестовый сервер записей недоступен'));
+  assert.equal(await evaluate(() => document.querySelector('.records-search-input').disabled), true);
+  assert.equal(await evaluate(() => document.querySelectorAll('.records-row').length), 0);
+  assert.equal(recordsFixture.requests.length, requestsBeforeUnavailable);
+  checks.push('Records: empty and unavailable states are honest and unavailable API disables operations');
+  await capture('records-unavailable-light');
+  assert.deepEqual(rendererErrors, [], 'Records page must not log runtime errors');
+}
+
 async function main() {
 try {
   progress('waiting-ready');
@@ -465,6 +723,7 @@ try {
     ...VIEWPORT, deviceScaleFactor: await evaluate(() => devicePixelRatio), mobile: false,
   });
   await runVisualChecks();
+  await runRecordsChecks();
   await checkCinematicSplash();
   progress('checks-passed');
   console.log(`Visual check passed: ${checks.length} checks, ${screenshots.length} fixture screenshots in ${outputDirectory}`);
@@ -479,6 +738,7 @@ try {
     minimumWindow: MINIMUM_WINDOW, minimumViewport: measuredMinimumViewport,
     primaryAccents,
     sidebarLogo, splashDetails,
+    records: { requests: recordsFixture.requests, fileActions: recordsFixture.fileActions },
   }, null, 2));
   if (window && !window.isDestroyed()) {
     if (window.webContents.debugger.isAttached()) window.webContents.debugger.detach();

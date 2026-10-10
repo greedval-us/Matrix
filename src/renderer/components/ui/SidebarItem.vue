@@ -1,12 +1,13 @@
 <script setup>
 import { computed } from 'vue';
-import { House, SearchCheck, PackageSearch, Database, Settings, Info } from 'lucide-vue-next';
+import { House, SearchCheck, PackageSearch, Database, Table2, Settings, Info } from 'lucide-vue-next';
 const props = defineProps({ to: String, icon: String, label: String, collapsed: Boolean });
 const icons = {
   House,
   SearchCheckIcon: SearchCheck,
   PackageSearch,
   Database,
+  Table2,
   Settings,
   InfoIcon: Info,
 };

@@ -10,7 +10,7 @@ The preload is built as a CommonJS bundle using the existing Vite dependency. El
 
 ## State and workflows
 
-Pinia stores are the sole owners of reactive collections and screen state. Notes, tasks and history services only adapt persistence calls. Collection actions use a pending counter and `finally`, so loading remains accurate during concurrent operations and errors.
+Pinia stores own persisted and shared reactive collections. Notes, tasks and history services only adapt persistence calls. Collection actions use a pending counter and `finally`, so loading remains accurate during concurrent operations and errors. Temporary server pages can live in a route-scoped composable: the records page keeps its request state in `useRecordsTable`, with lifecycle and concurrency rules in the testable `recordsWorkflow`.
 
 Search sessions are owned by a renderer and tab. Pending connections are registered before awaiting readiness and are invalidated when cancelled, replaced, reset or destroyed. gRPC streams finalize once, release their active call and preserve the original failure when cleanup also fails.
 
@@ -31,3 +31,5 @@ To add a field, update its shared descriptor and renderer icon mapping, then che
 `npm run dev` launches Vite and Electron with a watched preload build. `npm start` builds local assets and loads them directly. `npm run client:check` contacts the configured server and is a separate integration check.
 
 No dependency or protobuf version migration is part of this refactoring. Real server integration and packaged installers require their respective environments.
+
+The records page and row attachments use a separate prepared repository; see [records-client.md](records-client.md) for DTOs and the future server adapter boundary. No existing search/catalogue RPC is used to simulate this API.
