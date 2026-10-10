@@ -5,8 +5,13 @@ import { RESULT_PAGE_SIZE, formatResultCount } from '../../constants/resultPrese
 import SearchResultsStatus from './SearchResultsStatus.vue';
 import SearchSuggestions from './SearchSuggestions.vue';
 import SearchSourceCard from './SearchSourceCard.vue';
+import ReportPanel from '../report/ReportPanel.vue';
+import { useSearchUIStore } from '../../stores/uistore/serchStoreUI.js';
+import { computed } from 'vue';
 
 const props = defineProps({ tabId: { type: Number, required: true } });
+const searchUI = useSearchUIStore();
+const reportState = computed(() => searchUI.getReportState(props.tabId));
 const { loading, error, meta, received, hasSearched, activeBase, bases, recordCount,
   suggestions, visibleCounts, notice, copied, savedSources, savingSources, fieldLabel,
   showMore, searchRelated, copyValue, saveNote, retry } = useSearchResults({ tabId: () => props.tabId });
@@ -27,6 +32,8 @@ const { loading, error, meta, received, hasSearched, activeBase, bases, recordCo
       </div>
       <span v-if="hasSearched" class="mx-badge mt-1">{{ formatResultCount(bases.length) }} источников</span>
     </header>
+    <ReportPanel v-if="reportState" :state="reportState"
+      @cancel="searchUI.cancelReport(tabId)" @save="searchUI.saveCollectedReport(tabId)" />
     <SearchResultsStatus
       :has-searched="hasSearched" :loading="loading" :meta="meta" :error="error"
       :received="received" :record-count="recordCount" @retry="retry"

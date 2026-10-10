@@ -1,5 +1,6 @@
 import { grpc, loadProto } from "../utils/grpcLoader.js";
 import { SEARCH_FIELD_IDS as SEARCH_FIELDS } from "../../shared/constants/searchItems.js";
+import { SERVER_CONFIG_LIMITS } from "../../shared/constants/serverConfig.js";
 const STREAM_CHUNK_SIZE = 100;
 const GRPC_OPTIONS = Object.freeze({
   "grpc.keepalive_time_ms": 60000,
@@ -9,6 +10,15 @@ const GRPC_OPTIONS = Object.freeze({
 
 function deadlineAfter(milliseconds) { return new Date(Date.now() + milliseconds); }
 const closedClientError = () => new Error("Клиент поиска закрыт");
+
+function requestLimit(value, fallback) {
+  if (value === undefined) return fallback;
+  const { min, max } = SERVER_CONFIG_LIMITS.pageSize;
+  if (!Number.isSafeInteger(value) || value < min || value > max) {
+    throw new Error(`Лимит поиска должен быть целым числом от ${min} до ${max}.`);
+  }
+  return value;
+}
 
 function grpcError(error) {
   if (!error) return new Error("Неизвестная ошибка сервера поиска");
@@ -34,6 +44,7 @@ export class SearchClientService {
     this.config = null;
     this.activeCall = null;
     this.cancelled = false;
+    this.searchPending = false;
     this.connectionPromise = null;
     this.generation = 0;
     this.closedTransports = new WeakSet();
@@ -98,50 +109,57 @@ export class SearchClientService {
   }
 
   async search(payload, { onChunk } = {}) {
-    await this.connect();
-    if (this.activeCall) throw new Error("Поиск в этой вкладке уже выполняется");
-    const request = Object.fromEntries(SEARCH_FIELDS.map((field) => [field, String(payload?.[field] || "").trim()]));
-    request.limit = this.config.pageSize;
-    if (!SEARCH_FIELDS.some((field) => request[field])) throw new Error("Заполните хотя бы одно поле поиска");
-
+    if (this.searchPending) throw new Error("Поиск в этой вкладке уже выполняется");
+    this.searchPending = true;
     this.cancelled = false;
-    return await new Promise((resolve, reject) => {
-      const call = this.searchClient.streamSearch(request, this.createMetadata());
-      this.activeCall = call;
-      let batch = [];
-      let meta = null;
-      let settled = false;
-      const flush = () => {
-        if (batch.length === 0) return;
-        const items = batch;
-        batch = [];
-        onChunk?.(items);
-      };
-      const finish = (error, result) => {
-        if (settled) return;
-        settled = true;
-        try { flush(); } catch (callbackError) { error ||= callbackError; }
-        if (this.activeCall === call) this.activeCall = null;
-        if (error) {
-          reject(error);
-          // Keep the error listener through cancellation; gRPC may emit it synchronously.
-          try { call.cancel(); } catch {}
-        } else resolve(result);
-      };
-      call.on("data", (message) => {
-        if (settled) return;
-        if (message.meta) { meta = message.meta; return; }
-        batch.push(message);
-        try { if (batch.length >= STREAM_CHUNK_SIZE) flush(); }
-        catch (error) { finish(error); }
+    try {
+      await this.connect();
+      // Cancellation can arrive while TLS/status is still connecting, before a stream exists.
+      if (this.cancelled) return { cancelled: true };
+      const request = Object.fromEntries(SEARCH_FIELDS.map((field) => [field, String(payload?.[field] || "").trim()]));
+      request.limit = requestLimit(payload?.limit, this.config.pageSize);
+      if (!SEARCH_FIELDS.some((field) => request[field])) throw new Error("Заполните хотя бы одно поле поиска");
+
+      return await new Promise((resolve, reject) => {
+        const call = this.searchClient.streamSearch(request, this.createMetadata());
+        this.activeCall = call;
+        let batch = [];
+        let meta = null;
+        let settled = false;
+        const flush = () => {
+          if (batch.length === 0) return;
+          const items = batch;
+          batch = [];
+          onChunk?.(items);
+        };
+        const finish = (error, result) => {
+          if (settled) return;
+          settled = true;
+          try { flush(); } catch (callbackError) { error ||= callbackError; }
+          if (this.activeCall === call) this.activeCall = null;
+          if (error) {
+            reject(error);
+            // Keep the error listener through cancellation; gRPC may emit it synchronously.
+            try { call.cancel(); } catch {}
+          } else resolve(result);
+        };
+        call.on("data", (message) => {
+          if (settled) return;
+          if (message.meta) { meta = message.meta; return; }
+          batch.push(message);
+          try { if (batch.length >= STREAM_CHUNK_SIZE) flush(); }
+          catch (error) { finish(error); }
+        });
+        call.on("end", () => finish(null, this.cancelled ? { ...meta, cancelled: true } : meta || {}));
+        call.on("error", (error) => {
+          if (settled) return;
+          if (this.cancelled && error.code === this.grpc.status.CANCELLED) finish(null, { cancelled: true });
+          else finish(grpcError(error));
+        });
       });
-      call.on("end", () => finish(null, meta || {}));
-      call.on("error", (error) => {
-        if (settled) return;
-        if (this.cancelled && error.code === this.grpc.status.CANCELLED) finish(null, { cancelled: true });
-        else finish(grpcError(error));
-      });
-    });
+    } finally {
+      this.searchPending = false;
+    }
   }
 
   async listDatabases(payload = {}) {
@@ -168,9 +186,9 @@ export class SearchClientService {
   }
 
   cancel() {
-    if (!this.activeCall) return;
+    if (!this.searchPending) return;
     this.cancelled = true;
-    this.activeCall.cancel();
+    this.activeCall?.cancel();
   }
 
   closeTransports(...clients) {

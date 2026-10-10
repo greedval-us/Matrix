@@ -38,6 +38,7 @@ const rendererErrors = [];
 const screenshots = [];
 const checks = [];
 const primaryAccents = {};
+const reportFixture = { mode: 'complete', saveOutcome: 'cancelled', folderOutcome: 'cancelled', requests: [], saved: [], pending: new Map() };
 const recordsColumns = [
   { key: 'title', label: 'Название', type: 'string', sortable: true },
   { key: 'score', label: 'Рейтинг', type: 'number', sortable: true },
@@ -136,6 +137,7 @@ function registerFixtureApis() {
   ]);
   handle(channels.search.run, (event, tabId, query) => {
     assert.ok(sessions.has(tabId), 'Search must create its session before running');
+    if (String(tabId).startsWith('report-')) return runReportFixture(event, tabId, query);
     assert.ok(query.number, 'The fixture search must contain its phone field');
     const source = 'visual_fixture';
     const items = [
@@ -154,9 +156,25 @@ function registerFixtureApis() {
     return { took_ms: 124, received: items.length, partial: false, ...fixtureStatus };
   });
   ipcMain.on(channels.search.cancel, cancelFixtureSearch);
-  for (const channel of Object.values(channels.dialog)) handle(channel, () => null);
+  for (const channel of Object.values(channels.dialog)) handle(channel, (_event, payload) => {
+    if (channel === channels.dialog.openFolder && reportFixture.folderOutcome === 'success')
+      return path.join(outputDirectory, 'reports-native');
+    if (channel === channels.dialog.saveFile && reportFixture.saveOutcome === 'success')
+      return path.join(outputDirectory, 'reports-native', path.basename(payload.defaultName));
+    return null;
+  });
   handle(channels.file.read, () => '');
-  handle(channels.file.write, () => true);
+  handle(channels.file.write, (_event, { filePath, data, isBinary }) => {
+    const relative = path.relative(outputDirectory, path.resolve(filePath));
+    assert.ok(relative && !relative.startsWith('..') && !path.isAbsolute(relative), 'Fixture writes must stay inside their output folder');
+    assert.equal(isBinary, true);
+    const bytes = Buffer.from(data);
+    assert.equal(bytes.subarray(0, 2).toString(), 'PK', 'Word report must be a real ZIP-based DOCX');
+    mkdirSync(path.dirname(filePath), { recursive: true });
+    writeFileSync(filePath, bytes);
+    reportFixture.saved.push({ filePath, size: bytes.length });
+    return true;
+  });
   registerRecordsFixtures();
 }
 
@@ -218,7 +236,43 @@ function registerRecordsFixtures() {
   }
 }
 
-function cancelFixtureSearch() {}
+async function runReportFixture(event, tabId, query) {
+  assert.equal(Object.hasOwn(query, 'fio'), false, 'Reports must never search by name');
+  assert.equal(Object.hasOwn(query, 'date_of_birth'), false, 'Reports must never search by birth date');
+  assert.equal(query.limit, 10000, 'Reports request the existing maximum result limit');
+  reportFixture.requests.push({ tabId, query: structuredClone(query) });
+  const fields = { fio: 'Пример Алексей Сергеевич', number: '79000000000', passport: '1234567890', date_of_birth: '14.06.1992' };
+  const metadata = (id, name) => ({ object_data_base: { name_table: id, name, trust: '1', info: 'Искусственный источник для проверки отчёта' } });
+  const aggregate = { object_grouped: { key: 'country', item: [{ value: 'RU', count: 3 }] } };
+  let items;
+  if (query.number) items = [
+    { object_data: { source_name: 'report-contact', fields: { ...fields, id: 'contact-1' } } },
+    { object_data: { source_name: 'report-archive', fields: { ...fields, id: 'archive-1' } } },
+    metadata('report-contact', 'Тестовые контакты'), metadata('report-archive', 'Тестовый архив'),
+    aggregate,
+  ];
+  else if (query.passport) items = [
+    metadata('report-archive', 'Тестовый архив'),
+    { object_data: { source_name: 'report-archive', fields: { id: 'archive-2', passport: query.passport, snils: '12345678901', address: 'Условный адрес & <1>' } } },
+    aggregate,
+  ];
+  else if (query.snils) items = [
+    metadata('report-document', 'Тестовые документы'),
+    { object_data: { source_name: 'report-document', fields: { id: 'document-1', snils: query.snils, registration: 'Условная регистрация', unknown_field: 'Дополнительное значение' } } },
+  ];
+  else throw new Error('Unexpected report fixture query: ' + JSON.stringify(query));
+  event.sender.send(channels.search.progress, { tabId, type: 'chunk', items, received: items.length });
+  let cancelled = false;
+  if (reportFixture.mode === 'slow') await new Promise(resolve => {
+    const timer = setTimeout(() => { reportFixture.pending.delete(tabId); resolve(); }, 1800);
+    reportFixture.pending.set(tabId, () => { clearTimeout(timer); cancelled = true; reportFixture.pending.delete(tabId); resolve(); });
+  });
+  const returned = items.filter(item => item.object_data).length;
+  const partial = reportFixture.mode === 'partial' && Boolean(query.snils);
+  return { ...fixtureStatus, returned_hits: returned, total_hits: returned + (partial ? 10 : 0), partial, cancelled };
+}
+
+function cancelFixtureSearch(_event, tabId) { reportFixture.pending.get(tabId)?.(); }
 
 const pause = duration => new Promise(resolve => setTimeout(resolve, duration));
 const evaluateIn = (contents, callback, ...args) => contents.executeJavaScript(
@@ -694,6 +748,89 @@ async function runRecordsChecks() {
   assert.deepEqual(rendererErrors, [], 'Records page must not log runtime errors');
 }
 
+async function runReportChecks() {
+  progress('report-checks');
+  window.setContentSize(VIEWPORT.width, VIEWPORT.height);
+  await window.webContents.debugger.sendCommand('Emulation.setDeviceMetricsOverride', {
+    ...VIEWPORT, deviceScaleFactor: await evaluate(() => devicePixelRatio), mobile: false,
+  });
+  await window.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', { features: [] });
+  await navigate('/search');
+  const ordinaryCount = await evaluate(() => document.querySelectorAll('article[data-base-name] .mx-record').length);
+  await click('.report-start-action');
+  await waitFor(() => document.querySelector('.report-panel h3')?.textContent === 'Отчёт готов');
+  assert.equal(sessions.size, 0, 'Report must dispose its isolated session');
+  assert.deepEqual(reportFixture.requests.map(({ query }) => Object.keys(query).filter(key => key !== 'limit')), [['number'], ['passport'], ['snils']]);
+  assert.deepEqual(await evaluate(() => [...document.querySelectorAll('.report-statistics dd')].map(item => item.textContent.trim())), ['3', '3', '3', '1', '1']);
+  assert.equal(await evaluate(() => document.querySelectorAll('article[data-base-name] .mx-record').length), ordinaryCount);
+  assert.ok(await evaluate(() => document.querySelector('.report-summary').textContent.includes('12345678901')));
+  assert.ok(await evaluate(() => document.querySelector('.report-panel').textContent.includes('Сводок сервера')));
+  checks.push('Report: phone to passport to SNILS across sources, unique records with provenance, ordinary results preserved');
+  await capture('search-report-light');
+
+  const beforeSave = reportFixture.saved.length;
+  await click('.report-save-action');
+  await waitFor(() => !document.querySelector('.report-save-action')?.disabled);
+  assert.equal(reportFixture.saved.length, beforeSave, 'Cancelled destination must not write a report');
+  reportFixture.saveOutcome = 'success';
+  await click('.report-save-action');
+  await waitFor(() => document.querySelector('.report-panel').textContent.includes('Отчёт DOCX сохранён.'));
+  assert.equal(reportFixture.saved.length, beforeSave + 1);
+  checks.push('Report: native save cancellation is normal and successful save writes a real DOCX');
+
+  await click('button[aria-label="Включить тёмную тему"]');
+  await capture('search-report-dark');
+  await click('button[aria-label="Включить светлую тему"]');
+  window.setContentSize(measuredMinimumViewport.width, measuredMinimumViewport.height);
+  await window.webContents.debugger.sendCommand('Emulation.setDeviceMetricsOverride', {
+    ...measuredMinimumViewport, deviceScaleFactor: await evaluate(() => devicePixelRatio), mobile: false,
+  });
+  await evaluate(() => document.querySelector('.report-panel').scrollIntoView({ block: 'start' }));
+  await capture('search-report-minimum-light');
+  window.setContentSize(VIEWPORT.width, VIEWPORT.height);
+  await window.webContents.debugger.sendCommand('Emulation.setDeviceMetricsOverride', {
+    ...VIEWPORT, deviceScaleFactor: await evaluate(() => devicePixelRatio), mobile: false,
+  });
+
+  reportFixture.mode = 'partial';
+  await click('.report-start-action');
+  await waitFor(() => document.querySelector('.report-panel h3')?.textContent === 'Отчёт собран частично');
+  assert.ok(await evaluate(() => document.querySelector('.report-warnings').textContent.includes('следующей страницы')));
+  checks.push('Report: server truncation visibly marks incomplete coverage');
+  await capture('search-report-partial-light');
+
+  reportFixture.mode = 'slow';
+  const beforeCancel = reportFixture.requests.length;
+  await click('.report-start-action');
+  await waitFor(() => document.querySelector('.report-cancel-action') &&
+    [...document.querySelectorAll('.report-statistics dd')][1]?.textContent === '1');
+  await click('.report-cancel-action');
+  await waitFor(() => document.querySelector('.report-panel h3')?.textContent === 'Сбор отчёта остановлен');
+  assert.equal(reportFixture.requests.length, beforeCancel + 1, 'Cancellation must prevent the next identifier request');
+  assert.equal(sessions.size, 0);
+  checks.push('Report: stopping preserves received data and prevents further linked searches');
+  reportFixture.mode = 'complete';
+
+  await navigate('/package-search');
+  await click('input[name="package-mode"][value="report"]');
+  assert.equal(await evaluate(() => [...document.querySelector('select').options].some(option => ['fio', 'date_of_birth'].includes(option.value))), false);
+  await setInput('textarea', '79000000000\n7 (900) 000-00-00\n79000000001\n790%');
+  await capture('batch-report-light');
+  const beforeFolderCancel = reportFixture.requests.length;
+  await clickText('Собрать отчёты');
+  assert.equal(reportFixture.requests.length, beforeFolderCancel, 'Cancelled folder must not start report queries');
+  reportFixture.folderOutcome = 'success';
+  const beforeBatch = reportFixture.saved.length;
+  await clickText('Собрать отчёты');
+  await waitFor(() => document.body.textContent.includes('Сбор отчётов завершён.'));
+  assert.equal(reportFixture.saved.length, beforeBatch + 2, 'Batch report writes one DOCX per distinct valid seed');
+  assert.ok(await evaluate(() => document.body.textContent.includes('Повтор')));
+  assert.equal(sessions.size, 0);
+  checks.push('Batch report: DOCX mode, exact fields only, canonical seed deduplication, invalid input filtering, destination cancellation');
+  await capture('batch-report-completed-light');
+  assert.deepEqual(rendererErrors, [], 'Report UI must not log runtime errors');
+}
+
 async function main() {
 try {
   progress('waiting-ready');
@@ -724,6 +861,7 @@ try {
   });
   await runVisualChecks();
   await runRecordsChecks();
+  await runReportChecks();
   await checkCinematicSplash();
   progress('checks-passed');
   console.log(`Visual check passed: ${checks.length} checks, ${screenshots.length} fixture screenshots in ${outputDirectory}`);
@@ -739,6 +877,7 @@ try {
     primaryAccents,
     sidebarLogo, splashDetails,
     records: { requests: recordsFixture.requests, fileActions: recordsFixture.fileActions },
+    reports: { requests: reportFixture.requests, saved: reportFixture.saved },
   }, null, 2));
   if (window && !window.isDestroyed()) {
     if (window.webContents.debugger.isAttached()) window.webContents.debugger.detach();

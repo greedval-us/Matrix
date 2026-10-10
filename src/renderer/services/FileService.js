@@ -60,7 +60,8 @@ export class FileService {
     if (!filePath) throw new Error('Нет пути к файлу для записи');
     return this.#withLoading(async () => {
       const isBinary = data instanceof Uint8Array || data instanceof ArrayBuffer;
-      await (this.fileAPI ?? getFileApi()).write(filePath, data, isBinary);
+      const saved = await (this.fileAPI ?? getFileApi()).write(filePath, data, isBinary);
+      if (saved === false) throw new Error('Не удалось записать файл.');
       this.currentData = data;
     });
   }

@@ -33,3 +33,5 @@ To add a field, update its shared descriptor and renderer icon mapping, then che
 No dependency or protobuf version migration is part of this refactoring. Real server integration and packaged installers require their respective environments.
 
 The records page and row attachments use a separate prepared repository; see [records-client.md](records-client.md) for DTOs and the future server adapter boundary. No existing search/catalogue RPC is used to simulate this API.
+
+Search reports use a pure identifier traversal workflow, an isolated session adapter and a separate DOCX builder. See [search-reports.md](search-reports.md) for the collection policy, duplicate handling, batch behavior and current server coverage limitations.

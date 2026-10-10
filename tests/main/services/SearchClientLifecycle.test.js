@@ -125,3 +125,44 @@ test("stream failure remains the primary error if delivering buffered results al
   assert.equal(service.activeCall, null);
   await service.dispose();
 });
+
+test("cancelling while configuration connects prevents a stream and the client remains reusable", async () => {
+  const { service, calls, ready } = fixture();
+  const pending = service.search({ number: "70000000000" });
+  service.cancel();
+  ready();
+  assert.deepEqual(await pending, { cancelled: true });
+  assert.equal(calls.length, 0);
+  assert.equal(service.searchPending, false);
+  const retry = service.search({ number: "71111111111" });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(calls.length, 1);
+  calls[0].emit("end");
+  assert.deepEqual(await retry, {});
+  await service.dispose();
+});
+
+test("cancelling during a status refresh prevents sending a new search request", async () => {
+  const { service, clients, calls, ready } = fixture();
+  ready();
+  await service.connect();
+  let finishStatus;
+  clients[0].getIndexStatus = (_request, _metadata, _options, callback) => { finishStatus = callback; };
+  const pending = service.search({ number: "70000000000" });
+  service.cancel();
+  finishStatus(null, { status: "running" });
+  assert.deepEqual(await pending, { cancelled: true });
+  assert.equal(calls.length, 0);
+  await service.dispose();
+});
+
+test("a pending connection already owns the search slot and rejects duplicate requests", async () => {
+  const { service, calls, ready } = fixture();
+  const first = service.search({ number: "70000000000" });
+  await assert.rejects(service.search({ number: "71111111111" }), /уже выполняется/);
+  service.cancel();
+  ready();
+  assert.deepEqual(await first, { cancelled: true });
+  assert.equal(calls.length, 0);
+  await service.dispose();
+});

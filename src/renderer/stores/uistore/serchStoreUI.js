@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { reactive, shallowRef } from 'vue';
+import { reactive, shallowReactive, shallowRef } from 'vue';
 import { defaultPatterns, defaultPlaceholders } from '../../../shared/constants/searchItems.js';
 import { iconsSerchs } from '../../constants/searchFields.js';
 import { buildSearchQuery, createSearchField, hasSearchValues, getQueryTitle } from '../../utils/searchQuery.js';
@@ -11,6 +11,8 @@ import { help } from '../../../shared/constants/help.js';
 import { useSearchStore } from '../searchStore.js';
 import { useTabStore } from '../tabStore.js';
 import { useHistoryStore } from '../historyStore.js';
+import { getReportSeedQuery } from '../../../shared/utils/reportIdentifiers.js';
+import { ReportService, saveReport } from '../../services/report/ReportService.js';
 
 export const useSearchUIStore = defineStore('searchUI', () => {
   const tabStore = useTabStore();
@@ -19,6 +21,8 @@ export const useSearchUIStore = defineStore('searchUI', () => {
   const resultsByTab = new Map();
   const pendingSearches = new Map();
   const activeBases = reactive({});
+  const reportByTab = reactive({});
+  const reportJobs = new Map();
 
   const getTab = (id) => tabStore.getSearchState(id);
   const getSelectedFields = (id) => getTab(id)?.selectedFields || {};
@@ -32,6 +36,66 @@ export const useSearchUIStore = defineStore('searchUI', () => {
   const getPlaceholder = (type) => defaultPlaceholders[type] || '';
   const getPattern = (type) => defaultPatterns[type] || '.*';
   const getHelp = (type) => (help[type] || '') + (help.wildcards || '');
+  const getReportState = (id) => reportByTab[id] || null;
+
+  function canCollectReport(id) {
+    try { return Object.keys(getReportSeedQuery(getFullQuery(id))).length > 0; }
+    catch { return false; }
+  }
+  function cancelReport(id) {
+    const job = reportJobs.get(id);
+    if (!job) return;
+    const state = reportByTab[id];
+    if (state) state.stopping = true;
+    job.cancel();
+  }
+  async function collectReport(id) {
+    if (!getTab(id) || reportJobs.has(id) || getLoading(id) || reportByTab[id]?.saving) return;
+    const state = shallowReactive({ loading: false, stopping: false, error: '', report: null,
+      progress: null, saving: false, notice: '' });
+    reportByTab[id] = state;
+    let seedQuery;
+    try {
+      seedQuery = { ...getFullQuery(id) };
+      getReportSeedQuery(seedQuery);
+    }
+    catch {
+      state.error = 'Для отчёта укажите точный идентификатор: телефон, паспорт, СНИЛС или другой тип данных. ФИО, дата рождения и маски не используются.';
+      return;
+    }
+    const service = new ReportService();
+    reportJobs.set(id, service);
+    state.loading = true;
+    const isCurrent = () => getTab(id) && reportByTab[id] === state && reportJobs.get(id) === service;
+    try {
+      const report = await service.collect({ seedQuery, onProgress(progress) {
+        if (isCurrent()) state.progress = progress;
+      } });
+      if (isCurrent()) state.report = report;
+    } catch (error) {
+      if (isCurrent()) state.error = error?.message || 'Не удалось собрать отчёт';
+    } finally {
+      if (isCurrent()) { state.loading = false; state.stopping = false; }
+      if (reportJobs.get(id) === service) reportJobs.delete(id);
+    }
+  }
+  async function saveCollectedReport(id) {
+    const state = reportByTab[id];
+    if (!state?.report || state.loading || state.saving) return;
+    const snapshot = state.report;
+    state.saving = true;
+    state.error = '';
+    state.notice = '';
+    try {
+      const result = await saveReport(snapshot);
+      if (reportByTab[id] === state && state.report === snapshot && result?.saved && !result.cancelled)
+        state.notice = 'Отчёт DOCX сохранён.';
+    } catch (error) {
+      if (reportByTab[id] === state) state.error = error?.message || 'Не удалось сохранить отчёт';
+    } finally {
+      if (reportByTab[id] === state) state.saving = false;
+    }
+  }
 
   function updateState(id, key, value) {
     const tab = getTab(id);
@@ -82,12 +146,15 @@ export const useSearchUIStore = defineStore('searchUI', () => {
     if (tab) Object.assign(tab, { selectedFields: {}, collapsedFields: {} });
   }
   function clearTab(id) {
+    cancelReport(id);
+    reportJobs.delete(id);
+    delete reportByTab[id];
     delete activeBases[id];
     resultsByTab.delete(id);
   }
 
   async function search(id) {
-    if (!getTab(id) || pendingSearches.has(id)) return;
+    if (!getTab(id) || pendingSearches.has(id) || reportJobs.has(id)) return;
     const query = getFullQuery(id);
     if (!hasSearchValues(query)) return;
     const operation = { cancelled: false };
@@ -152,6 +219,12 @@ export const useSearchUIStore = defineStore('searchUI', () => {
   return {
     icons,
     activeBases,
+    reportByTab,
+    getReportState,
+    canCollectReport,
+    collectReport,
+    cancelReport,
+    saveCollectedReport,
     setActiveBase,
     getActiveBase,
     getSelectedFields,

@@ -75,7 +75,48 @@ try {
   assert.equal((records.match(/class="records-cell/g) || []).length, 3);
   assert.match(records, /aria-label="Скачать файл [^"]+"[^>]*disabled/);
   assert.match(records, /aria-label="Удалить файл [^"]+"[^>]*disabled/);
-  console.log('UI smoke passed: source pagination/escaping, status/errors, suggestions, dynamic records and attachment permissions.');
+  const reportData = {
+    seedQuery: { number: '<unsafe seed>' }, complete: false, cancelled: false,
+    stats: { records: 2, queries: 3, sources: 1, duplicates: 4 }, warnings: ['<partial warning>'],
+    identifiers: [{ field: 'passport', value: '<document>', sources: ['source'] }],
+    sources: [{ id: 'source', name: '<Report source>', info: '<Source info>' }],
+    records: [{ id: 'record-1', fields: [['number', '<unsafe seed>']] }],
+  };
+  const report = await renderComponent('/components/report/ReportPanel.vue', {
+    state: { loading: false, saving: false, report: reportData, error: '', notice: '' },
+  });
+  assert.match(report, /Отчёт собран частично/);
+  assert.match(report, /Полнота сбора не подтверждена/);
+  assert.match(report, /Сохранить DOCX/);
+  assert.match(report, /&lt;unsafe seed&gt;/);
+  assert.match(report, /&lt;document&gt;/);
+  assert.match(report, /&lt;Report source&gt;/);
+  assert.match(report, /&lt;partial warning&gt;/);
+  assert.doesNotMatch(report, /<document>|<Report source>/);
+  const collectingReport = await renderComponent('/components/report/ReportPanel.vue', {
+    state: { loading: true, stopping: false, report: null, error: '', progress: {
+      query: { id: 'query-1', query: { passport: '<current document>' } }, stats: { queries: 1 },
+    } },
+  });
+  assert.match(collectingReport, /Остановить сбор/);
+  assert.match(collectingReport, /&lt;current document&gt;/);
+  assert.doesNotMatch(collectingReport, /Сохранить DOCX/);
+  const aggregateReport = await renderComponent('/components/report/ReportPanel.vue', {
+    state: { loading: false, report: { ...reportData, records: [], identifiers: [],
+      aggregates: [{ id: 'aggregate-1', key: 'region', items: [{ value: '<city>', count: 3 }] }],
+      stats: { ...reportData.stats, records: 0, aggregates: 1 } } },
+  });
+  assert.match(aggregateReport, /Сводок сервера<\/dt><dd[^>]*>1<\/dd>/);
+  assert.match(aggregateReport, /Сводные данные сервера: 1/);
+  assert.match(aggregateReport, /Сохранить DOCX/);
+  const batchReports = await renderComponent('/components/packages/PackageSearchForm.vue', {
+    mode: 'report', queryText: '70000000000', searchField: 'number', formats: { txt: false }, isRunning: false,
+  });
+  assert.match(batchReports, /Один отчёт DOCX/);
+  assert.match(batchReports, /Собрать отчёты/);
+  assert.doesNotMatch(batchReports, /Форматы сохранения/);
+  assert.doesNotMatch(batchReports, /<option[^>]+value="(?:fio|date_of_birth)"/);
+  console.log('UI smoke passed: source pagination/escaping, status/errors, suggestions, dynamic records, attachment permissions and report collection.');
 } finally {
   await vite.close();
 }
