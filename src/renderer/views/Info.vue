@@ -1,34 +1,12 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { onBeforeUnmount, onMounted } from 'vue';
 import { RefreshCw, Database, Server, ShieldCheck } from 'lucide-vue-next';
 import PageHeading from '../components/ui/PageHeading.vue';
-const status = ref(null);
-const config = ref(null);
-const loading = ref(false);
-const error = ref('');
-let timer;
-const progress = computed(() =>
-  Math.max(0, Math.min(Number(status.value?.progress_percent || 0), 100)),
-);
-async function refresh() {
-  if (loading.value) return;
-  loading.value = true;
-  error.value = '';
-  try {
-    config.value = await window.searchAPI.getConfig();
-    status.value = await window.searchAPI.getIndexStatus();
-  } catch (reason) {
-    status.value = null;
-    error.value = reason?.message || String(reason);
-  } finally {
-    loading.value = false;
-  }
-}
-onMounted(() => {
-  refresh();
-  timer = window.setInterval(refresh, 15000);
-});
-onBeforeUnmount(() => window.clearInterval(timer));
+import { useIndexStatus, PERCENT_COMPLETE } from '../composables/useIndexStatus.js';
+
+const { status, config, loading, error, progress, refresh, start, stop } = useIndexStatus();
+onMounted(start);
+onBeforeUnmount(stop);
 </script>
 
 <template>
@@ -80,7 +58,7 @@ onBeforeUnmount(() => window.clearInterval(timer));
         aria-label="Готовность индекса"
         :aria-valuenow="status ? progress : undefined"
         aria-valuemin="0"
-        aria-valuemax="100"
+        :aria-valuemax="PERCENT_COMPLETE"
       >
         <div
           class="h-full rounded-full bg-matrix-accent transition-[width] duration-500"
@@ -94,7 +72,7 @@ onBeforeUnmount(() => window.clearInterval(timer));
             : 'Состояние индекса станет доступно после подключения.'
         }}
       </p>
-      <p v-if="status && progress < 100" class="mt-2 text-xs leading-6 text-amber-200/80">
+      <p v-if="status && progress < PERCENT_COMPLETE" class="mx-warning mt-4 text-sm">
         Индекс обновляется. Поиск работает по уже готовым данным; выдача может быть неполной.
       </p>
       <p v-if="status?.updated_at" class="mt-4 text-xs text-matrix-muted">

@@ -1,21 +1,10 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
+import { createSearchState } from '../utils/searchState.js';
+import { createMonotonicIdGenerator } from '../utils/monotonicId.js';
+export { createSearchState } from '../utils/searchState.js';
 
-let lastTabId = 0;
-
-export function createSearchState(searchValue = '') {
-  return {
-    selectedFields: {},
-    collapsedFields: {},
-    results: [],
-    loading: false,
-    error: '',
-    meta: null,
-    received: 0,
-    hasSearched: false,
-    searchValue,
-  };
-}
+const nextTabId = createMonotonicIdGenerator();
 
 export const useTabStore = defineStore('tabs', () => {
   const state = ref({
@@ -27,8 +16,7 @@ export const useTabStore = defineStore('tabs', () => {
   });
 
   function addTab(searchValue = '') {
-    lastTabId = Math.max(Date.now(), lastTabId + 1);
-    const tab = { id: lastTabId, title: searchValue || 'Новый поиск' };
+    const tab = { id: nextTabId(), title: searchValue || 'Новый поиск' };
     state.value.tabs.push(tab);
     state.value.searchStates[tab.id] = createSearchState(searchValue);
     state.value.activeTabId = tab.id;

@@ -1,34 +1,32 @@
 import { FileService } from "../services/FileService.js";
 import { FileDialogHandler } from "./FileDialogHandler.js";
-
 import { StoreService } from "../services/StoreService.js";
 import { StoreHandler } from "./StoreHandler.js";
-
 import { SearchHandler } from "./SearchHandler.js";
+import { RecordsService } from "../services/RecordsService.js";
+import { RecordsHandler } from "./RecordsHandler.js";
 
 export class IPCManager {
-  constructor() {
-    this.handlers = [];
-    this.searchHandler = null;
-  }
+  constructor() { this.handlers = []; }
 
   init() {
-    const fileService = new FileService();
-    this.handlers.push(new FileDialogHandler(fileService));
-
+    if (this.handlers.length) return;
     const storeService = new StoreService({
       theme: { type: "string", default: "light" },
       lastOpenedFile: { type: "string", default: "" },
     });
-    this.handlers.push(new StoreHandler(storeService));
-
-    this.searchHandler = new SearchHandler(storeService);
-    this.handlers.push(this.searchHandler);
-
+    this.handlers = [
+      new FileDialogHandler(new FileService()),
+      new StoreHandler(storeService),
+      new SearchHandler(storeService),
+      new RecordsHandler(new RecordsService()),
+    ];
     this.handlers.forEach((handler) => handler.register());
   }
 
-  shutdown() {
-    this.searchHandler?.shutdown();
+  async shutdown() {
+    const handlers = this.handlers;
+    this.handlers = [];
+    await Promise.all(handlers.map((handler) => handler.shutdown()));
   }
 }

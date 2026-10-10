@@ -78,6 +78,18 @@ test("search client streams every server item in bounded renderer chunks", async
   assert.equal(capturedRequest.number, "70000000000");
   assert.deepEqual(chunks, [100, 100, 5]);
   assert.equal(meta.returned_hits, "205");
+
+  await service.search({ number: "70000000000", limit: 10000 });
+  assert.equal(capturedRequest.limit, 10000);
+  await service.search({ number: "70000000000", limit: 50 });
+  assert.equal(capturedRequest.limit, 50);
+  for (const limit of [0, 49, 10001, 1000.5, "10000", null, NaN, Infinity]) {
+    await assert.rejects(service.search({ number: "70000000000", limit }), /Лимит поиска/);
+    assert.equal(capturedRequest.limit, 50, "invalid limits never reach streamSearch");
+  }
+  await service.search({ number: "70000000000" });
+  assert.equal(capturedRequest.limit, 1000, "a report request does not change the configured default");
+  await service.dispose();
 });
 
 test("connection deadline errors are explained to the user", () => {

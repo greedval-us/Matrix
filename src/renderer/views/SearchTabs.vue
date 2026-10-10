@@ -39,7 +39,7 @@ watch(
 
 <template>
   <div class="flex h-full min-h-0 min-w-0 flex-col">
-    <div class="flex shrink-0 items-center gap-2 border-b border-matrix-border px-3 py-3 md:px-6">
+    <div class="search-tabs-toolbar flex shrink-0 items-center gap-2 border-b border-matrix-border px-3 py-3 md:px-6">
       <button
         class="mx-icon-button !h-7 !w-7"
         aria-label="Прокрутить вкладки влево"
@@ -49,7 +49,7 @@ watch(
       </button>
       <nav
         ref="tabsContainer"
-        class="flex min-w-0 flex-1 gap-2 overflow-x-auto"
+        class="search-tabs-list flex min-w-0 flex-1 gap-1.5 overflow-x-auto"
         aria-label="Вкладки поиска"
       >
         <TabHeader v-for="tab in tabStore.state.tabs" :key="tab.id" :tab="tab" />
@@ -62,7 +62,7 @@ watch(
         <ChevronRight aria-hidden="true" class="h-4 w-4" />
       </button>
       <button
-        class="mx-button shrink-0 !px-2.5 !py-2 text-xs"
+        class="mx-button search-new-tab shrink-0 !px-3 !py-2 text-xs"
         aria-label="Новый поиск"
         @click="addTab"
       >
@@ -72,3 +72,16 @@ watch(
     <SearchTabPanel />
   </div>
 </template>
+
+<style scoped>
+.search-tabs-toolbar {
+  background: rgb(var(--mx-rail-rgb) / 0.62);
+  backdrop-filter: blur(20px);
+}
+.search-tabs-list {
+  padding: 6px;
+  scrollbar-width: none;
+}
+.search-tabs-list::-webkit-scrollbar { display: none; }
+.search-new-tab { min-height: 36px; }
+</style>

@@ -14,7 +14,9 @@ export function groupSearchResults(results) {
   return [...sources.values()];
 }
 
-export function getSearchSuggestions(results, selectedFields, searchableFields, limit = 24) {
+export const SEARCH_SUGGESTION_LIMIT = 24;
+
+export function getSearchSuggestions(results, selectedFields, searchableFields, limit = SEARCH_SUGGESTION_LIMIT) {
   const seen = new Set(
     Object.entries(selectedFields).map(
       ([key, field]) => key + ':' + String(field?.value || '').trim(),

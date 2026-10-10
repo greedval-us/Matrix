@@ -1,6 +1,6 @@
 <script setup>
 import { computed, ref, watch, nextTick } from 'vue';
-import { ChevronDown, SlidersHorizontal, Database } from 'lucide-vue-next';
+import { ChevronDown, Search, Database, Info } from 'lucide-vue-next';
 import SearchIcons from './SearchIcons.vue';
 import SearchInputs from './SearchInputs.vue';
 import SearchButton from './SearchButton.vue';
@@ -31,22 +31,24 @@ watch(activeBase, async (name) => {
 
 <template>
   <div
-    class="h-full min-h-0 min-w-0 overflow-auto lg:grid lg:grid-cols-[336px_minmax(0,1fr)] lg:overflow-hidden xl:grid-cols-[360px_minmax(0,1fr)]"
+    class="h-full min-h-0 min-w-0 overflow-auto lg:grid lg:grid-cols-[328px_minmax(0,1fr)] lg:overflow-hidden xl:grid-cols-[352px_minmax(0,1fr)]"
   >
     <aside
-      class="space-y-6 border-b border-matrix-border bg-matrix-rail/50 p-5 lg:overflow-y-auto lg:border-b-0 lg:border-r xl:p-6"
+      class="search-inspector space-y-6 border-b border-matrix-border p-5 lg:overflow-y-auto lg:border-b-0 lg:border-r xl:p-6"
     >
       <div>
-        <div class="flex items-center gap-2">
-          <SlidersHorizontal aria-hidden="true" class="h-4 w-4 text-matrix-accent" />
-          <h1 class="text-lg font-semibold tracking-tight">Параметры поиска</h1>
+        <div class="flex items-center gap-3">
+          <span class="search-heading-icon flex h-9 w-9 items-center justify-center rounded-xl">
+            <Search aria-hidden="true" class="h-[18px] w-[18px] text-matrix-accent" />
+          </span>
+          <h1 class="text-xl font-semibold tracking-tight">Новый запрос</h1>
         </div>
         <p class="mt-2 text-sm leading-6 text-matrix-muted">
-          Выберите поля и введите данные. Несколько полей уточняют запрос.
+          Выберите данные для поиска. Добавьте несколько полей, чтобы уточнить запрос.
         </p>
       </div>
       <div>
-        <p class="mx-eyebrow mb-3">Тип данных</p>
+        <p class="mb-3 text-xs font-medium text-matrix-muted">Искать по</p>
         <SearchIcons :tab-id="tabId" />
       </div>
       <form class="space-y-5" @submit.prevent="submitSearch">
@@ -54,15 +56,17 @@ watch(activeBase, async (name) => {
         <SearchButton :tab-id="tabId" />
       </form>
       <div
-        class="rounded-lg border border-matrix-border px-3 py-2.5 text-xs leading-5 text-matrix-muted"
+        class="search-query-hint flex items-start gap-2.5 rounded-xl px-3 py-3 text-xs leading-5 text-matrix-muted"
       >
-        Для поиска по части значения используйте маски
-        <span class="text-matrix-secondary">%</span> и <span class="text-matrix-secondary">?</span>.
-        Данные передаются серверу как введены.
+        <Info aria-hidden="true" class="mt-0.5 h-3.5 w-3.5 shrink-0" />
+        <p>Для поиска по части значения используйте
+          <span class="font-medium text-matrix-secondary">%</span> и
+          <span class="font-medium text-matrix-secondary">?</span>.
+        </p>
       </div>
       <details v-if="baseGroups.length" open class="border-t border-matrix-border pt-5">
         <summary
-          class="flex cursor-pointer items-center gap-2 text-xs font-medium text-matrix-secondary"
+          class="flex cursor-pointer items-center gap-2 text-[13px] font-medium text-matrix-secondary"
         >
           <Database aria-hidden="true" class="h-3.5 w-3.5" />Источники
           <span class="mx-badge ml-auto">{{ baseGroups.length }}</span
@@ -74,7 +78,7 @@ watch(activeBase, async (name) => {
             :key="base.source"
             type="button"
             :class="[
-              'flex w-full items-start justify-between gap-2 rounded-lg px-3 py-2.5 text-left text-xs',
+              'search-source-link flex w-full items-start justify-between gap-2 rounded-xl px-3 py-2.5 text-left text-[13px]',
               activeBase === base.name
                 ? 'bg-matrix-accent/10 text-matrix-accent'
                 : 'text-matrix-muted hover:bg-matrix-raised',
@@ -96,3 +100,10 @@ watch(activeBase, async (name) => {
     </section>
   </div>
 </template>
+
+<style scoped>
+.search-inspector { background: rgb(var(--mx-rail-rgb) / 0.46); }
+.search-heading-icon { background: rgb(var(--mx-accent-rgb) / 0.09); }
+.search-query-hint { background: rgb(var(--mx-raised-rgb) / 0.6); }
+.search-source-link { transition: background var(--mx-motion-fast), color var(--mx-motion-fast); }
+</style>

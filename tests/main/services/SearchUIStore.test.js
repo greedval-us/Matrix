@@ -134,3 +134,61 @@ test('connection failure is visible and cleanup failure cannot replace it', asyn
   assert.equal(search.getError(id), 'connection unavailable');
   assert.equal(search.getLoading(id), false);
 });
+
+test('cancelled searches keep earlier records but ignore chunks arriving after cancellation', async () => {
+  let progress, complete;
+  const history = [];
+  const { search, id } = setup({
+    onProgress: (callback) => { progress = callback; return () => {}; },
+    run: () => new Promise((resolve) => { complete = resolve; }),
+  });
+  window.storeAPI.addHistoryItem = async (key, value) => {
+    history.push({ key, value });
+    return { id: key, key, value };
+  };
+  const running = search.search(id);
+  await new Promise((resolve) => setImmediate(resolve));
+  progress({ tabId: id, type: 'chunk', received: 1, items: [{ object_data: { source_name: 'source', fields: { number: 'first' } } }] });
+  search.cancelSearch(id);
+  progress({ tabId: id, type: 'chunk', received: 2, items: [{ object_data: { source_name: 'source', fields: { number: 'late' } } }] });
+  complete({ cancelled: true });
+  await running;
+  assert.deepEqual(search.getResults(id).map((item) => item.fields), [[['number', 'first']]]);
+  assert.equal(search.getReceived(id), 1);
+  assert.equal(search.getMeta(id).cancelled, true);
+  assert.deepEqual(history, [{ key: 'number', value: '70000000000' }]);
+});
+
+test('concurrent tabs preserve complete raw queries and deduplicate independently', async () => {
+  const listeners = new Set();
+  const requests = new Map();
+  const { search, tabs, id } = setup({
+    onProgress: (callback) => { listeners.add(callback); return () => listeners.delete(callback); },
+    run: (tabId, payload) => new Promise((resolve) => requests.set(tabId, { payload, resolve })),
+  });
+  search.setFieldValue(id, 'number', ' 123 ');
+  const second = tabs.addTab();
+  search.toggleField(second, 'mail');
+  search.setFieldValue(second, 'mail', 'sample@example.test');
+  const firstRun = search.search(id);
+  const secondRun = search.search(second);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(requests.get(id).payload, {
+    fio: '', date_of_birth: '', number: ' 123 ', mail: '', passport: '', inn: '', snils: '',
+    telegram: '', vk: '', facebook: '', imei: '', imsi: '', grz: '', vin: '',
+  });
+  assert.equal(search.getSelectedFields(id).number.valid, false);
+  const record = { object_data: { source_name: 'shared-source', fields: { number: 'same', id: 'hidden' } } };
+  for (const tabId of [id, second]) {
+    for (const listener of listeners) listener({ tabId, type: 'chunk', received: 2, items: [record, record] });
+  }
+  requests.get(id).resolve({ returned_hits: '2' });
+  await firstRun;
+  assert.equal(search.getLoading(id), false);
+  assert.equal(search.getLoading(second), true);
+  assert.equal(search.getResults(id).length, 1);
+  assert.equal(search.getResults(second).length, 1);
+  requests.get(second).resolve({ returned_hits: '2' });
+  await secondRun;
+  assert.equal(listeners.size, 0);
+});

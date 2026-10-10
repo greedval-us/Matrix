@@ -1,56 +1,28 @@
-import { defineStore } from "pinia"
-import { reactive, readonly } from "vue"
-import { NotesService } from "../services/NotesService"
+import { defineStore } from 'pinia';
+import { NotesService } from '../services/NotesService.js';
+import { usePendingOperations } from './usePendingOperations.js';
 
-export const useNotesStore = defineStore("notes", () => {
-  const notesService = new NotesService(window.storeAPI)
+export const useNotesStore = defineStore('notes', () => {
+  const service = new NotesService();
+  const { state, publicState, run } = usePendingOperations({ notes: [] });
 
-  const state = reactive({
-    notes: [],
-    isLoading: false,
-  })
+  const loadNotes = () => run(async () => { state.notes = await service.loadNotes(); });
+  const addNote = text => run(async () => {
+    const note = await service.addNote(text);
+    state.notes.push(note);
+    return note;
+  });
+  const updateNote = (id, text) => run(async () => {
+    await service.updateNote(id, text);
+    const note = state.notes.find(item => item.id === id);
+    if (note) note.text = text;
+  });
+  const deleteNote = id => run(async () => {
+    await service.deleteNote(id);
+    state.notes = state.notes.filter(item => item.id !== id);
+  });
+  // Clearing the view retains the existing local-only semantics.
+  const clearNotes = () => { state.notes = []; };
 
-  const loadNotes = async () => {
-    state.isLoading = true
-    await notesService.loadNotes()
-    state.notes = notesService.notes
-    state.isLoading = false
-  }
-
-  const addNote = async (text) => {
-    state.isLoading = true
-    const note = await notesService.addNote(text)
-    state.notes = notesService.notes
-    state.isLoading = false
-    return note
-  }
-
-  const updateNote = async (id, text) => {
-    state.isLoading = true
-    await notesService.updateNote(id, text)
-    state.notes = notesService.notes
-    state.isLoading = false
-  }
-
-  const deleteNote = async (id) => {
-    state.isLoading = true
-    await notesService.deleteNote(id)
-    state.notes = notesService.notes
-    state.isLoading = false
-  }
-
-  const clearNotes = () => {
-    notesService.clear()
-    state.notes = []
-  }
-
-  return {
-    state: readonly(state),
-    notesService,
-    loadNotes,
-    addNote,
-    updateNote,
-    deleteNote,
-    clearNotes,
-  }
-})
+  return { state: publicState, loadNotes, addNote, updateNote, deleteNote, clearNotes };
+});

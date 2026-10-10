@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createPinia, setActivePinia } from 'pinia';
 import { usePackagesSearchStoreUI } from '../../../src/renderer/stores/uistore/packejesSearchStoreUI.js';
+import ExportManager from '../../../src/renderer/services/export/MenegerExport.js';
 
 function setup({
   openFolder = async () => 'C:/exports',
@@ -96,4 +97,53 @@ test('a batch without export formats never asks for a folder', async () => {
 
   assert.equal(opened, false);
   assert.ok(store.logs.some((log) => log.includes('формат')));
+});
+
+test('stopping while export prepares content prevents writing that file', async (t) => {
+  const originalExport = ExportManager.prototype.export;
+  let contentReady;
+  let exportStarted;
+  const started = new Promise((resolve) => { exportStarted = resolve; });
+  ExportManager.prototype.export = () => {
+    exportStarted();
+    return new Promise((resolve) => { contentReady = resolve; });
+  };
+  t.after(() => { ExportManager.prototype.export = originalExport; });
+  const { store, writes } = setup();
+  store.queryText = '70000000000';
+  const running = store.runSearch();
+  await started;
+  store.cancelSearch();
+  contentReady('prepared content');
+  await running;
+  assert.deepEqual(writes, []);
+  assert.equal(store.isRunning, false);
+});
+
+test('batch removes empty rows while preserving raw whitespace and repeated values', async () => {
+  const payloads = [];
+  const { store, writes } = setup({ run: async (_id, payload) => {
+    payloads.push(payload);
+    return { returned_hits: '0' };
+  } });
+  store.queryText = '\r\n 70000000000 \r\n  \r\n 70000000000 \r\n';
+  await store.runSearch();
+  assert.deepEqual(payloads, [{ number: ' 70000000000 ' }, { number: ' 70000000000 ' }]);
+  assert.equal(writes.length, 2);
+});
+
+test('batch continues after one rejected query and closes the shared client once', async () => {
+  let calls = 0, destroyed = 0;
+  const { store, writes } = setup({ run: async () => {
+    if (++calls === 1) throw new Error('query unavailable');
+    return { returned_hits: '0' };
+  } });
+  window.searchAPI.destroyClient = async () => { destroyed++; };
+  store.queryText = 'first\nsecond';
+  await store.runSearch();
+  assert.equal(calls, 2);
+  assert.equal(destroyed, 1);
+  assert.deepEqual(writes.map(({ path }) => path), ['C:/exports/2-second.txt']);
+  assert.ok(store.logs.some((line) => line.includes('Ошибка запроса 1: query unavailable')));
+  assert.equal(store.isRunning, false);
 });

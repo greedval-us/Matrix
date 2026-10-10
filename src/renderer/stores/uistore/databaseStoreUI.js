@@ -1,105 +1,29 @@
-import { defineStore } from "pinia"
-import { reactive, computed } from "vue"
-import { useSearchStore } from "../searchStore"
+import { defineStore } from 'pinia';
+import { reactive, computed } from 'vue';
+import { useSearchStore } from '../searchStore.js';
+import { ALL_SOURCE_TYPES, SORT_ASCENDING, SORT_DESCENDING, getCatalogTypes, selectCatalogRows, sumCatalogCounts } from '../../utils/catalog.js';
 
-export const useDatabaseStore = defineStore("database", () => {
-  const searchStore = useSearchStore()
-
-  const state = reactive({
-    rows: [],
-    selectedType: "Все",
-    sortKey: null,
-    sortDirection: "asc",
-    loading: false,
-    error: null,
-  })
-
-  const types = computed(() => {
-    const set = new Set(state.rows.map(r => r.type ?? "Неизвестно"))
-    return ["Все", ...Array.from(set).sort()]
-  })
-
-  const filteredRows = computed(() => {
-    let result =
-      state.selectedType === "Все"
-        ? [...state.rows]
-        : state.rows.filter(
-            r => (r.type ?? "Неизвестно") === state.selectedType
-          )
-
-    if (state.sortKey) {
-      result.sort((a, b) => {
-        const valA = a[state.sortKey] ?? ""
-        const valB = b[state.sortKey] ?? ""
-
-        if (state.sortKey === "count") {
-          return state.sortDirection === "asc"
-            ? (parseInt(valA) || 0) - (parseInt(valB) || 0)
-            : (parseInt(valB) || 0) - (parseInt(valA) || 0)
-        }
-
-        return state.sortDirection === "asc"
-          ? String(valA).localeCompare(String(valB))
-          : String(valB).localeCompare(String(valA))
-      })
-    }
-    return result
-  })
-
-  const filteredCountSum = computed(() =>
-    filteredRows.value.reduce(
-      (sum, row) => sum + (parseInt(row.count) || 0),
-      0
-    )
-  )
-
-  const filteredRowCount = computed(() => filteredRows.value.length)
-
+export const useDatabaseStore = defineStore('database', () => {
+  const searchStore = useSearchStore();
+  const state = reactive({ rows: [], selectedType: ALL_SOURCE_TYPES, sortKey: null, sortDirection: SORT_ASCENDING, loading: false, error: null });
+  const types = computed(() => getCatalogTypes(state.rows));
+  const filteredRows = computed(() => selectCatalogRows(state.rows, state));
+  const filteredCountSum = computed(() => sumCatalogCounts(filteredRows.value));
+  const filteredRowCount = computed(() => filteredRows.value.length);
   async function fetchAll() {
-    state.loading = true
-    state.error = null
-    try {
-      const payload = { request: "catalog" }
-      const result = await searchStore.listDatabases(payload)
-      state.rows = result
-    } catch (e) {
-      state.error = e.message ?? e.toString()
-    } finally {
-      state.loading = false
-    }
+    state.loading = true;
+    state.error = null;
+    try { state.rows = await searchStore.listDatabases({ request: 'catalog' }); }
+    catch (error) { state.error = error.message ?? error.toString(); }
+    finally { state.loading = false; }
   }
-
   function setSort(key) {
-    if (state.sortKey === key) {
-      state.sortDirection =
-        state.sortDirection === "asc" ? "desc" : "asc"
-    } else {
-      state.sortKey = key
-      state.sortDirection = "asc"
-    }
+    state.sortDirection = state.sortKey === key && state.sortDirection === SORT_ASCENDING ? SORT_DESCENDING : SORT_ASCENDING;
+    state.sortKey = key;
   }
-
-  function setFilter(type) {
-    state.selectedType = type
-  }
-
+  const setFilter = (type) => { state.selectedType = type; };
   function reset() {
-    state.rows = []
-    state.selectedType = "Все"
-    state.sortKey = null
-    state.sortDirection = "asc"
-    state.error = null
+    Object.assign(state, { rows: [], selectedType: ALL_SOURCE_TYPES, sortKey: null, sortDirection: SORT_ASCENDING, error: null });
   }
-
-  return {
-    state,
-    types,
-    filteredRows,
-    filteredCountSum,
-    filteredRowCount,
-    fetchAll,
-    setSort,
-    setFilter,
-    reset,
-  }
-})
+  return { state, types, filteredRows, filteredCountSum, filteredRowCount, fetchAll, setSort, setFilter, reset };
+});

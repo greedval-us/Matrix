@@ -3,6 +3,7 @@ export const sidebarItems = [
   { to: "/search", icon: "SearchCheckIcon", label: "Поиск" },
   { to: "/package-search", icon: "PackageSearch", label: "Пакетный поиск" },
   { to: "/database", icon: "Database", label: "База данных" },
+  { to: "/records", icon: "Table2", label: "Записи" },
   { to: "/settings", icon: "Settings", label: "Настройки" },
   { to: "/info", icon: "InfoIcon", label: "Информация" },
 ];

@@ -1,70 +1,37 @@
-import { BrowserWindow, Menu, app } from 'electron';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import { BrowserWindow, Menu, app } from "electron";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { showWindowAfterSplash } from "./windowLifecycle.js";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-let win;
-let splash;
+const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
+const publicPath = (...segments) => path.join(moduleDirectory, "..", "public", ...segments);
 
 export default function createWindow() {
-  splash = new BrowserWindow({
-    width: 400,
-    height: 300,
-    transparent: true,
-    frame: false,
-    alwaysOnTop: true,
-    center: true,
-    resizable: false,
-    icon: path.join(__dirname, '..', 'public', 'matrix.ico'),
-    show: true,
+  const splash = new BrowserWindow({
+    width: 400, height: 300, transparent: true, frame: false,
+    alwaysOnTop: true, center: true, resizable: false,
+    icon: publicPath("matrix.ico"), show: true,
   });
+  splash.loadFile(publicPath("splash.html"));
 
-  splash.loadFile(path.join(__dirname, '..', 'public', 'splash.html'));
-
-  win = new BrowserWindow({
-    width: 1200,
-    height: 700,
-    minWidth: 820,
-    minHeight: 560,
-    show: false,
-    backgroundColor: '#0d1117',
-    icon: path.join(__dirname, '..', 'public', 'matrix.ico'),
+  const main = new BrowserWindow({
+    width: 1200, height: 700, minWidth: 820, minHeight: 560,
+    show: false, backgroundColor: "#f5f5f7", icon: publicPath("matrix.ico"),
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.resolve(moduleDirectory, "../../build/main/preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
     },
   });
-
+  showWindowAfterSplash(main, splash);
   Menu.setApplicationMenu(null);
 
-  const isDev = !app.isPackaged;
-
-  if (isDev) {
-    win
-      .loadURL('http://localhost:5173')
-      .catch((err) => console.error('Failed to load dev server:', err));
-    if (process.env.MATRIX_DEVTOOLS === '1') {
-      win.webContents.openDevTools({ mode: 'detach' });
-    }
-  } else {
-    win
-      .loadFile(path.join(__dirname, '..', '..', 'build', 'renderer', 'index.html'))
-      .catch((err) => console.error('Failed to load index.html:', err));
-  }
-
-  const minSplashTime = 2000;
-  const splashStart = Date.now();
-
-  win.once('ready-to-show', () => {
-    const elapsed = Date.now() - splashStart;
-    const delay = Math.max(0, minSplashTime - elapsed);
-
-    setTimeout(() => {
-      if (splash && !splash.isDestroyed()) splash.destroy();
-      win.show();
-    }, delay);
-  });
+  const devServerUrl = !app.isPackaged && process.env.MATRIX_DEV_SERVER_URL;
+  const loading = devServerUrl
+    ? main.loadURL(devServerUrl)
+    : main.loadFile(path.resolve(moduleDirectory, "../../build/renderer/index.html"));
+  loading.catch((error) => console.error("Failed to load Matrix:", error));
+  if (devServerUrl && process.env.MATRIX_DEVTOOLS === "1") main.webContents.openDevTools({ mode: "detach" });
+  return main;
 }

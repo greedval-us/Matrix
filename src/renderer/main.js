@@ -3,7 +3,9 @@ import App from "./App.vue";
 import router from "./router";
 import pinia from "./stores";
 import "./style.css";
+import { initializeAppearance } from './composables/useAppearance.js';
 
+initializeAppearance();
 const app = createApp(App);
 app.use(router);
 app.use(pinia);
