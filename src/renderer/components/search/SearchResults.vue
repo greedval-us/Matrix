@@ -32,7 +32,11 @@ const { loading, error, meta, received, hasSearched, activeBase, bases, recordCo
       </div>
       <span v-if="hasSearched" class="mx-badge mt-1">{{ formatResultCount(bases.length) }} источников</span>
     </header>
-    <ReportPanel v-if="reportState" :state="reportState"
+    <button v-if="reportState?.expanded === false" type="button"
+      class="mx-button report-show-action" @click="searchUI.expandReport(tabId)">
+      {{ reportState.report ? 'Показать собранный отчёт' : 'Показать сведения об отчёте' }}
+    </button>
+    <ReportPanel v-else-if="reportState" :state="reportState"
       @cancel="searchUI.cancelReport(tabId)" @save="searchUI.saveCollectedReport(tabId)" />
     <SearchResultsStatus
       :has-searched="hasSearched" :loading="loading" :meta="meta" :error="error"

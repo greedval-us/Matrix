@@ -133,7 +133,7 @@ try {
   assert.match(report, /&lt;document&gt;/);
   assert.match(report, /&lt;Report source&gt;/);
   assert.match(report, /&lt;partial warning&gt;/);
-  assert.match(report, /В DOCX сохраняется краткая сводка найденных значений с названиями источников/);
+  assert.match(report, /В DOCX сначала перечислены все найденные поисковые значения, затем показаны связанные данные отдельно по каждой базе/);
   assert.doesNotMatch(report, /Полные записи, связи и ход поиска включены в DOCX/);
   assert.doesNotMatch(report, /<document>|<Report source>/);
   const collectingReport = await renderComponent('/components/report/ReportPanel.vue', {

@@ -1,6 +1,8 @@
 import { CFB } from 'xlsx/xlsx.mjs';
 import { getSearchField } from '../../../shared/constants/searchItems.js';
 import { key as fieldLabels } from '../../../shared/constants/translateKey.js';
+import { groupReportRecords } from '../../utils/reportRecordGroups.js';
+import { buildReportSearchSummary } from '../../utils/reportSearchSummary.js';
 import { nonEmptyResultFields } from '../../../shared/utils/resultFields.js';
 
 const XML_HEADER = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
@@ -12,6 +14,12 @@ const TABLE_BORDER_COLOR = 'D9D9D9';
 const TABLE_HEADER_FILL = 'E9EDF1';
 const TABLE_ALTERNATE_FILL = 'F7F8FA';
 const BODY_FONT = 'Arial';
+const PHONE_LABELS = Object.freeze({
+  number_work: 'Рабочий телефон', phone_work: 'Рабочий телефон', work_number: 'Рабочий телефон', work_phone: 'Рабочий телефон',
+  number_house: 'Домашний телефон', phone_house: 'Домашний телефон', home_phone: 'Домашний телефон', home_number: 'Домашний телефон',
+  phone_mob: 'Мобильный телефон', mobile_phone: 'Мобильный телефон', phone_dop: 'Дополнительный телефон',
+  phone_client: 'Телефон клиента', phone_contragent: 'Телефон контрагента',
+});
 
 // XML 1.0 cannot represent some source characters. Keep their visible escape
 // sequences in the report instead of silently discarding original data.
@@ -26,14 +34,6 @@ function xml(value) {
   }).join('');
 }
 
-function stableValue(value) {
-  if (Array.isArray(value)) return `[${value.map(stableValue).join(',')}]`;
-  if (value && typeof value === 'object') {
-    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableValue(value[key])}`).join(',')}}`;
-  }
-  return `${typeof value}:${JSON.stringify(value)}`;
-}
-
 function valueText(value) {
   if (value === undefined) return 'Не задано';
   if (value === null) return 'null';
@@ -45,8 +45,34 @@ function valueText(value) {
 
 function fieldText(key) {
   const original = String(key);
-  const label = getSearchField(original)?.label || (Object.hasOwn(fieldLabels, original) ? fieldLabels[original] : '');
+  const label = (Object.hasOwn(PHONE_LABELS, original) ? PHONE_LABELS[original] : '')
+    || getSearchField(original)?.label || (Object.hasOwn(fieldLabels, original) ? fieldLabels[original] : '');
   return label || original;
+}
+
+function fieldOrder(key) {
+  const label = fieldText(key).toLowerCase();
+  if (label === 'фио') return 0;
+  if (label === 'дата рождения') return 1;
+  if (label.includes('телефон')) return 2;
+  if (label === 'email') return 3;
+  return 4;
+}
+
+// Only this internal wrapper enables rich table paragraphs. Source objects are
+// always converted to escaped text by valueText/textRun, never interpreted as XML.
+class RecordFieldsCell {
+  constructor(fields) {
+    this.fields = [...fields].sort(([left], [right]) => fieldOrder(left) - fieldOrder(right));
+  }
+}
+
+class AggregateCell {
+  constructor(key, item) {
+    this.fields = nonEmptyResultFields([
+      ['Поле', fieldText(key)], ['Значение', item.value], ['Количество', item.count],
+    ]);
+  }
 }
 
 function textRun(text, { bold = false, color = '000000' } = {}) {
@@ -63,6 +89,10 @@ function paragraph(text, { style = 'Normal', keepNext = false, bold = false, ali
   return `<w:p><w:pPr><w:pStyle w:val="${style}"/>${keepNext ? '<w:keepNext/>' : ''}<w:jc w:val="${alignment}"/></w:pPr>${textRun(text, { bold })}</w:p>`;
 }
 
+function fieldParagraph(key, value) {
+  return `<w:p><w:pPr><w:pStyle w:val="TableText"/><w:jc w:val="left"/></w:pPr>${textRun(`${fieldText(key)}: `, { bold: true })}${textRun(valueText(value))}</w:p>`;
+}
+
 function heading(text) {
   return paragraph(text, { style: 'Heading1', keepNext: true });
 }
@@ -72,7 +102,15 @@ function table(headers, rows, widths) {
   const properties = `<w:tblPr><w:tblW w:w="${PAGE.contentWidth}" w:type="dxa"/><w:tblBorders>${border}</w:tblBorders><w:tblLayout w:type="fixed"/><w:tblCellMar><w:top w:w="100" w:type="dxa"/><w:left w:w="130" w:type="dxa"/><w:bottom w:w="100" w:type="dxa"/><w:right w:w="130" w:type="dxa"/></w:tblCellMar></w:tblPr>`;
   const rowXml = (values, index, isHeader = false) => {
     const shading = isHeader ? TABLE_HEADER_FILL : index % 2 ? TABLE_ALTERNATE_FILL : 'FFFFFF';
-    const cells = values.map((value, column) => `<w:tc><w:tcPr><w:tcW w:w="${widths[column]}" w:type="dxa"/><w:shd w:val="clear" w:fill="${shading}"/><w:vAlign w:val="top"/></w:tcPr>${paragraph(value, { style: 'TableText', bold: isHeader, keepNext: isHeader })}</w:tc>`).join('');
+    const cells = values.map((value, column) => {
+      const content = value instanceof AggregateCell
+        ? paragraph('Сводные данные сервера', { style: 'TableText', bold: true })
+          + value.fields.map(([key, fieldValue]) => fieldParagraph(key, fieldValue)).join('')
+        : value instanceof RecordFieldsCell
+        ? value.fields.map(([key, fieldValue]) => fieldParagraph(key, fieldValue)).join('')
+        : paragraph(value, { style: 'TableText', bold: isHeader, keepNext: isHeader });
+      return `<w:tc><w:tcPr><w:tcW w:w="${widths[column]}" w:type="dxa"/><w:shd w:val="clear" w:fill="${shading}"/><w:vAlign w:val="top"/></w:tcPr>${content}</w:tc>`;
+    }).join('');
     return `<w:tr>${isHeader ? '<w:trPr><w:tblHeader/><w:cantSplit/></w:trPr>' : ''}${cells}</w:tr>`;
   };
   return `<w:tbl>${properties}<w:tblGrid>${widths.map((width) => `<w:gridCol w:w="${width}"/>`).join('')}</w:tblGrid>${rowXml(headers, 0, true)}${rows.map((row, index) => rowXml(row, index)).join('')}</w:tbl>${paragraph('', { style: 'TableGap' })}`;
@@ -105,29 +143,19 @@ function formattedDate(value) {
 }
 
 function sourceReferences(keys, sourceNames) {
-  return [...new Set((keys || []).filter((key) => key != null && String(key).trim() !== '')
-    .map((key) => sourceNames.get(String(key)) || String(key)))].join(', ') || 'Не указан';
-}
-
-function summarizeFields(records) {
-  const fields = new Map();
-  for (const record of records) {
-    for (const [key, value] of nonEmptyResultFields(record.fields)) {
-      const values = fields.get(String(key)) || new Map();
-      const identity = stableValue(value);
-      const entry = values.get(identity) || { value, sources: new Set() };
-      for (const source of record.sources || []) entry.sources.add(source);
-      values.set(identity, entry);
-      fields.set(String(key), values);
-    }
-  }
-  return fields;
+  const ids = [...new Set((Array.isArray(keys) ? keys : [])
+    .filter((key) => key != null && String(key).trim() !== '').map(String))];
+  return ids.length ? ids.map((key) => sourceNames.get(key) || key) : ['База не указана'];
 }
 
 function documentBody(report) {
   const sourceNames = new Map((report.sources || []).map((source) => [
     String(source.id), String(source.name ?? '').trim() ? String(source.name) : String(source.id),
   ]));
+  const repeatedNames = new Set([...sourceNames.values()].filter((name, index, names) => names.indexOf(name) !== index));
+  for (const [id, name] of sourceNames) {
+    if (repeatedNames.has(name)) sourceNames.set(id, `${name} (${id})`);
+  }
   const body = [
     paragraph('Отчёт по результатам поиска', { style: 'Title', keepNext: true }),
     paragraph(`Исходный запрос: ${queryText(report.seedQuery)}`),
@@ -138,28 +166,29 @@ function documentBody(report) {
   else if (!report.complete || causes.length) body.push(paragraph('Сбор завершён частично.', { bold: true }));
   causes.forEach((cause) => body.push(paragraph(cause, { style: 'Note' })));
 
-  const rows = [];
-  for (const [key, values] of summarizeFields(report.records || [])) {
-    for (const entry of values.values()) {
-      rows.push([fieldText(key), valueText(entry.value), sourceReferences([...entry.sources], sourceNames)]);
+  const summary = buildReportSearchSummary(report);
+  const rows = groupReportRecords(report.records || []).flatMap((group) =>
+    sourceReferences(group.sources, sourceNames).map((source) => [source, new RecordFieldsCell(group.fields)]));
+  for (const aggregate of report.aggregates || []) {
+    for (const item of Array.isArray(aggregate.items) ? aggregate.items : []) {
+      if (!item || !nonEmptyResultFields([['value', item.value], ['count', item.count]]).length) continue;
+      for (const source of sourceReferences(aggregate.sources, sourceNames)) {
+        rows.push([source, new AggregateCell(aggregate.key, item)]);
+      }
     }
   }
-  if (rows.length) body.push(table(['Поле', 'Значение', 'Источники'], rows, [2200, 4800, 2638]));
-
-  const aggregates = (report.aggregates || []).filter((aggregate) => aggregate.items?.length);
-  if (aggregates.length) {
-    body.push(heading('Сводные данные сервера'));
-    if (aggregates.some((aggregate) => !aggregate.sources?.length)) {
-      body.push(paragraph('Источник сводных данных не указан.', { style: 'Note', keepNext: true }));
-    }
-    const aggregateSources = aggregates.flatMap((aggregate) => aggregate.sources || []);
-    if (aggregateSources.length) {
-      body.push(paragraph(`Источники: ${sourceReferences(aggregateSources, sourceNames)}.`, { style: 'Note', keepNext: true }));
-    }
-    body.push(table(['Поле', 'Значение', 'Количество'], aggregates.flatMap((aggregate) =>
-      aggregate.items.map((item) => [fieldText(aggregate.key), valueText(item.value), valueText(item.count)])), [2200, 4800, 2638]));
-  }
-  if (!rows.length && !aggregates.length) body.push(paragraph('Данные не найдены.'));
+  if (summary.length || rows.length) {
+    body.push(heading('Найденные поисковые значения'));
+    body.push(summary.length
+      ? table(['Поле', 'Все найденные значения'], summary.map(({ field, values }) => [
+        getSearchField(field)?.label || field, values.join('; '),
+      ]), [2200, 7438])
+      : paragraph('Поисковые значения не найдены.'));
+    body.push(heading('Данные по базам'));
+    if (rows.length) {
+      body.push(table(['База данных', 'Связанные данные'], rows, [2300, 7338]));
+    } else body.push(paragraph('Связанные данные по базам не получены.'));
+  } else body.push(paragraph('Данные не найдены.'));
   body.push(`<w:sectPr><w:headerReference w:type="default" r:id="rIdHeader"/><w:footerReference w:type="default" r:id="rIdFooter"/><w:pgSz w:w="${PAGE.width}" w:h="${PAGE.height}"/><w:pgMar w:top="${PAGE.margin}" w:right="${PAGE.margin}" w:bottom="${PAGE.margin}" w:left="${PAGE.margin}" w:header="567" w:footer="567" w:gutter="0"/></w:sectPr>`);
   return body.join('');
 }

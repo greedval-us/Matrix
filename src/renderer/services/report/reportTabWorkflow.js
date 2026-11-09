@@ -3,7 +3,7 @@ import { getReportSeedQuery } from '../../../shared/utils/reportIdentifiers.js';
 export function createReportTabState() {
   return {
     loading: false, stopping: false, error: '', report: null,
-    progress: null, saving: false, notice: '',
+    progress: null, saving: false, notice: '', expanded: true,
   };
 }
 
@@ -13,6 +13,16 @@ export function createReportTabWorkflow({ states, createState, getTab, getQuery,
   const jobs = new Map();
   const getState = id => states[id] || null;
   const isRunning = id => jobs.has(id);
+
+  function collapse(id) {
+    const state = states[id];
+    if (state && !state.loading) state.expanded = false;
+  }
+
+  function expand(id) {
+    const state = states[id];
+    if (state) state.expanded = true;
+  }
 
   function canCollect(id) {
     try { return Object.keys(getReportSeedQuery(getQuery(id))).length > 0; }
@@ -80,5 +90,5 @@ export function createReportTabWorkflow({ states, createState, getTab, getQuery,
     delete states[id];
   }
 
-  return { getState, isRunning, canCollect, collect, cancel, save, clear };
+  return { getState, isRunning, canCollect, collect, cancel, save, clear, collapse, expand };
 }

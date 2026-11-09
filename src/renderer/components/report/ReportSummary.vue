@@ -44,7 +44,7 @@ const seed = computed(() => Object.entries(props.report.seedQuery || {})
         </ul>
       </div>
       <button v-if="hasMore" type="button" class="mx-button !py-2 text-xs" @click="expanded = true">Показать все значения и источники</button>
-      <p class="text-xs leading-5 text-matrix-muted">В DOCX сохраняется краткая сводка найденных значений с названиями источников.</p>
+      <p class="text-xs leading-5 text-matrix-muted">В DOCX сначала перечислены все найденные поисковые значения, затем показаны связанные данные отдельно по каждой базе.</p>
     </div>
   </details>
 </template>

@@ -103,6 +103,7 @@ export const useSearchUIStore = defineStore('searchUI', () => {
     const operation = { cancelled: false };
     pendingSearches.set(id, operation);
     const searchStore = useSearchStore();
+    reports.collapse(id);
     clearResults(id);
     updateState(id, 'hasSearched', true);
     setLoading(id, true);
@@ -167,6 +168,7 @@ export const useSearchUIStore = defineStore('searchUI', () => {
     canCollectReport: reports.canCollect,
     collectReport: reports.collect,
     cancelReport: reports.cancel,
+    expandReport: reports.expand,
     saveCollectedReport: reports.save,
     setActiveBase,
     getActiveBase,

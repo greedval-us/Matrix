@@ -40,6 +40,7 @@ const screenshots = [];
 const checks = [];
 const primaryAccents = {};
 const reportFixture = { mode: 'complete', saveOutcome: 'cancelled', folderOutcome: 'cancelled', requests: [], saved: [], pending: new Map() };
+const ordinarySearchRequests = [];
 const recordsColumns = [
   { key: 'title', label: 'Название', type: 'string', sortable: true },
   { key: 'score', label: 'Рейтинг', type: 'number', sortable: true },
@@ -136,9 +137,10 @@ function registerFixtureApis() {
     { name_table: 'visual_archive', name: 'Тестовый архив', type: 'Архив',
       info: 'Пример недоступного источника.', relevance_date: '2025', count: '1800', trust: '0' },
   ]);
-  handle(channels.search.run, (event, tabId, query) => {
+  handle(channels.search.run, async (event, tabId, query) => {
     assert.ok(sessions.has(tabId), 'Search must create its session before running');
     if (String(tabId).startsWith('report-')) return runReportFixture(event, tabId, query);
+    ordinarySearchRequests.push({ tabId, query: structuredClone(query) });
     assert.ok(query.number, 'The fixture search must contain its phone field');
     const source = 'visual_fixture';
     const items = [
@@ -154,6 +156,8 @@ function registerFixtureApis() {
       } } },
     ];
     event.sender.send(channels.search.progress, { tabId, type: 'chunk', items, received: items.length });
+    // Keep the fixture stream asynchronous so its progress reaches the bridge before completion.
+    await pause(30);
     return { took_ms: 124, received: items.length, partial: false, ...fixtureStatus };
   });
   ipcMain.on(channels.search.cancel, cancelFixtureSearch);
@@ -285,6 +289,7 @@ async function runReportFixture(event, tabId, query) {
   ];
   else throw new Error('Unexpected report fixture query: ' + JSON.stringify(query));
   event.sender.send(channels.search.progress, { tabId, type: 'chunk', items, received: items.length });
+  await pause(30);
   let cancelled = false;
   if (reportFixture.mode === 'slow') await new Promise(resolve => {
     const timer = setTimeout(() => { reportFixture.pending.delete(tabId); resolve(); }, 1800);
@@ -778,7 +783,7 @@ async function runRecordsCrudChecks() {
     ...[CONTROL_RECORD_FIELDS[0], { key: 'id', label: 'ID', type: 'text' }, ...CONTROL_RECORD_FIELDS.slice(1)]
       .map(field => ({ key: field.key, label: field.label, type: field.type === 'date' ? 'date' : 'text', sortable: true })));
   for (const row of recordsFixture.rows) row.values = { date: '2026-11-05', id: row.id, number: row.id,
-    fio: row.values.title, date_of_birth: '', executor: row.values.team, note: '', realization: '', intersections: '' };
+    fio: row.values.title, date_of_birth: '', initiator: '', executor: row.values.team, note: '', realization: '', intersections: '' };
   window.setContentSize(VIEWPORT.width, VIEWPORT.height);
   await window.webContents.debugger.sendCommand('Emulation.setDeviceMetricsOverride', {
     ...VIEWPORT, deviceScaleFactor: await evaluate(() => devicePixelRatio), mobile: false,
@@ -788,7 +793,7 @@ async function runRecordsCrudChecks() {
   await waitFor(() => document.querySelectorAll('.records-row').length > 0);
   await clickText('Новая запись');
   await waitFor(() => Boolean(document.querySelector('.record-editor-form')));
-  assert.equal(await evaluate(() => document.querySelectorAll('.record-editor-form input, .record-editor-form textarea').length), 8);
+  assert.equal(await evaluate(() => document.querySelectorAll('.record-editor-form input, .record-editor-form textarea').length), CONTROL_RECORD_FIELDS.length);
   assert.equal(await evaluate(() => Boolean(document.querySelector('.record-editor-form [name="id"]'))), false);
   await setInput('.record-editor-form [name="number"]', '00123');
   await setInput('.record-editor-form [name="fio"]', 'Проверка формы');
@@ -811,7 +816,7 @@ async function runRecordsCrudChecks() {
   await clickText('Сохранить', 'dialog button');
   await waitFor(() => !document.querySelector('dialog') && document.querySelector('.records-row')?.textContent.includes('Выполнено'));
   assert.equal(recordsFixture.rows.find(row => row.id === created.id).values.realization, 'Выполнено');
-  checks.push('Records CRUD: eight fields, retained draft on failure, confirmed create/edit, literal rendered text and stable ID');
+  checks.push('Records CRUD: all configured fields, retained draft on failure, confirmed create/edit, literal rendered text and stable ID');
 
   await click(`button[aria-label="Удалить запись ${created.id}"]`);
   await waitFor(() => document.querySelector('dialog')?.open);
@@ -882,6 +887,25 @@ async function runReportChecks() {
   assert.ok(await evaluate(() => document.querySelector('.report-panel').textContent.includes('Сводок сервера')));
   checks.push('Report: phone to passport to SNILS across sources, unique records with provenance, ordinary results preserved');
   await capture('search-report-light');
+
+  const reportQuery = await evaluate(() => document.querySelector('.search-value-input').value);
+  const reportRequestsBeforeOrdinary = reportFixture.requests.length;
+  const ordinaryRequestsBefore = ordinarySearchRequests.length;
+  await setInput('.search-value-input', '79000000001');
+  await click('.search-primary-action');
+  await waitFor(() => !document.querySelector('.report-panel') && document.querySelector('.report-show-action') &&
+    document.querySelector('.search-source-card')?.textContent.includes('79000000001') &&
+    document.querySelector('.search-primary-action')?.textContent.includes('Найти совпадения'));
+  assert.equal(ordinarySearchRequests.length, ordinaryRequestsBefore + 1);
+  assert.equal(reportFixture.requests.length, reportRequestsBeforeOrdinary);
+  assert.equal(sessions.size, 0);
+  await capture('search-after-report-light');
+  await click('.report-show-action');
+  await waitFor(() => document.querySelector('.report-panel h3')?.textContent === 'Отчёт готов');
+  assert.equal(reportFixture.requests.length, reportRequestsBeforeOrdinary, 'Reopening must retain the report without collecting again');
+  assert.ok(await evaluate(() => document.querySelector('.report-summary')?.textContent.includes('12345678901')));
+  await setInput('.search-value-input', reportQuery);
+  checks.push('Report to ordinary search: new matches visible, old report collapsed and reopened without recollection');
 
   const beforeSave = reportFixture.saved.length;
   await click('.report-save-action');
