@@ -1,6 +1,7 @@
 import { CFB } from 'xlsx/xlsx.mjs';
 import { getSearchField } from '../../../shared/constants/searchItems.js';
 import { key as fieldLabels } from '../../../shared/constants/translateKey.js';
+import { nonEmptyResultFields } from '../../../shared/utils/resultFields.js';
 
 const XML_HEADER = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
 const WORD_NAMESPACE = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
@@ -11,16 +12,6 @@ const TABLE_BORDER_COLOR = 'D9D9D9';
 const TABLE_HEADER_FILL = 'E9EDF1';
 const TABLE_ALTERNATE_FILL = 'F7F8FA';
 const BODY_FONT = 'Arial';
-const QUERY_STATUSES = Object.freeze({
-  completed: 'Завершён', partial: 'Частично выполнен', failed: 'Ошибка', cancelled: 'Остановлен',
-});
-const STAT_LABELS = Object.freeze({
-  records: 'Уникальных записей', sources: 'Источников в выдаче', queries: 'Поисковых запросов',
-  identifiers: 'Найденных идентификаторов', duplicates: 'Повторных записей объединено',
-  aggregates: 'Сводок сервера',
-  aggregateDuplicates: 'Повторных сводок объединено',
-  pendingQueries: 'Запросов осталось невыполнено',
-});
 
 // XML 1.0 cannot represent some source characters. Keep their visible escape
 // sequences in the report instead of silently discarding original data.
@@ -48,15 +39,14 @@ function valueText(value) {
   if (value === null) return 'null';
   if (value === '') return 'Пустая строка';
   if (typeof value === 'string') return value;
-  if (typeof value === 'number') return `${value} [число]`;
-  if (typeof value === 'boolean') return `${value} [логическое значение]`;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
   return JSON.stringify(value, null, 2) ?? String(value);
 }
 
 function fieldText(key) {
   const original = String(key);
   const label = getSearchField(original)?.label || (Object.hasOwn(fieldLabels, original) ? fieldLabels[original] : '');
-  return label && label !== original ? `${label} (${original})` : original;
+  return label || original;
 }
 
 function textRun(text, { bold = false, color = '000000' } = {}) {
@@ -73,8 +63,8 @@ function paragraph(text, { style = 'Normal', keepNext = false, bold = false, ali
   return `<w:p><w:pPr><w:pStyle w:val="${style}"/>${keepNext ? '<w:keepNext/>' : ''}<w:jc w:val="${alignment}"/></w:pPr>${textRun(text, { bold })}</w:p>`;
 }
 
-function heading(text, level = 1) {
-  return paragraph(text, { style: `Heading${level}`, keepNext: true });
+function heading(text) {
+  return paragraph(text, { style: 'Heading1', keepNext: true });
 }
 
 function table(headers, rows, widths) {
@@ -82,7 +72,7 @@ function table(headers, rows, widths) {
   const properties = `<w:tblPr><w:tblW w:w="${PAGE.contentWidth}" w:type="dxa"/><w:tblBorders>${border}</w:tblBorders><w:tblLayout w:type="fixed"/><w:tblCellMar><w:top w:w="100" w:type="dxa"/><w:left w:w="130" w:type="dxa"/><w:bottom w:w="100" w:type="dxa"/><w:right w:w="130" w:type="dxa"/></w:tblCellMar></w:tblPr>`;
   const rowXml = (values, index, isHeader = false) => {
     const shading = isHeader ? TABLE_HEADER_FILL : index % 2 ? TABLE_ALTERNATE_FILL : 'FFFFFF';
-    const cells = values.map((value, column) => `<w:tc><w:tcPr><w:tcW w:w="${widths[column]}" w:type="dxa"/><w:shd w:val="clear" w:fill="${shading}"/><w:vAlign w:val="center"/></w:tcPr>${paragraph(value, { style: 'TableText', bold: isHeader, keepNext: isHeader })}</w:tc>`).join('');
+    const cells = values.map((value, column) => `<w:tc><w:tcPr><w:tcW w:w="${widths[column]}" w:type="dxa"/><w:shd w:val="clear" w:fill="${shading}"/><w:vAlign w:val="top"/></w:tcPr>${paragraph(value, { style: 'TableText', bold: isHeader, keepNext: isHeader })}</w:tc>`).join('');
     return `<w:tr>${isHeader ? '<w:trPr><w:tblHeader/><w:cantSplit/></w:trPr>' : ''}${cells}</w:tr>`;
   };
   return `<w:tbl>${properties}<w:tblGrid>${widths.map((width) => `<w:gridCol w:w="${width}"/>`).join('')}</w:tblGrid>${rowXml(headers, 0, true)}${rows.map((row, index) => rowXml(row, index)).join('')}</w:tbl>${paragraph('', { style: 'TableGap' })}`;
@@ -93,10 +83,17 @@ function queryText(query) {
   return Object.entries(query || {}).map(([field, value]) => `${getSearchField(field)?.label || field}: ${valueText(value)}`).join('\n') || 'Не указан';
 }
 
-function collectionStatus(report) {
-  if (report.cancelled) return 'Сбор остановлен пользователем. Отчёт содержит данные, полученные до остановки.';
-  if (!report.complete) return 'Сбор завершён частично. Отчёт содержит полученные данные; ограничения приведены ниже.';
-  return 'Сбор завершён. Повторные записи объединены с сохранением ссылок на источники.';
+function collectionCauses(report) {
+  const causes = new Set();
+  for (const value of [...(report.warnings || []), ...(report.queries || []).map((query) => query.error)]) {
+    if (!value) continue;
+    const cause = String(value).trim()
+      .replace(/^Запрос \S+(?: завершился с ошибкой:|:)\s*/u, '')
+      .replace('; API не поддерживает получение следующей страницы.', '.');
+    if (report.cancelled && cause === 'Сбор отчёта остановлен пользователем. Уже полученные данные сохранены.') continue;
+    if (cause) causes.add(cause);
+  }
+  return [...causes];
 }
 
 function formattedDate(value) {
@@ -107,14 +104,15 @@ function formattedDate(value) {
   }).format(date) + ' МСК';
 }
 
-function sourceReferences(keys, sourceNumbers) {
-  return [...new Set(keys || [])].map((key) => sourceNumbers.get(String(key)) || String(key)).join(', ') || 'Не указан';
+function sourceReferences(keys, sourceNames) {
+  return [...new Set((keys || []).filter((key) => key != null && String(key).trim() !== '')
+    .map((key) => sourceNames.get(String(key)) || String(key)))].join(', ') || 'Не указан';
 }
 
 function summarizeFields(records) {
   const fields = new Map();
   for (const record of records) {
-    for (const [key, value] of record.fields || []) {
+    for (const [key, value] of nonEmptyResultFields(record.fields)) {
       const values = fields.get(String(key)) || new Map();
       const identity = stableValue(value);
       const entry = values.get(identity) || { value, sources: new Set() };
@@ -127,117 +125,41 @@ function summarizeFields(records) {
 }
 
 function documentBody(report) {
-  const records = report.records || [];
-  const sources = report.sources || [];
-  const queries = report.queries || [];
-  const aggregates = report.aggregates || [];
-  const sourceNumbers = new Map(sources.map((source, index) => [String(source.id), `И${index + 1}`]));
-  const queryNumbers = new Map(queries.map((query, index) => [String(query.id), `З${index + 1}`]));
+  const sourceNames = new Map((report.sources || []).map((source) => [
+    String(source.id), String(source.name ?? '').trim() ? String(source.name) : String(source.id),
+  ]));
   const body = [
     paragraph('Отчёт по результатам поиска', { style: 'Title', keepNext: true }),
+    paragraph(`Исходный запрос: ${queryText(report.seedQuery)}`),
     paragraph(`Сформирован ${formattedDate(report.createdAt)}`, { style: 'Subtitle' }),
-    paragraph(collectionStatus(report), { bold: true }),
-    paragraph('Документ объединяет сведения, найденные по исходному запросу и связанным точным идентификаторам. Совпадение идентификаторов отражает связь найденных записей и само по себе не подтверждает, что все сведения относятся к одному человеку.'),
-    heading('Исходный запрос'),
-    paragraph(queryText(report.seedQuery)),
-    paragraph('Поиск по ФИО и дате рождения не выполняется. Эти сведения включаются в отчёт, если присутствуют в найденных записях.', { style: 'Note' }),
-    heading('Результаты сбора'),
   ];
-  const counts = {
-    records: records.length, sources: sources.length, queries: queries.length,
-    identifiers: (report.identifiers || []).length, duplicates: 0, pendingQueries: 0,
-    aggregates: aggregates.length, aggregateDuplicates: 0,
-    ...report.stats,
-  };
-  body.push(table(['Показатель', 'Значение'], Object.entries(STAT_LABELS)
-    .filter(([key]) => !['aggregates', 'aggregateDuplicates'].includes(key) || aggregates.length)
-    .map(([key, label]) => [label, String(counts[key] ?? 0)]), [7138, 2500]));
+  const causes = collectionCauses(report);
+  if (report.cancelled) body.push(paragraph('Сбор остановлен пользователем.', { bold: true }));
+  else if (!report.complete || causes.length) body.push(paragraph('Сбор завершён частично.', { bold: true }));
+  causes.forEach((cause) => body.push(paragraph(cause, { style: 'Note' })));
 
-  if ((report.warnings || []).length || !report.complete) {
-    body.push(heading('Ограничения сбора'));
-    const warnings = [...new Set(report.warnings || [])];
-    if (!warnings.length) warnings.push('Сбор не завершён. Часть запросов могла остаться невыполненной.');
-    warnings.forEach((warning) => body.push(paragraph(warning)));
-  }
-
-  if ((report.identifiers || []).length) {
-    body.push(heading('Связанные идентификаторы'));
-    body.push(paragraph('Здесь указаны идентификаторы исходного запроса и значения, найденные в ходе сбора. Источники приведены, когда сервер предоставил связь с записью.', { style: 'Note', keepNext: true }));
-    body.push(table(['Поле', 'Идентификатор', 'Источники'], report.identifiers.map((identifier) => [
-      getSearchField(identifier.field)?.label || String(identifier.field), valueText(identifier.value),
-      sourceReferences(identifier.sources, sourceNumbers),
-    ]), [2200, 5000, 2438]));
-  }
-
-  body.push(heading('Найденные сведения'));
-  if (!records.length) {
-    body.push(paragraph('Записи не найдены. Сведения о выполненных запросах приведены в журнале поиска.'));
-  } else {
-    body.push(paragraph('Одинаковые значения внутри одного поля показаны один раз. Различающиеся значения сохранены отдельно. Обозначения И1, И2 и далее соответствуют источникам в разделе «Источники данных».', { style: 'Note', keepNext: true }));
-    const rows = [];
-    for (const [key, values] of summarizeFields(records)) {
-      for (const entry of values.values()) rows.push([fieldText(key), valueText(entry.value), sourceReferences([...entry.sources], sourceNumbers)]);
+  const rows = [];
+  for (const [key, values] of summarizeFields(report.records || [])) {
+    for (const entry of values.values()) {
+      rows.push([fieldText(key), valueText(entry.value), sourceReferences([...entry.sources], sourceNames)]);
     }
-    body.push(table(['Поле', 'Найденное значение', 'Источники'], rows, [2200, 5000, 2438]));
   }
+  if (rows.length) body.push(table(['Поле', 'Значение', 'Источники'], rows, [2200, 4800, 2638]));
 
+  const aggregates = (report.aggregates || []).filter((aggregate) => aggregate.items?.length);
   if (aggregates.length) {
     body.push(heading('Сводные данные сервера'));
-    body.push(paragraph('Эти сведения сервер передал в виде сгруппированных значений и счётчиков. Они показаны отдельно от найденных записей. Счётчики разных запросов не суммируются; принадлежность значений одному человеку из них не устанавливается.', { style: 'Note', keepNext: true }));
-    aggregates.forEach((aggregate, index) => {
-      body.push(heading(`Сводка ${index + 1}`, 2));
-      body.push(paragraph(`Поле: ${fieldText(aggregate.key)}`, { keepNext: true }));
-      const provenance = aggregate.sources?.length
-        ? `Источники: ${sourceReferences(aggregate.sources, sourceNumbers)}.`
-        : 'Источник агрегата сервером не указан.';
-      const linkedQueries = (aggregate.queryIds || []).map((id) => queryNumbers.get(String(id)) || String(id)).join(', ') || 'Не указан';
-      body.push(paragraph(`${provenance} Запросы: ${linkedQueries}.`, { style: 'Note', keepNext: true }));
-      if (aggregate.items?.length) {
-        body.push(table(['Значение', 'Количество в ответе сервера'], aggregate.items.map((item) => [
-          valueText(item.value), valueText(item.count),
-        ]), [6638, 3000]));
-      } else body.push(paragraph('Сервер передал пустую сводку.'));
-    });
+    if (aggregates.some((aggregate) => !aggregate.sources?.length)) {
+      body.push(paragraph('Источник сводных данных не указан.', { style: 'Note', keepNext: true }));
+    }
+    const aggregateSources = aggregates.flatMap((aggregate) => aggregate.sources || []);
+    if (aggregateSources.length) {
+      body.push(paragraph(`Источники: ${sourceReferences(aggregateSources, sourceNames)}.`, { style: 'Note', keepNext: true }));
+    }
+    body.push(table(['Поле', 'Значение', 'Количество'], aggregates.flatMap((aggregate) =>
+      aggregate.items.map((item) => [fieldText(aggregate.key), valueText(item.value), valueText(item.count)])), [2200, 4800, 2638]));
   }
-
-  body.push(heading('Источники данных'));
-  if (!sources.length) body.push(paragraph('Источники с данными отсутствуют.'));
-  sources.forEach((source, index) => {
-    const hasInfo = source.info !== undefined && source.info !== null && source.info !== '';
-    const hasTrust = source.trust !== undefined && source.trust !== null && source.trust !== '';
-    const metadata = Object.entries(source).filter(([key]) => !['id', 'name', 'info', 'trust'].includes(key));
-    body.push(heading(`И${index + 1} ${source.name || source.id || 'Источник без названия'}`, 2));
-    body.push(paragraph(`Идентификатор источника: ${source.id ?? 'Не указан'}`, { style: 'Note', keepNext: hasInfo || hasTrust || metadata.length > 0 }));
-    if (hasInfo) body.push(paragraph(valueText(source.info), { keepNext: hasTrust || metadata.length > 0 }));
-    if (hasTrust) body.push(paragraph(`Оценка источника: ${valueText(source.trust)}`, { keepNext: metadata.length > 0 }));
-    if (metadata.length) body.push(table(['Сведения об источнике', 'Значение'], metadata.map(([key, value]) => [key, valueText(value)]), [4000, 5638]));
-  });
-
-  body.push(heading('Полные найденные записи'));
-  body.push(paragraph('Записи приведены без сокращения набора полей. Для каждой записи указаны источники и поисковые запросы, по которым она получена. Идентичные записи объединены; различия между записями сохранены.', { style: 'Note', keepNext: true }));
-  if (!records.length) body.push(paragraph('Нет записей для отображения.'));
-  records.forEach((record, index) => {
-    body.push(heading(`Запись ${index + 1}`, 2));
-    body.push(paragraph(`Источники: ${sourceReferences(record.sources, sourceNumbers)}. Запросы: ${(record.queryIds || []).map((id) => queryNumbers.get(String(id)) || String(id)).join(', ') || 'Не указан'}.`, { style: 'Note', keepNext: true }));
-    if (record.sourceRecordIds?.length) {
-      body.push(paragraph(`Идентификаторы записей в источниках: ${record.sourceRecordIds.map(({ source, id }) => `${sourceNumbers.get(String(source)) || source}: ${id}`).join('; ')}`, { style: 'Note', keepNext: true }));
-    }
-    const fields = (record.fields || []).map(([key, value]) => [fieldText(key), valueText(value)]);
-    if (fields.length) body.push(table(['Поле', 'Значение'], fields, [2500, 7138]));
-    else body.push(paragraph('Поля записи отсутствуют.'));
-  });
-
-  body.push(heading('Журнал поисковых запросов'));
-  if (!queries.length) body.push(paragraph('Выполненные запросы отсутствуют.'));
-  queries.forEach((query, index) => {
-    const hasMetadata = query.meta && Object.keys(query.meta).length > 0;
-    body.push(heading(`З${index + 1} ${QUERY_STATUSES[query.status] || query.status || 'Статус не указан'}`, 2));
-    body.push(paragraph(queryText(query.query), { keepNext: Boolean(query.error || hasMetadata) }));
-    if (query.error) body.push(paragraph(`Ошибка: ${query.error}`, { keepNext: Boolean(hasMetadata) }));
-    if (hasMetadata) {
-      body.push(table(['Сведения о выполнении', 'Значение'], Object.entries(query.meta).map(([key, value]) => [key, valueText(value)]), [4000, 5638]));
-    }
-  });
+  if (!rows.length && !aggregates.length) body.push(paragraph('Данные не найдены.'));
   body.push(`<w:sectPr><w:headerReference w:type="default" r:id="rIdHeader"/><w:footerReference w:type="default" r:id="rIdFooter"/><w:pgSz w:w="${PAGE.width}" w:h="${PAGE.height}"/><w:pgMar w:top="${PAGE.margin}" w:right="${PAGE.margin}" w:bottom="${PAGE.margin}" w:left="${PAGE.margin}" w:header="567" w:footer="567" w:gutter="0"/></w:sectPr>`);
   return body.join('');
 }
@@ -248,7 +170,6 @@ function stylesXml() {
     style('Title', 'Title', '<w:keepNext/><w:spacing w:before="0" w:after="180"/>', 46, true),
     style('Subtitle', 'Subtitle', '<w:spacing w:after="240"/>', 20),
     style('Heading1', 'heading 1', '<w:keepNext/><w:keepLines/><w:spacing w:before="300" w:after="140"/><w:outlineLvl w:val="0"/>', 30, true),
-    style('Heading2', 'heading 2', '<w:keepNext/><w:keepLines/><w:spacing w:before="220" w:after="100"/><w:outlineLvl w:val="1"/>', 24, true),
     style('Note', 'Note', '<w:spacing w:after="140" w:line="260" w:lineRule="auto"/>', 20),
     style('TableText', 'Table Text', '<w:spacing w:after="40" w:line="260" w:lineRule="auto"/>', 21),
     style('TableGap', 'Table Gap', '<w:spacing w:after="100" w:line="80" w:lineRule="exact"/>', 4),

@@ -51,24 +51,35 @@ test('DOCX is a standalone editable OOXML package with A4 pages and page numbers
   assert.ok(archive.FullPaths.every((path) => !/vba|externalLinks|embeddings/i.test(path)));
 });
 
-test('report preserves unknown fields, source provenance, query history and identifiers', () => {
+test('complete report starts with the query and date and contains only found values and human source names', () => {
   const { document } = unpack(exampleReport());
-  for (const value of ['Неизвестное поле', 'Значение', 'Первый индекс', 'Второй индекс', 'Описание первого индекса',
-    'И1, И2', 'origin-123', 'З1', '1234 567890', 'Журнал поисковых запросов', 'Полные найденные записи', 'server_metadata', 'freshness']) {
+  for (const value of ['Телефон: +7 900 000 00 00', '10 октября 2026', '13:15', 'МСК',
+    'Неизвестное поле', 'Значение', 'Первый индекс, Второй индекс']) {
     assert.ok(document.includes(value), value);
   }
-  assert.match(document, /Поиск по ФИО и дате рождения не выполняется/);
-  assert.match(document, /само по себе не подтверждает/);
+  assert.equal(document.match(/<w:tbl>/g)?.length, 1);
+  assert.match(document, /<w:t xml:space="preserve">Поле<\/w:t>/);
+  assert.match(document, /<w:t xml:space="preserve">Значение<\/w:t>/);
+  assert.match(document, /<w:t xml:space="preserve">Источники<\/w:t>/);
+  assert.ok(document.indexOf('Телефон: +7 900 000 00 00') < document.indexOf('<w:tbl>'));
+  assert.ok(document.indexOf('10 октября 2026') < document.indexOf('<w:tbl>'));
+  assert.doesNotMatch(document, /Сбор завершён|Сбор завершён частично|Ограничения сбора|Поиск по ФИО|само по себе не подтверждает/);
+  assert.doesNotMatch(document, /Результаты сбора|Уникальных записей|Связанные идентификаторы|Источники данных|Полные найденные записи|Журнал поисковых запросов/);
+  assert.doesNotMatch(document, /И1|З1|first|record-1|origin-123|query-1|1234 567890|server_metadata|freshness|Описание первого индекса/);
 });
 
-test('all source metadata survives export, including zero counts and unknown nested properties', () => {
+test('source names fall back to source ids and missing provenance is explicit without exporting source metadata', () => {
   const { document } = unpack(exampleReport({ sources: [{
-    id: 'first', name: 'Индекс', info: 'Описание', trust: 'Не проверен',
+    id: 'first', name: '', info: 'Описание', trust: 'Не проверен',
     type: 'test-source-type', country: 'test-source-country', count: 0,
     relevance_date: 'test-relevance-date', unknown_metadata: { retained: 'nested-source-value' },
-  }] }));
-  for (const value of ['test-source-type', 'test-source-country', '0 [число]', 'test-relevance-date',
-    'unknown_metadata', 'nested-source-value']) assert.ok(document.includes(value), value);
+  }], records: [
+    { fields: [['Первое поле', 'Первое значение']], sources: ['first', 'missing-source'] },
+    { fields: [['Второе поле', 'Второе значение']], sources: [] },
+  ] }));
+  assert.match(document, /first, missing-source/);
+  assert.match(document, /Не указан/);
+  assert.doesNotMatch(document, /test-source-type|test-source-country|test-relevance-date|unknown_metadata|nested-source-value|Не проверен|Описание/);
 });
 
 test('server aggregates remain separate from records with zero counts and explicit unknown provenance', () => {
@@ -79,17 +90,13 @@ test('server aggregates remain separate from records with zero counts and explic
     ],
   }));
   assert.match(document, /Сводные данные сервера/);
-  assert.match(document, /Город \(city\)/);
+  assert.match(document, /Город/);
   assert.match(document, /Тестовый город &lt;А&gt;/);
-  assert.match(document, /0 \[число\]/);
-  assert.match(document, /7 \[число\]/);
-  assert.match(document, /3 \[число\]/);
-  assert.match(document, /Источник агрегата сервером не указан\. Запросы: З1\./);
-  assert.match(document, /Счётчики разных запросов не суммируются/);
-  assert.match(document, /Сводка 1/);
-  assert.match(document, /Сводка 2/);
-  assert.doesNotMatch(document, /Запись 1/);
-  assert.doesNotMatch(document, /Связанные идентификаторы/);
+  for (const count of ['0', '7', '3']) assert.ok(document.includes(`<w:t xml:space="preserve">${count}</w:t>`));
+  assert.match(document, /Источник сводных данных не указан/);
+  assert.equal(document.match(/<w:tbl>/g)?.length, 1);
+  assert.equal(document.match(/Тестовый город Б/g)?.length, 2);
+  assert.doesNotMatch(document, /Данные не найдены|Запись 1|Связанные идентификаторы|Сводка [12]|query-1|aggregate-1|З1|\(city\)|\[число\]/);
 });
 
 test('untrusted source content is plain escaped text including Unicode and XML-invalid characters', () => {
@@ -105,7 +112,7 @@ test('untrusted source content is plain escaped text including Unicode and XML-i
   assert.doesNotMatch(document, /[\u0000-\u0008\u000B\u000C\u000E-\u001F\uD800]/u);
 });
 
-test('summary combines exact repeated values and preserves distinct values and all complete records', () => {
+test('summary emits exact repeated field values once and merges human source names in encounter order', () => {
   const report = exampleReport({
     records: [
       { id: 'record-1', fields: [['Поле', 'Одинаковое'], ['Статус', 'активен']], sources: ['first'], queryIds: ['query-1'] },
@@ -113,84 +120,149 @@ test('summary combines exact repeated values and preserves distinct values and a
     ],
   });
   const { document } = unpack(report);
-  const summary = document.slice(document.indexOf('Найденные сведения'), document.indexOf('Источники данных</w:t>'));
-  assert.equal(summary.split('Одинаковое').length - 1, 1);
-  assert.match(summary, /И1, И2/);
-  assert.match(summary, /активен/);
-  assert.match(summary, /неактивен/);
-  assert.match(document, /Запись 1/);
-  assert.match(document, /Запись 2/);
-  assert.equal(document.split('Одинаковое').length - 1, 3);
+  assert.equal(document.split('Одинаковое').length - 1, 1);
+  assert.match(document, /Первый индекс, Второй индекс/);
+  assert.match(document, />активен<\/w:t>/);
+  assert.match(document, />неактивен<\/w:t>/);
+  assert.equal(document.match(/<w:tbl>/g)?.length, 1);
+  const rows = document.match(/<w:tr>[\s\S]*?<\/w:tr>/g);
+  assert.equal(rows.length, 4);
+  assert.ok(rows[1].includes('Поле') && rows[1].includes('Одинаковое'));
+  assert.ok(rows[2].includes('Статус') && rows[2].includes('>активен<'));
+  assert.ok(rows[3].includes('Статус') && rows[3].includes('>неактивен<'));
 });
 
-test('zero, false, empty, null, structured and duplicate-key fields are not lost', () => {
+test('exact typed values remain distinct while duplicate source names are merged once per value', () => {
+  const { document } = unpack(exampleReport({
+    sources: [{ id: 'first', name: 'Общий источник' }, { id: 'second', name: 'Общий источник' }],
+    records: [
+      { fields: [['Ноль', 0], ['Ноль', '0'], ['Флаг', false], ['Флаг', 'false']], sources: ['first'] },
+      { fields: [['Ноль', 0], ['Флаг', false]], sources: ['second'] },
+    ],
+  }));
+  assert.equal(document.match(/<w:tr>/g)?.length, 5);
+  assert.equal(document.match(/>0<\/w:t>/g)?.length, 2);
+  assert.equal(document.match(/>false<\/w:t>/g)?.length, 2);
+  assert.equal(document.match(/Общий источник/g)?.length, 4);
+  assert.doesNotMatch(document, /Общий источник, Общий источник/);
+});
+
+test('different raw fields sharing a readable label retain their own values', () => {
   const { document } = unpack(exampleReport({ records: [{
-    id: 'record-1', fields: [['Ноль', 0], ['Флаг', false], ['Пусто', ''], ['Null', null],
-      ['Объект', { nested: '<да>', list: [1, 2] }], ['Повтор', 'одно'], ['Повтор', 'другое']],
-    sources: ['first'], queryIds: [],
+    fields: [['number_work', 'Совпадающее значение'], ['number_house', 'Совпадающее значение']], sources: ['first'],
   }] }));
-  for (const text of ['0 [число]', 'false [логическое значение]', 'Пустая строка', 'null',
-    '&quot;nested&quot;', '&lt;да&gt;', 'одно', 'другое']) assert.ok(document.includes(text), text);
+  assert.equal(document.match(/<w:tr>/g)?.length, 3);
+  assert.equal(document.match(/Совпадающее значение/g)?.length, 2);
+  assert.equal(document.match(/Номер телефона/g)?.length, 2);
+  assert.doesNotMatch(document, /number_work|number_house/);
 });
 
-test('known server field names have readable labels while original names remain visible', () => {
+test('summary omits blank fields while preserving zero, false, structured values and distinct duplicate-key values', () => {
+  const report = exampleReport({ records: [{
+    id: 'record-1', fields: [['Ноль', 0], ['Флаг', false], ['blank-empty', ''], ['blank-null', null],
+      ['blank-undefined', undefined], ['blank-whitespace', ' \t\r\n '],
+      ['Объект', { nested: '<да>', list: [1, 2], blank: null }], ['Массив', []], ['Пустой объект', {}],
+      ['Повтор', 'одно'], ['Повтор', 'другое'], ['Повтор', '']],
+    sources: ['first'], queryIds: [],
+  }] });
+  const original = structuredClone(report);
+  const { document } = unpack(report);
+  for (const label of ['blank-empty', 'blank-null', 'blank-undefined', 'blank-whitespace']) {
+    assert.ok(!document.includes(label), label);
+  }
+  for (const text of ['>0</w:t>', '>false</w:t>', '&quot;nested&quot;', '&lt;да&gt;',
+    '&quot;blank&quot;: null', '[]', '{}', 'одно', 'другое']) assert.ok(document.includes(text), text);
+  assert.equal(document.split('Повтор').length - 1, 2);
+  assert.doesNotMatch(document, /Пустая строка|Не задано|\[число\]|\[логическое значение\]/);
+  assert.deepEqual(report, original);
+});
+
+test('blank-only records leave the DTO intact and produce a short table-free empty report', () => {
+  const report = exampleReport({ records: [{
+    id: 'record-1', fields: [['blank-empty', ''], ['blank-null', null], ['blank-undefined', undefined], ['blank-whitespace', ' \n\t ']],
+    sources: ['first'], queryIds: ['query-1'], sourceRecordIds: [{ source: 'first', id: 'origin-blank' }],
+  }] });
+  const original = structuredClone(report);
+  const { document } = unpack(report);
+  assert.doesNotMatch(document, /<w:tbl>|blank-|origin-blank|Уникальных записей|Запись 1/);
+  assert.match(document, /Данные не найдены/);
+  assert.deepEqual(report, original);
+});
+
+test('missing and null field collections produce the same honest empty report', () => {
+  for (const fields of [undefined, null]) {
+    const { document } = unpack(exampleReport({ records: [{
+      id: 'record-1', fields, sources: ['first'], queryIds: [],
+    }] }));
+    assert.match(document, /Данные не найдены/);
+    assert.doesNotMatch(document, /<w:tbl>/);
+  }
+});
+
+test('known fields use readable labels without raw key suffixes and unknown names survive unchanged', () => {
   const { document } = unpack(exampleReport({ records: [{
     id: 'record-1', fields: [['passport', '0000000000'], ['date_of_birth', '01.01.1990'],
       ['address_registration', 'Тестовая улица'], ['unknown_schema_key', 'Неизвестное значение']], sources: ['first'], queryIds: [],
   }] }));
-  assert.match(document, /Паспорт \(passport\)/);
-  assert.match(document, /Дата рождения \(date_of_birth\)/);
-  assert.match(document, /Адрес регистрации \(address_registration\)/);
+  assert.match(document, /Паспорт/);
+  assert.match(document, /Дата рождения/);
+  assert.match(document, /Адрес регистрации/);
   assert.match(document, /unknown_schema_key/);
+  assert.doesNotMatch(document, /\(passport\)|\(date_of_birth\)|\(address_registration\)/);
 });
 
 test('cancelled and partial reports state incompleteness and preserve errors and warnings', () => {
   const { document } = unpack(exampleReport({
-    complete: false, cancelled: true, warnings: ['Индекс временно недоступен'],
+    complete: false, cancelled: true, warnings: ['Индекс временно недоступен', 'Индекс временно недоступен',
+      'Запрос query-1 завершился с ошибкой: Сервер не ответил',
+      'Сбор отчёта остановлен пользователем. Уже полученные данные сохранены.'],
     queries: [{ id: 'query-1', query: { passport: '1234 567890' }, status: 'partial', meta: { truncated: true }, error: 'Сервер не ответил' }],
     stats: { pendingQueries: 4 },
   }));
   assert.match(document, /Сбор остановлен пользователем/);
-  assert.match(document, /Ограничения сбора/);
-  assert.match(document, /Индекс временно недоступен/);
-  assert.match(document, /Частично выполнен/);
-  assert.match(document, /Сервер не ответил/);
-  assert.match(document, /truncated/);
+  assert.equal(document.match(/Индекс временно недоступен/g)?.length, 1);
+  assert.equal(document.match(/Сервер не ответил/g)?.length, 1);
+  assert.doesNotMatch(document, /query-1|Запросы:|1234 567890|Частично выполнен|truncated|Уже полученные данные сохранены|Журнал/);
   assert.match(unpack(exampleReport({ complete: false })).document, /Сбор завершён частично/);
+});
+
+test('partial query warnings become unique human causes without query identifiers', () => {
+  const { document } = unpack(exampleReport({ complete: false, warnings: [
+    'Запрос query-1: сервер сообщил о частичной выдаче.',
+    'Запрос query-2: сервер сообщил о частичной выдаче.',
+  ], queries: [{ id: 'query-1' }, { id: 'query-2' }, { id: 'query-3', error: 'Отдельная ошибка' }] }));
+  assert.equal(document.match(/сервер сообщил о частичной выдаче/g)?.length, 1);
+  assert.equal(document.match(/Отдельная ошибка/g)?.length, 1);
+  assert.doesNotMatch(document, /query-[123]|Запрос query/);
 });
 
 test('empty and lengthy reports have honest content and tables that can flow across pages', () => {
   const empty = unpack(exampleReport({ records: [], sources: [], identifiers: [], queries: [] })).document;
-  assert.match(empty, /Записи не найдены/);
-  assert.match(empty, /Источники с данными отсутствуют/);
+  assert.match(empty, /Данные не найдены/);
+  assert.doesNotMatch(empty, /<w:tbl>/);
+  const onlySeed = unpack(exampleReport({ records: [], sources: [], queries: [] })).document;
+  assert.match(onlySeed, /Данные не найдены/);
+  assert.doesNotMatch(onlySeed, /1234 567890|<w:tbl>/);
   const long = unpack(exampleReport({ records: [{
     id: 'record-1', fields: [['Длинный текст', 'Содержание '.repeat(2000)]], sources: ['first'], queryIds: [],
   }] })).document;
-  assert.equal(long.split('Содержание ').length - 1, 4000);
+  assert.equal(long.split('Содержание ').length - 1, 2000);
   assert.match(long, /<w:tblHeader\/>/);
   assert.match(long, /w:color="D9D9D9"/);
-  assert.match(long, /w:vAlign w:val="center"/);
+  assert.match(long, /w:vAlign w:val="top"/);
   assert.doesNotMatch(long, /<w:trHeight|w:hRule="exact"/);
   const bodyRows = long.match(/<w:tr>(?!<w:trPr>)[\s\S]*?<\/w:tr>/g) || [];
   assert.ok(bodyRows.length);
   assert.ok(bodyRows.every((row) => !/cantSplit/.test(row)));
 });
 
-test('section introductions stay with their first table while body rows can paginate normally', () => {
+test('table headers stay with their rows while body values can paginate normally', () => {
   const { document } = unpack(exampleReport());
   const paragraphs = document.match(/<w:p>[\s\S]*?<\/w:p>/g);
-  for (const intro of ['Здесь указаны идентификаторы', 'Одинаковые значения внутри одного поля',
-    'Записи приведены без сокращения', 'Идентификатор источника: first', 'Описание первого индекса']) {
-    const paragraph = paragraphs.find((value) => value.includes(intro));
-    assert.ok(paragraph, intro);
-    assert.match(paragraph, /<w:keepNext\/>/, intro);
-  }
-  const queryParagraph = paragraphs.filter((value) => value.includes('Телефон: +7 900 000 00 00')).at(-1);
-  assert.match(queryParagraph, /<w:keepNext\/>/);
+  const tableHeader = paragraphs.find((value) => value.includes('>Источники</w:t>'));
+  assert.match(tableHeader, /<w:keepNext\/>/);
   const recordValue = paragraphs.find((value) => value.includes('Иванов Иван Иванович'));
   assert.doesNotMatch(recordValue, /<w:keepNext\/>/);
-  const secondSourceTrust = paragraphs.find((value) => value.includes('Оценка источника: Не проверен'));
-  assert.doesNotMatch(secondSourceTrust, /<w:keepNext\/>/);
 });
 
 test('report names are safe Windows filenames and use the Moscow date', () => {

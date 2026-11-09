@@ -2,6 +2,7 @@ import * as XLSX from 'xlsx';
 import pdfMake from 'pdfmake/build/pdfmake.js';
 import pdfFonts from 'pdfmake/build/vfs_fonts.js';
 import { groupSearchResults } from '../../utils/searchResults.js';
+import { nonEmptyResultFields } from '../../../shared/utils/resultFields.js';
 
 pdfMake.vfs = pdfFonts;
 
@@ -12,6 +13,13 @@ const EXCEL_SHEET_NAME_LIMIT = 31;
 const EXCEL_INVALID_SHEET_CHARACTERS = /[/\\?*[\]:]/g;
 const PDF_FONT = 'Roboto';
 
+function exportGroups(data) {
+  return groupSearchResults(data).map(group => ({
+    ...group,
+    data: group.data.map(nonEmptyResultFields).filter(fields => fields.length),
+  }));
+}
+
 function escapeCsv(value) {
   if (value === undefined || value === null) return '';
   const text = String(value);
@@ -21,7 +29,7 @@ function escapeCsv(value) {
 }
 
 export function buildTxtContent(data) {
-  const grouped = groupSearchResults(data);
+  const grouped = exportGroups(data);
   let text = '';
 
   grouped.forEach((group, index) => {
@@ -48,7 +56,7 @@ export function buildTxtContent(data) {
 }
 
 export function buildCsvContent(data, { quoteMetadata = false } = {}) {
-  const grouped = groupSearchResults(data);
+  const grouped = exportGroups(data);
   let csv = '';
 
   grouped.forEach((group, index) => {
@@ -99,7 +107,7 @@ export function buildExcelWorkbook(data) {
   const workbook = XLSX.utils.book_new();
   const sheetNames = new Set();
 
-  for (const group of groupSearchResults(data)) {
+  for (const group of exportGroups(data)) {
     const rows = group.data.map((fields) => {
       const row = {};
       if (Array.isArray(fields)) {
@@ -116,7 +124,7 @@ export function buildExcelWorkbook(data) {
 }
 
 export function buildPdfDefinition(data) {
-  const grouped = groupSearchResults(data);
+  const grouped = exportGroups(data);
   const content = [];
 
   grouped.forEach((group, index) => {

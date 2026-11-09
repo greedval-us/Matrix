@@ -56,6 +56,32 @@ try {
   assert.match(card, /Доступна/);
   assert.match(card, /Сохранено в заметки/);
 
+  const resultFields = [
+    ['null-field', null], ['missing-field', undefined], ['empty-field', ''],
+    ['spaces-field', ' \t\r\n\u00a0 '], ['zero-number', 0], ['zero-text', '0'],
+    ['false-field', false], ['text-field', '  Значение  '], ['unsafe-field', '<value>'],
+    ['array-field', []], ['object-field', {}],
+  ];
+  const filteredCard = await renderComponent('/components/search/SearchSourceCard.vue', {
+    base: { source: 'nonempty', name: 'Источник', data: [resultFields] },
+    fieldLabel: key => key,
+  });
+  for (const key of ['null-field', 'missing-field', 'empty-field', 'spaces-field']) {
+    assert.doesNotMatch(filteredCard, new RegExp(key), `Empty result field ${key} should be hidden`);
+  }
+  for (const key of ['zero-number', 'zero-text', 'false-field', 'text-field', 'unsafe-field', 'array-field', 'object-field']) {
+    assert.match(filteredCard, new RegExp(key));
+  }
+  assert.equal((filteredCard.match(/<dt /g) || []).length, 7);
+  assert.equal((filteredCard.match(/<dd /g) || []).length, 7);
+  assert.equal((filteredCard.match(/title="Скопировать значение"/g) || []).length, 7);
+  assert.match(filteredCard, />0<\/span>/);
+  assert.match(filteredCard, />false<\/span>/);
+  assert.match(filteredCard, />  Значение  <\/span>/);
+  assert.match(filteredCard, /&lt;value&gt;/);
+  assert.equal(resultFields.length, 11, 'Rendering must preserve the original result');
+  assert.deepEqual(resultFields[0], ['null-field', null]);
+
   const status = await renderComponent('/components/search/SearchResultsStatus.vue', {
     hasSearched: true, loading: false, error: 'offline', received: 3, recordCount: 2,
     meta: { partial: true, indexed_shards: 1, total_shards: 4 },
@@ -107,6 +133,8 @@ try {
   assert.match(report, /&lt;document&gt;/);
   assert.match(report, /&lt;Report source&gt;/);
   assert.match(report, /&lt;partial warning&gt;/);
+  assert.match(report, /В DOCX сохраняется краткая сводка найденных значений с названиями источников/);
+  assert.doesNotMatch(report, /Полные записи, связи и ход поиска включены в DOCX/);
   assert.doesNotMatch(report, /<document>|<Report source>/);
   const collectingReport = await renderComponent('/components/report/ReportPanel.vue', {
     state: { loading: true, stopping: false, report: null, error: '', progress: {

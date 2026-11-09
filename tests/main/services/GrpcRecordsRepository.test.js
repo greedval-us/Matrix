@@ -69,6 +69,39 @@ test('records use the current connection and client key for every operation and 
   assert.equal(first.requests.length, 1);
 });
 
+test('records transports use current TLS identity and credentials without search keepalive settings', async t => {
+  const connections = [];
+  const requests = [];
+  const certificates = [];
+  let current = { ...config('first.test:50051'), tlsServerName: undefined };
+  class Client {
+    constructor(endpoint, credentials, options) { connections.push({ endpoint, credentials, options }); }
+    getCapabilities(_request, metadata, _options, callback) {
+      requests.push(metadata.get('x-api-key'));
+      callback(null, capabilities);
+      return { cancel() {} };
+    }
+    close() {}
+  }
+  const repo = repository(t, { getResolvedConfig: async () => current }, {
+    grpc: { ...grpc, credentials: { createSsl(certificate) { certificates.push(certificate); return certificate; } } },
+    loadProto: () => ({ matrix: { records: { v1: { Records: Client } } } }),
+  });
+  await repo.getCapabilities();
+  current = { ...config('second.test:50051'), apiKey: 'next-key' };
+  await repo.getCapabilities();
+
+  assert.deepEqual(connections.map(connection => connection.endpoint), ['first.test:50051', 'second.test:50051']);
+  assert.deepEqual(connections[0].options, { 'grpc.max_receive_message_length': 33554432 });
+  assert.deepEqual(connections[1].options, {
+    'grpc.max_receive_message_length': 33554432,
+    'grpc.ssl_target_name_override': 'matrix.test',
+    'grpc.default_authority': 'matrix.test',
+  });
+  assert.deepEqual(certificates, [Buffer.from('test CA'), Buffer.from('test CA')]);
+  assert.deepEqual(requests, [['client-secret'], ['next-key']]);
+});
+
 test('unconfigured, unavailable and older servers honestly disable records without hiding authentication errors', async t => {
   const absent = repository(t, { getResolvedConfig: async () => { throw new Error('secret config path'); } });
   assert.equal((await absent.getCapabilities()).available, false);
@@ -196,6 +229,16 @@ test('download returns bytes after metadata and validates the declared size', as
       for await (const _chunk of result.stream) { /* consume */ }
     }, /ответ|размер|метаданн/i);
   }
+});
+
+test('file operations preserve a configured timeout longer than the transfer minimum', async t => {
+  const remote = await loopback(t);
+  const repo = repository(t, { getResolvedConfig: async () => ({ ...config(remote.endpoint), connectionTimeoutMs: 180000 }) });
+  const before = Date.now();
+  const download = await repo.downloadFile({ rowId: '7', fileId });
+  for await (const _chunk of download.stream) { /* consume and release the transport */ }
+  assert.ok(remote.requests[0].deadline >= before + 179000);
+  assert.ok(remote.requests[0].deadline <= Date.now() + 180000);
 });
 
 test('waiting for the save dialog keeps download buffering bounded and destroying the source cancels gRPC', async t => {

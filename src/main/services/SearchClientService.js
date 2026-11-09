@@ -1,14 +1,13 @@
 import { grpc, loadProto } from "../utils/grpcLoader.js";
+import { createApiKeyMetadata, createGrpcChannelOptions, deadlineAfter } from "../utils/grpcConnection.js";
 import { SEARCH_FIELD_IDS as SEARCH_FIELDS } from "../../shared/constants/searchItems.js";
 import { SERVER_CONFIG_LIMITS } from "../../shared/constants/serverConfig.js";
 const STREAM_CHUNK_SIZE = 100;
-const GRPC_OPTIONS = Object.freeze({
+const SEARCH_KEEPALIVE_OPTIONS = Object.freeze({
   "grpc.keepalive_time_ms": 60000,
   "grpc.keepalive_timeout_ms": 10000,
-  "grpc.max_receive_message_length": 32 * 1024 * 1024,
 });
 
-function deadlineAfter(milliseconds) { return new Date(Date.now() + milliseconds); }
 const closedClientError = () => new Error("Клиент поиска закрыт");
 
 function requestLimit(value, fallback) {
@@ -71,11 +70,7 @@ export class SearchClientService {
         config = await this.connectionService.getResolvedConfig(this.configOverride);
         if (generation !== this.generation) throw closedClientError();
         const credentials = this.grpc.credentials.createSsl(config.caCertificate);
-        const options = { ...GRPC_OPTIONS };
-        if (config.tlsServerName) {
-          options["grpc.ssl_target_name_override"] = config.tlsServerName;
-          options["grpc.default_authority"] = config.tlsServerName;
-        }
+        const options = createGrpcChannelOptions(config, SEARCH_KEEPALIVE_OPTIONS);
         const baseSearch = this.loadProto("base_search.proto").base_search;
         const databaseAll = this.loadProto("database_all.proto").database_all;
         searchClient = new baseSearch.BaseSearches(config.endpoint, credentials, options);
@@ -103,9 +98,7 @@ export class SearchClientService {
   }
 
   createMetadata(config = this.config) {
-    const metadata = new this.grpc.Metadata();
-    metadata.set("x-api-key", config.apiKey);
-    return metadata;
+    return createApiKeyMetadata(this.grpc, config.apiKey);
   }
 
   async search(payload, { onChunk } = {}) {

@@ -6,7 +6,11 @@ In ordinary search, enter at least one exact identifier and choose **Собра�
 
 In batch search, choose **Сбор отчётов**, select the identifier type and enter or import one value per line. Select a folder to create one Word document per distinct valid seed. Equivalent formatting is normalized before duplicate seeds are removed. Invalid values are counted and skipped. Stopping collection saves the current partial report if records or server aggregates have already arrived, then prevents the next seed from starting.
 
-Reports use DOCX only. The document includes a summary of unique values, identifiers, complete records, source metadata, server aggregates, query history and collection limitations. Different values and records are retained separately. Matching an identifier establishes a search relationship; it does not establish that every returned record describes the same person.
+Reports use DOCX only. Each document starts with the original query and creation date, followed by one compact **Поле — Значение — Источники** table. Each exact nonempty value appears once within its field, with the human names of all contributing sources merged in the third column. A source without a human name uses its source identifier; missing provenance is shown as **Не указан**. Different values remain separate, and unknown field names and their values remain visible. Known fields use readable labels without raw key suffixes.
+
+The table omits record fields whose values are `null`, `undefined`, empty strings or strings containing only whitespace. Zero, `false`, structured values and nonempty duplicate-key fields remain visible without technical type annotations. The document does not repeat values in identifier or full-record sections, and does not include collection statistics, source metadata, source record identifiers or query history. Seeds and search suggestions alone are not presented as found values. This presentation does not change the collected report DTO: full records, identifiers, metadata, counts and provenance remain available to collection and application code.
+
+Complete reports contain no collection status boilerplate. Partial and stopped reports include a short status and unique reasons, including query failures, without query identifiers or execution metadata. Reports with no nonempty record fields or server aggregate items show **Данные не найдены** without empty tables. Matching an identifier establishes a search relationship; it does not establish that every returned value describes the same person.
 
 ## Collection policy
 
@@ -14,7 +18,7 @@ Each exact seed field starts an independent global search. Identifiers returned 
 
 Exact duplicate records are compared by their sorted field/value contents, excluding technical `id` fields. Their sources, query references and original technical identifiers are retained. Records that differ in any other value remain separate. Summary values are deduplicated within each field, retaining source references.
 
-`ObjectGrouped` responses are preserved as separate server aggregates. Identical groups are deduplicated with query references; counts are not summed across queries. Different counts remain separate groups. Aggregates do not trigger identifier searches. The current proto supplies no source for aggregates, and the document says so explicitly.
+`ObjectGrouped` responses are preserved as separate server aggregates. Identical groups are deduplicated with query references; counts are not summed across queries. Different counts remain separate groups. The document retains their values and counts in a compact **Поле — Значение — Количество** table. Aggregates do not trigger identifier searches. The current proto supplies no source for aggregates, and a short note in the document says so explicitly.
 
 Default client limits are 100 queries and 10,000 unique records per report. Each RPC requests the existing server maximum of 10,000 results. Reaching a collection limit, cancellation, failed queries, inconsistent or missing server counters, truncated results or partial shard coverage marks the report as incomplete and records the reason.
 
@@ -28,7 +32,7 @@ The existing `StreamSearch` RPC determines which indexes are searched on the ser
 - `ReportService.js` owns an isolated transport session and its cleanup. It requests the supported result limit and provides native DOCX saving through the existing file bridge.
 - `batchReportRunner.js` owns sequencing and per-seed output; stores own reactive state, tab lifetime and user feedback.
 - `reportExport.js` builds a self-contained Word package from the report DTO. It has no dialogs, transport or filesystem access. It uses the existing ZIP implementation shipped with `xlsx`.
-- `ReportPanel.vue` and `ReportSummary.vue` present progress and a bounded preview. Full records are exported to DOCX rather than rendering an unbounded result tree.
+- `ReportPanel.vue` and `ReportSummary.vue` present progress and a bounded preview. DOCX contains the compact value summary; the full collected DTO remains available internally rather than rendering an unbounded result tree.
 
 To support another returned identifier key, add its alias in `reportPolicy.js` and verify normalization against the corresponding shared search descriptor. Supporting a new query field also requires a coordinated protobuf/server contract change. Future pagination or explicit index selection belongs in the transport adapter; the collection workflow should continue to receive query chunks and confirmed completion metadata.
 

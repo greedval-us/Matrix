@@ -17,6 +17,7 @@ test("search client streams every server item in bounded renderer chunks", async
   let capturedRequest;
   let capturedEndpoint;
   let capturedOptions;
+  let capturedApiKey;
   class BaseSearchClient {
     constructor(endpoint, _credentials, options) {
       capturedEndpoint = endpoint;
@@ -41,7 +42,7 @@ test("search client streams every server item in bounded renderer chunks", async
     close() {}
   }
   class DatabaseClient { close() {} }
-  class Metadata { set() {} }
+  class Metadata { set(name, value) { if (name === 'x-api-key') capturedApiKey = value; } }
   const fakeGrpc = {
     credentials: { createSsl: () => ({}) },
     Metadata,
@@ -75,6 +76,10 @@ test("search client streams every server item in bounded renderer chunks", async
   assert.equal(capturedEndpoint, "matrix.local:50051");
   assert.equal(capturedOptions["grpc.ssl_target_name_override"], "server.example.test");
   assert.equal(capturedOptions["grpc.default_authority"], "server.example.test");
+  assert.equal(capturedOptions["grpc.keepalive_time_ms"], 60000);
+  assert.equal(capturedOptions["grpc.keepalive_timeout_ms"], 10000);
+  assert.equal(capturedOptions["grpc.max_receive_message_length"], 33554432);
+  assert.equal(capturedApiKey, "secret");
   assert.equal(capturedRequest.number, "70000000000");
   assert.deepEqual(chunks, [100, 100, 5]);
   assert.equal(meta.returned_hits, "205");

@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import { Database, Bookmark, Check, Copy } from 'lucide-vue-next';
 import { RESULT_PAGE_SIZE, SOURCE_AVAILABLE_TRUST, formatResultCount } from '../../constants/resultPresentation.js';
+import { nonEmptyResultFields } from '../../../shared/utils/resultFields.js';
 
 const props = defineProps({
   base: { type: Object, required: true },
@@ -13,7 +14,8 @@ const props = defineProps({
   fieldLabel: { type: Function, required: true },
 });
 const emit = defineEmits(['save', 'copy', 'showMore']);
-const visibleData = computed(() => props.base.data.slice(0, props.visibleCount));
+const visibleData = computed(() => props.base.data.slice(0, props.visibleCount)
+  .map(nonEmptyResultFields));
 </script>
 
 <template>

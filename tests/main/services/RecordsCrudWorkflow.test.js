@@ -39,6 +39,56 @@ test('failed save preserves values; busy save cannot duplicate, close or overlap
   assert.equal(state.editorBusy, false); assert.deepEqual(state.pendingRows, []);
 });
 
+test('pending upload blocks saving its row until the shared row lock is released', async () => {
+  const upload = deferred();
+  let updates = 0;
+  const { state, actions } = setup({
+    uploadFiles: () => upload.promise,
+    updateRecord: async () => { updates++; return row; },
+  });
+  await actions.initialize();
+  actions.requestEdit(row);
+  const uploading = actions.upload(row);
+  await actions.saveRecord();
+  assert.equal(updates, 0);
+  assert.equal(state.editorBusy, false);
+  assert.equal(state.editor.rowId, row.id);
+  assert.deepEqual(state.pendingRows, [row.id]);
+
+  upload.resolve({ cancelled: true });
+  await uploading;
+  assert.deepEqual(state.pendingRows, []);
+  await actions.saveRecord();
+  assert.equal(updates, 1);
+  assert.equal(state.editor, null);
+});
+
+test('disposal prevents concurrent list, record and attachment completions from changing state', async () => {
+  const listing = deferred(), update = deferred(), upload = deferred();
+  const otherRow = { ...row, id: 'other-row' };
+  let lists = 0;
+  const { state, actions } = setup({
+    list: () => ++lists === 1 ? page([row, otherRow]) : listing.promise,
+    updateRecord: () => update.promise,
+    uploadFiles: () => upload.promise,
+  });
+  await actions.initialize();
+  actions.requestEdit(row);
+  const saving = actions.saveRecord();
+  const uploading = actions.upload(otherRow);
+  const refreshing = actions.refresh();
+  assert.deepEqual(state.pendingRows, [row.id, otherRow.id]);
+  actions.dispose();
+  const snapshot = JSON.stringify(state);
+
+  update.resolve({ ...row, values: { ...row.values, fio: 'Позднее изменение' } });
+  upload.resolve({ cancelled: false, files: [{ id: 'late-file', name: 'late.pdf' }] });
+  listing.resolve(page([]));
+  await Promise.all([saving, uploading, refreshing]);
+  assert.equal(JSON.stringify(state), snapshot);
+  assert.equal(lists, 2);
+});
+
 test('confirmed update survives failed refresh and closes only its own editor', async () => {
   let lists = 0; let received;
   const changed = { ...row, values: { ...row.values, fio: 'Новое имя', initiator: '' } };

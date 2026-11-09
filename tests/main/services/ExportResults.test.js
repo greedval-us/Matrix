@@ -8,7 +8,7 @@ import PdfExportServiceFS from '../../../src/renderer/services/export/PdfExportS
 import CsvExportService from '../../../src/renderer/services/export/csvExportService.js';
 import TxtExportService from '../../../src/renderer/services/export/txtExportService.js';
 import ManagerExport from '../../../src/renderer/services/export/MenegerExport.js';
-import { buildPdfDefinition } from '../../../src/renderer/services/export/exportContent.js';
+import { buildCsvContent, buildPdfDefinition, buildTxtContent } from '../../../src/renderer/services/export/exportContent.js';
 import { EXPORT_FORMATS, getExportFormat } from '../../../src/renderer/services/export/exportFormats.js';
 
 function captureDownload(t) {
@@ -118,7 +118,7 @@ test('TXT browser and filesystem exports preserve identical Unicode text and gro
     { type: 'object_data_base', source: 'first', name: 'Первый архив', info: 'Описание' },
     { type: 'object_data_base', source: 'second', name: 'Пустой архив' },
   ];
-  const expected = 'Источник: Первый архив\nОписание\n\nfio = Иван 😃\ncount = 0\nempty = \n\n' +
+  const expected = 'Источник: Первый архив\nОписание\n\nfio = Иван 😃\ncount = 0\n\n' +
     '-----------------------\n\nИсточник: Пустой архив\n\nНет данных\n\n';
 
   new TxtExportService().export(records);
@@ -175,7 +175,6 @@ test('PDF document content preserves Cyrillic source metadata, records and empty
       stack: [
         { text: 'fio: Иван', margin: [0, 0, 0, 2] },
         { text: 'count: 0', margin: [0, 0, 0, 2] },
-        { text: 'empty: ', margin: [0, 0, 0, 2] },
       ],
       margin: [0, 0, 0, 10],
       style: 'recordBlock',
@@ -185,6 +184,53 @@ test('PDF document content preserves Cyrillic source metadata, records and empty
     { text: '', style: 'subheader', margin: [0, 0, 0, 10] },
     { text: 'Нет данных', italics: true, margin: [0, 0, 0, 15] },
   ]);
+  assert.deepEqual(records, original);
+});
+
+test('every result file omits empty fields while keeping zero, false and populated columns aligned', () => {
+  const records = [
+    { type: 'object_data_base', source: 'records', name: 'Архив' },
+    { type: 'object_data', source: 'records', fields: [
+      ['fio', 'Иван'], ['empty-null', null], ['empty-undefined', undefined], ['empty-string', ''],
+      ['empty-space', ' \t\r\n\u00a0 '], ['zero', 0], ['flag', false], ['partial', ''], ['spaced', '  Текст  '],
+    ] },
+    { type: 'object_data', source: 'records', fields: [['fio', null], ['partial', 'Заполнено'], ['zero', '0']] },
+  ];
+  const original = structuredClone(records);
+  const txt = buildTxtContent(records);
+  const csv = buildCsvContent(records);
+  const pdf = JSON.stringify(buildPdfDefinition(records));
+  const workbook = XLSX.read(new ExcelExportServiceFS().export(records), { type: 'array' });
+  const sheet = workbook.Sheets['Архив'];
+  const table = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+  const excel = JSON.stringify(table);
+  for (const output of [txt, csv, pdf, excel]) {
+    assert.doesNotMatch(output, /empty-(?:null|undefined|string|space)/);
+    assert.match(output, /Заполнено/);
+    assert.match(output, /  Текст  /);
+  }
+  assert.match(txt, /zero = 0\nflag = false\n/);
+  assert.equal(csv, '\uFEFFИсточник: Архив\n\nfio,zero,flag,spaced,partial\nИван,0,false,  Текст  ,\n,0,,,Заполнено\n');
+  assert.deepEqual(table[0], ['fio', 'zero', 'flag', 'spaced', 'partial']);
+  assert.deepEqual(XLSX.utils.sheet_to_json(sheet), [
+    { fio: 'Иван', zero: 0, flag: false, spaced: '  Текст  ' },
+    { zero: '0', partial: 'Заполнено' },
+  ]);
+  assert.match(pdf, /zero: 0/);
+  assert.match(pdf, /flag: false/);
+  assert.deepEqual(records, original);
+});
+
+test('records with only empty fields use the existing no-data source message in files', () => {
+  const records = [{ type: 'object_data', source: 'blank', fields: [['empty-field', ' \n '], ['null-field', null]] }];
+  const original = structuredClone(records);
+  const outputs = [buildTxtContent(records), buildCsvContent(records), JSON.stringify(buildPdfDefinition(records))];
+  const workbook = XLSX.read(new ExcelExportServiceFS().export(records), { type: 'array' });
+  outputs.push(JSON.stringify(XLSX.utils.sheet_to_json(workbook.Sheets.blank)));
+  for (const output of outputs) {
+    assert.doesNotMatch(output, /empty-field|null-field/);
+    assert.match(output, /Нет данных/);
+  }
   assert.deepEqual(records, original);
 });
 

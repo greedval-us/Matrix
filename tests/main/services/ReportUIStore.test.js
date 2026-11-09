@@ -118,6 +118,39 @@ test('stopped reports preserve received records; cancelled native save never rep
   assert.equal(state.notice, '');
 });
 
+for (const outcome of ['saved', 'failed']) {
+  test(`a late ${outcome} report save cannot change replacement tab state`, async (t) => {
+    let finishSave, failSave, notifySaving;
+    const savingStarted = new Promise(resolve => { notifySaving = resolve; });
+    t.mock.method(ReportService.prototype, 'collect', async () => fixtureReport());
+    const { search, id } = setup({
+      saveDialog: async () => 'C:/reports/report.docx',
+      write: () => {
+        notifySaving();
+        return new Promise((resolve, reject) => { finishSave = resolve; failSave = reject; });
+      },
+    });
+    await search.collectReport(id);
+    const saving = search.saveCollectedReport(id);
+    await savingStarted;
+    const cleared = search.getReportState(id);
+    search.clearTab(id);
+    await search.collectReport(id);
+    const replacement = search.getReportState(id);
+    if (outcome === 'saved') finishSave(true);
+    else failSave(new Error('Late disk failure'));
+    await saving;
+    assert.equal(search.getReportState(id), replacement);
+    assert.equal(replacement.error, '');
+    assert.equal(replacement.notice, '');
+    assert.equal(replacement.saving, false);
+    assert.equal(replacement.report.records.length, 1);
+    assert.equal(cleared.notice, '');
+    assert.equal(cleared.error, '');
+    assert.equal(cleared.saving, true);
+  });
+}
+
 test('batch report mode skips invalid seeds and merges canonical duplicates without requiring legacy formats', async (t) => {
   const seeds = [], writes = [];
   t.mock.method(ReportService.prototype, 'collect', async ({ seedQuery }) => {
