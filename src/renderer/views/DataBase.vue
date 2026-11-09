@@ -5,6 +5,7 @@ import { useDatabaseStore } from '../stores/uistore/databaseStoreUI';
 import PageHeading from '../components/ui/PageHeading.vue';
 import CatalogFilters from '../components/catalog/CatalogFilters.vue';
 import CatalogTable from '../components/catalog/CatalogTable.vue';
+import CatalogPagination from '../components/catalog/CatalogPagination.vue';
 const dbStore = useDatabaseStore();
 onMounted(() => {
   if (!dbStore.state.rows.length && !dbStore.state.loading) dbStore.fetchAll();
@@ -27,7 +28,9 @@ onMounted(() => {
     <p v-if="dbStore.state.error" role="alert" class="mx-alert mb-5">{{ dbStore.state.error }}</p>
     <CatalogFilters :types="dbStore.types" :selected-type="dbStore.state.selectedType"
       :row-count="dbStore.filteredRowCount" :record-count="dbStore.filteredCountSum" @filter="dbStore.setFilter" />
-    <CatalogTable :rows="dbStore.filteredRows" :loading="dbStore.state.loading" :error="dbStore.state.error"
+    <CatalogTable :rows="dbStore.pagedRows" :loading="dbStore.state.loading" :error="dbStore.state.error"
       :sort-key="dbStore.state.sortKey" :sort-direction="dbStore.state.sortDirection" @sort="dbStore.setSort" />
+    <CatalogPagination :page="dbStore.state.page" :page-count="dbStore.pageCount" :total="dbStore.filteredRowCount"
+      :loading="dbStore.state.loading" @page="dbStore.setPage" />
   </div>
 </template>

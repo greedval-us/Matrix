@@ -3,7 +3,7 @@ import test from 'node:test';
 import { createRecordsState, createRecordsWorkflow } from '../../../src/renderer/services/records/recordsWorkflow.js';
 import { RecordsService } from '../../../src/renderer/services/RecordsService.js';
 
-const row = { id: '90071992547409931', values: { date: '2026-11-05', fio: 'Иванов', note: 'Заметка' }, files: [] };
+const row = { id: '90071992547409931', values: { date: '2026-11-05', fio: 'Иванов', initiator: 'Инициатор', note: 'Заметка' }, files: [] };
 const page = (rows = [row], total = rows.length) => ({ rows, total, columns: [{ key: 'fio', sortable: true }] });
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
 function setup(overrides = {}) {
@@ -17,10 +17,13 @@ test('new record defaults to local calendar today and validation keeps entered v
   const { state, actions } = setup({ createRecord: async () => { calls++; } });
   await actions.initialize(); actions.requestCreate();
   assert.equal(state.editor.values.date, '2026-01-02');
+  assert.equal(state.editor.values.initiator, '');
+  actions.setEditorValue('initiator', 'Новый инициатор');
   actions.setEditorValue('date_of_birth', '2025-02-29');
   await actions.saveRecord();
   assert.equal(calls, 0); assert.match(state.editorError, /дат/);
   assert.equal(state.editor.values.date_of_birth, '2025-02-29');
+  assert.equal(state.editor.values.initiator, 'Новый инициатор');
   actions.closeEditor(); assert.equal(state.editor, null);
 });
 
@@ -38,10 +41,13 @@ test('failed save preserves values; busy save cannot duplicate, close or overlap
 
 test('confirmed update survives failed refresh and closes only its own editor', async () => {
   let lists = 0; let received;
-  const changed = { ...row, values: { ...row.values, fio: 'Новое имя' } };
+  const changed = { ...row, values: { ...row.values, fio: 'Новое имя', initiator: '' } };
   const { state, actions } = setup({ list: async () => { if (++lists > 1) throw new Error('refresh failed'); return page(); }, updateRecord: async request => { received = request; return changed; } });
-  await actions.initialize(); actions.requestEdit(row); actions.setEditorValue('fio', 'Новое имя'); await actions.saveRecord();
+  await actions.initialize(); actions.requestEdit(row);
+  assert.equal(state.editor.values.initiator, 'Инициатор');
+  actions.setEditorValue('fio', 'Новое имя'); actions.setEditorValue('initiator', ''); await actions.saveRecord();
   assert.equal(received.rowId, row.id); assert.equal(received.values.fio, 'Новое имя');
+  assert.equal(received.values.initiator, '');
   assert.equal(state.rows[0].values.fio, 'Новое имя'); assert.equal(state.editor, null);
   assert.equal(state.notice, 'Запись сохранена.'); assert.equal(state.error, 'refresh failed');
 });

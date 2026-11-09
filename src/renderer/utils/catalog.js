@@ -2,6 +2,7 @@ export const ALL_SOURCE_TYPES = 'Все';
 export const UNKNOWN_SOURCE_TYPE = 'Неизвестно';
 export const SORT_ASCENDING = 'asc';
 export const SORT_DESCENDING = 'desc';
+export const CATALOG_PAGE_SIZE = 50;
 export const CATALOG_COLUMNS = Object.freeze([
   { key: 'name', label: 'Источник' }, { key: 'info', label: 'Описание' },
   { key: 'relevance_date', label: 'Актуальность' }, { key: 'type', label: 'Тип' },

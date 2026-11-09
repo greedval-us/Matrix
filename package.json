@@ -1,6 +1,6 @@
 {
   "name": "matrix",
-  "version": "1.0.3",
+  "version": "1.0.5",
   "description": "Desktop gRPC client for Matrix Search powered by Manticore.",
   "author": "Matrix Team",
   "type": "module",

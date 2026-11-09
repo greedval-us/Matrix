@@ -27,6 +27,21 @@ async function renderComponent(path, props) {
 }
 
 try {
+  const catalogPage = await renderComponent('/components/catalog/CatalogPagination.vue', {
+    page: 3, pageCount: 3, total: 121,
+  });
+  assert.match(catalogPage, /101–121 из 121/);
+  assert.match(catalogPage, /Страница 3 из 3/);
+  assert.match(catalogPage, /aria-label="Страницы каталога"/);
+  assert.match(catalogPage, /aria-label="Следующая страница"[^>]*disabled/);
+  assert.doesNotMatch(catalogPage, /aria-label="Предыдущая страница"[^>]*disabled/);
+  const emptyCatalog = await renderComponent('/components/catalog/CatalogPagination.vue', {
+    page: 1, pageCount: 1, total: 0,
+  });
+  assert.match(emptyCatalog, /0–0 из 0/);
+  assert.match(emptyCatalog, /aria-label="Предыдущая страница"[^>]*disabled/);
+  assert.match(emptyCatalog, /aria-label="Следующая страница"[^>]*disabled/);
+
   const card = await renderComponent('/components/search/SearchSourceCard.vue', {
     base: { source: 'A', name: '<Source>', info: 'Details', trust: '1', data:
       Array.from({ length: 52 }, (_, index) => [['number', index === 0 ? '<unsafe>' : String(index)]]) },
@@ -116,7 +131,7 @@ try {
   assert.match(batchReports, /Собрать отчёты/);
   assert.doesNotMatch(batchReports, /Форматы сохранения/);
   assert.doesNotMatch(batchReports, /<option[^>]+value="(?:fio|date_of_birth)"/);
-  console.log('UI smoke passed: source pagination/escaping, status/errors, suggestions, dynamic records, attachment permissions and report collection.');
+  console.log('UI smoke passed: catalog/source pagination, escaping, status/errors, suggestions, dynamic records, attachment permissions and report collection.');
 } finally {
   await vite.close();
 }

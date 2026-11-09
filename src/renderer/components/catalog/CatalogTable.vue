@@ -1,13 +1,16 @@
 <script setup>
+import { useTemplateRef, watch } from 'vue';
 import { ArrowDown, ArrowUp, Database } from 'lucide-vue-next';
 import { CATALOG_COLUMNS as columns, SORT_ASCENDING } from '../../utils/catalog.js';
 import { SOURCE_AVAILABLE_TRUST, formatResultCount } from '../../constants/resultPresentation.js';
-defineProps({ rows: { type: Array, required: true }, loading: { type: Boolean, default: false }, error: { type: String, default: null }, sortKey: { type: String, default: null }, sortDirection: { type: String, required: true } });
+const props = defineProps({ rows: { type: Array, required: true }, loading: { type: Boolean, default: false }, error: { type: String, default: null }, sortKey: { type: String, default: null }, sortDirection: { type: String, required: true } });
 const emit = defineEmits(['sort']);
+const viewport = useTemplateRef('viewport');
+watch(() => props.rows, () => { if (viewport.value) viewport.value.scrollTop = 0; }, { flush: 'post' });
 </script>
 
 <template>
-  <div class="mx-panel min-h-[240px] flex-1 overflow-auto">
+  <div ref="viewport" class="mx-panel catalog-table-viewport min-h-[240px] flex-1 overflow-auto">
     <table class="w-full min-w-[800px] text-left text-sm">
       <thead class="sticky top-0 z-10 bg-matrix-raised text-matrix-muted">
         <tr>

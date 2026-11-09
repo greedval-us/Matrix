@@ -18,6 +18,8 @@ Normal and batch search share session lifecycle and field/query policies. Batch 
 
 Settings, status polling and result actions are composables. Result cards and suggestions communicate through props and events. Status polling stops on unmount and ignores late replies. Saving a result uses the notes store so persistence and the visible collection stay consistent.
 
+The catalogue store retains the complete source list and applies filtering, sorting and totals before selecting a page. The table renders at most 50 sources at once. Page navigation preserves access to every source and resets the table scroll position; changing a filter or sort starts from the first page, and refreshing clamps the current page when the list shrinks.
+
 ## Export
 
 Shared builders construct TXT, CSV, XLSX workbooks and PDF definitions. Existing browser exporters download their output; filesystem exporters return text or bytes. FileService owns dialogs, reading and writing, including binary detection. Format builders do not choose folders or call IPC.

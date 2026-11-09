@@ -94,18 +94,19 @@ test('invalid totals and unconfirmed removals cannot report success', async t =>
 });
 
 test('CRUD uses the ordinary key, preserves stable IDs and requires deletion confirmation', async t => {
-  const row = { id: '9007199254740993', values: { fio: 'Запись' }, files: [] };
+  const row = { id: '9007199254740993', values: { fio: 'Запись', initiator: 'Инициатор' }, files: [] };
   const remote = await loopback(t, {
     createRecord: (_call, callback) => callback(null, row),
     updateRecord: (_call, callback) => callback(null, row),
     deleteRecord: (_call, callback) => callback(null, { deleted: false }),
   });
   const repo = repository(t, { getResolvedConfig: async () => config(remote.endpoint) });
-  assert.equal((await repo.createRecord({ values: { fio: 'Запись' } })).id, row.id);
-  assert.equal((await repo.updateRecord({ rowId: row.id, values: { note: '' } })).id, row.id);
+  assert.deepEqual(await repo.createRecord({ values: { fio: 'Запись', initiator: 'Инициатор' } }), row);
+  assert.equal((await repo.updateRecord({ rowId: row.id, values: { initiator: '', note: '' } })).id, row.id);
   await assert.rejects(repo.deleteRecord({ rowId: row.id }), /подтвердил/);
   assert.deepEqual(remote.requests.map(call => call.key), ['client-secret', 'client-secret', 'client-secret']);
-  assert.deepEqual(remote.requests[1].request, { id: row.id, values: { note: '' } });
+  assert.deepEqual(remote.requests[0].request, { values: { fio: 'Запись', initiator: 'Инициатор' } });
+  assert.deepEqual(remote.requests[1].request, { id: row.id, values: { initiator: '', note: '' } });
 });
 
 test('servers without CRUD capability fields keep editing disabled', async t => {
