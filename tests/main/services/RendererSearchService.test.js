@@ -49,6 +49,37 @@ test('renderer delivers progress only to its tab and rejects another search unti
   assert.equal(result.meta.cancelled, true);
 });
 
+test('a streamed search receives its final chunk when the invoke reply arrives first', async () => {
+  let listener;
+  const meta = { returned_hits: '2' };
+  const service = new SearchService({
+    createClient: async () => ({}),
+    onProgress(callback) {
+      listener = callback;
+      return () => { listener = undefined; };
+    },
+    run: async () => ({ meta, streamed: true }),
+  });
+  await service.createClient(1);
+  const received = [];
+  const searching = service.search(1, { number: '123' }, {
+    onChunk: items => received.push(...items),
+  });
+
+  listener({ tabId: 1, type: 'chunk', items: ['first'] });
+  await new Promise(resolve => setImmediate(resolve));
+  listener?.({ tabId: 2, type: 'completed' });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(service.isSearching[1], true, 'The invoke reply must not end the result stream');
+  listener({ tabId: 1, type: 'chunk', items: ['last'] });
+  listener({ tabId: 1, type: 'completed' });
+
+  assert.deepEqual(await searching, { meta });
+  assert.deepEqual(received, ['first', 'last']);
+  assert.equal(listener, undefined);
+  assert.equal(service.isSearching[1], false);
+});
+
 test('renderer removes progress listener when server rejects the request', async () => {
   let removed = false;
   const service = new SearchService({

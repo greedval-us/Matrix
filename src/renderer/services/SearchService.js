@@ -28,14 +28,21 @@ export class SearchService {
     let removeProgressListener;
     let requestError;
     try {
+      let finishProgress;
+      const progressFinished = new Promise(resolve => { finishProgress = resolve; });
       removeProgressListener = this.searchAPI.onProgress((eventPayload) => {
         if (!eventPayload || eventPayload.tabId !== tabId) return;
+        if (eventPayload.type === 'completed' || eventPayload.type === 'cancelled') finishProgress();
         options.onProgress?.(eventPayload);
         if (eventPayload.type === 'chunk' && Array.isArray(eventPayload.items)) {
           options.onChunk?.(eventPayload.items, eventPayload.received);
         }
       });
-      return { meta: await this.searchAPI.run(tabId, payload) };
+      const response = await this.searchAPI.run(tabId, payload);
+      if (response?.streamed !== true) return { meta: response };
+      // The invoke reply can arrive before the final progress events.
+      await progressFinished;
+      return { meta: response.meta };
     } catch (error) {
       requestError = error;
       throw error;

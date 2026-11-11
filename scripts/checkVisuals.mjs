@@ -28,6 +28,9 @@ app.disableHardwareAcceleration();
 
 const VIEWPORT = { width: 1200, height: 760 };
 const MINIMUM_WINDOW = { width: 820, height: 560 };
+const LARGE_SEARCH_NUMBER = '79000009999';
+const LARGE_SOURCE_NAME = 'Длинный тестовый источник';
+const LARGE_SOURCE_SIZE = 2000;
 const WAIT_TIMEOUT_MS = 8000;
 const TRANSITION_SETTLE_MS = 420;
 const fixtureStatus = { status: 'ready', indexed_shards: 12, total_shards: 12, progress_percent: 100 };
@@ -142,6 +145,30 @@ function registerFixtureApis() {
     if (String(tabId).startsWith('report-')) return runReportFixture(event, tabId, query);
     ordinarySearchRequests.push({ tabId, query: structuredClone(query) });
     assert.ok(query.number, 'The fixture search must contain its phone field');
+    if (query.number === LARGE_SEARCH_NUMBER) {
+      const sources = Array.from({ length: 41 }, (_, index) => `virtual_${index}`);
+      const items = sources.flatMap((source, index) => {
+        const isLast = index === sources.length - 1;
+        return [
+          { object_data_base: { name_table: source, name: isLast ? LARGE_SOURCE_NAME : `Источник ${index + 1}`,
+            info: 'Описание тестового источника' } },
+          ...Array.from({ length: isLast ? LARGE_SOURCE_SIZE : 12 }, (_, record) => ({ object_data: {
+            source_name: source, fields: { number: query.number,
+              info: `Запись ${record + 1}. ${'Тестовое значение '.repeat(record % 5 + 1)}` },
+          } })),
+        ];
+      });
+      let received = 0;
+      for (let offset = 0; offset < items.length; offset += 100) {
+        const chunk = items.slice(offset, offset + 100);
+        received += chunk.filter(item => item.object_data).length;
+        event.sender.send(channels.search.progress, { tabId, type: 'chunk', items: chunk, received });
+        if (offset + chunk.length < items.length) await pause(5);
+      }
+      const meta = { took_ms: 124, received, partial: false, ...fixtureStatus };
+      event.sender.send(channels.search.progress, { tabId, type: 'completed', meta, received });
+      return { meta, streamed: true };
+    }
     const source = 'visual_fixture';
     const items = [
       { object_data_base: { name_table: source, name: 'Демонстрационный каталог', type: 'Контакты',
@@ -970,6 +997,57 @@ async function runReportChecks() {
   assert.deepEqual(rendererErrors, [], 'Report UI must not log runtime errors');
 }
 
+async function runSearchScrollChecks() {
+  await navigate('/search');
+  if (!await evaluate(() => document.querySelector('input[id$="-number"]') !== null)) {
+    await clickText('Телефон', '.search-field-option');
+  }
+  await setInput('input[id$="-number"]', LARGE_SEARCH_NUMBER);
+  await click('.search-primary-action');
+  await waitFor(() => document.body.textContent.includes('Запрос завершён') &&
+    document.querySelectorAll('.search-source-link').length === 41);
+  assert.equal(await evaluate(() => Number(document.querySelector('.search-result-status .tabular-nums').textContent.replace(/\s/g, ''))), 2480);
+  const renderedRecords = await evaluate(() => document.querySelectorAll('.search-results-page .mx-record').length);
+  assert.ok(renderedRecords > 0 && renderedRecords < 100, `Too many rendered search results: ${renderedRecords}`);
+  assert.equal(await evaluate(() => document.querySelector('.search-results-page').textContent.includes('Показать ещё')), false);
+
+  const jumpToLargeSource = async () => {
+    await clickText(LARGE_SOURCE_NAME, '.search-source-link span:first-child');
+    await waitFor(name => [...document.querySelectorAll('article[data-base-name]')].some(article =>
+      article.dataset.baseName === name && article.getBoundingClientRect().top >= 0 &&
+      article.getBoundingClientRect().top < innerHeight - 70), LARGE_SOURCE_NAME);
+  };
+  await jumpToLargeSource();
+  await evaluate(name => {
+    const article = [...document.querySelectorAll('article[data-base-name]')]
+      .find(element => element.dataset.baseName === name);
+    article.querySelector('summary').click();
+  }, LARGE_SOURCE_NAME);
+  await waitFor(size => {
+    const pane = document.querySelector('section[aria-label="Результаты поиска"]');
+    const viewport = pane.getBoundingClientRect();
+    const visible = [...document.querySelectorAll('.search-source-card .mx-eyebrow')].some(label => {
+      const rect = label.getBoundingClientRect();
+      return label.textContent.trim() === `Запись ${size}` && rect.bottom > viewport.top && rect.top < viewport.bottom;
+    });
+    if (!visible) pane.scrollTop = pane.scrollHeight;
+    return visible;
+  }, LARGE_SOURCE_SIZE);
+  assert.ok(await evaluate(() => document.querySelectorAll('.search-results-page .mx-record').length < 100));
+
+  await window.webContents.debugger.sendCommand('Emulation.setDeviceMetricsOverride', {
+    ...measuredMinimumViewport, deviceScaleFactor: await evaluate(() => devicePixelRatio), mobile: false,
+  });
+  await jumpToLargeSource();
+  assert.ok(await evaluate(name => [...document.querySelectorAll('article[data-base-name]')]
+    .find(article => article.dataset.baseName === name)?.querySelector('details')?.open, LARGE_SOURCE_NAME));
+  await assertNoHorizontalOverflow('Large search at minimum width');
+  await window.webContents.debugger.sendCommand('Emulation.setDeviceMetricsOverride', {
+    ...VIEWPORT, deviceScaleFactor: await evaluate(() => devicePixelRatio), mobile: false,
+  });
+  checks.push(`Search: ${renderedRecords} records mounted for 2480 matches, source jumps at both widths, final record visible`);
+}
+
 async function main() {
 try {
   progress('waiting-ready');
@@ -1002,6 +1080,7 @@ try {
   await runRecordsChecks();
   await runRecordsCrudChecks();
   await runReportChecks();
+  await runSearchScrollChecks();
   await checkCinematicSplash();
   progress('checks-passed');
   console.log(`Visual check passed: ${checks.length} checks, ${screenshots.length} fixture screenshots in ${outputDirectory}`);

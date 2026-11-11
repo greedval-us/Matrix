@@ -1,5 +1,5 @@
 export const IPC_CHANNELS = Object.freeze({
-  dialog: Object.freeze({ openFile: "dialog:openFile", openCertificate: "dialog:openCertificate", openFolder: "dialog:openFolder", saveFile: "dialog:saveFile" }),
+  dialog: Object.freeze({ openFile: "dialog:openFile", openFolder: "dialog:openFolder", saveFile: "dialog:saveFile" }),
   file: Object.freeze({ read: "file:read", write: "file:write" }),
   records: Object.freeze({
     getCapabilities: "records:get-capabilities", list: "records:list", uploadFiles: "records:upload-files",

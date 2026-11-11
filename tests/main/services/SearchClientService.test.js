@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import test from "node:test";
+import { grpc, loadProto as loadRealProto } from "../../../src/main/utils/grpcLoader.js";
 
 import {
   grpcError,
@@ -99,4 +100,68 @@ test("search client streams every server item in bounded renderer chunks", async
 
 test("connection deadline errors are explained to the user", () => {
   assert.match(grpcError({ code: 4 }).message, /Не удалось подключиться/);
+});
+
+test("device proofs use the generated method path for status, search, and catalog", async () => {
+  const paths = [];
+  const received = [];
+  const apiKey = `mxk_${"A".repeat(43)}`;
+  class BaseSearchClient {
+    waitForReady(_deadline, callback) { callback(); }
+    getIndexStatus(_request, metadata, _options, callback) {
+      received.push(metadata.get("x-api-key")[0]);
+      callback(null, { status: "completed" });
+    }
+    streamSearch(_request, metadata) {
+      received.push(metadata.get("x-api-key")[0]);
+      const call = new SearchCall();
+      queueMicrotask(() => call.emit("end"));
+      return call;
+    }
+    close() {}
+  }
+  class DatabaseClient {
+    streamDatabaseAll(_request, metadata) {
+      received.push(metadata.get("x-api-key")[0]);
+      const call = new SearchCall();
+      queueMicrotask(() => call.emit("end"));
+      return call;
+    }
+    close() {}
+  }
+  const Search = loadRealProto("base_search.proto").base_search.BaseSearches;
+  const Database = loadRealProto("database_all.proto").database_all.DatabaseAll;
+  for (const method of ["getIndexStatus", "streamSearch"]) BaseSearchClient.prototype[method].path = Search.prototype[method].path;
+  DatabaseClient.prototype.streamDatabaseAll.path = Database.prototype.streamDatabaseAll.path;
+  const service = new SearchClientService({
+    connectionService: {
+      getResolvedConfig: async () => ({
+        apiKey, endpoint: "matrix.local:50051", pageSize: 1000, connectionTimeoutMs: 1000,
+        signDeviceRequest(methodPath) { paths.push(methodPath); return { "x-matrix-device-nonce": `proof-${paths.length}` }; },
+      }),
+    },
+    dependencies: {
+      grpc: { ...grpc, credentials: { createSsl: () => ({}) } },
+      loadProto: name => name === "base_search.proto"
+        ? { base_search: { BaseSearches: BaseSearchClient } }
+        : { database_all: { DatabaseAll: DatabaseClient } },
+    },
+  });
+  try {
+    await service.search({ number: "70000000000" });
+    await service.listDatabases();
+    await service.getIndexStatus();
+  } finally { await service.dispose(); }
+  assert.deepEqual(paths, [
+    Search.prototype.getIndexStatus.path, Search.prototype.streamSearch.path,
+    Search.prototype.getIndexStatus.path, Database.prototype.streamDatabaseAll.path,
+    Search.prototype.getIndexStatus.path,
+  ]);
+  assert.deepEqual(received, Array(5).fill(apiKey));
+});
+
+test("an already activated device key has a distinct connection error", () => {
+  assert.match(grpcError({ code: grpc.status.PERMISSION_DENIED, details: "API key is already bound to another device" }).message,
+    /ключ.*привязан.*другому компьютеру/i);
+  assert.doesNotMatch(grpcError({ code: grpc.status.PERMISSION_DENIED, details: "Other issue" }).message, /другому компьютеру/i);
 });

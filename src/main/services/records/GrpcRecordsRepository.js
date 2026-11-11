@@ -24,8 +24,9 @@ export class GrpcRecordsRepository {
     const credentials = this.grpc.credentials.createSsl(config.caCertificate);
     const options = createGrpcChannelOptions(config);
     const Client = this.loadProto('records.proto').matrix.records.v1.Records;
-    const metadata = createApiKeyMetadata(this.grpc, config.apiKey);
-    const operation = { client: new Client(config.endpoint, credentials, options), metadata,
+    const client = new Client(config.endpoint, credentials, options);
+    const operation = { client,
+      metadataFor: method => createApiKeyMetadata(this.grpc, config, client[method].path),
       options: { deadline: deadlineAfter(Math.max(config.connectionTimeoutMs, fileOperation ? RECORDS_TRANSFER_LIMITS.timeoutMs : 0)) },
       calls: new Set(), controller: new AbortController(), source: null };
     this.operations.add(operation);
@@ -42,7 +43,7 @@ export class GrpcRecordsRepository {
 
   unary(operation, method, request) {
     return new Promise((resolve, reject) => {
-      const call = operation.client[method](request, operation.metadata, operation.options, (error, response) => error ? reject(error) : resolve(response));
+      const call = operation.client[method](request, operation.metadataFor(method), operation.options, (error, response) => error ? reject(error) : resolve(response));
       operation.calls.add(call);
     });
   }

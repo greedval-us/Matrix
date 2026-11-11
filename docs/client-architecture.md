@@ -8,6 +8,8 @@ Shared policies contain plain data and functions only. Server defaults and numer
 
 Main-process `grpcConnection` helpers share channel options and API-key metadata between search and records. Their transport lifetimes stay separate: search reuses connections, while records opens a transport per operation. `GrpcRecordsRepository` orchestrates those operations; `recordsProtocol` validates/maps responses, `recordsErrors` translates failures, and `recordsFileTransfer` handles upload/download streams. `recordsTransferPolicy` names the file, batch, chunk and timeout limits used by validation and streaming.
 
+`RecordsService` validates renderer requests and capability checks before invoking the repository. `recordsLocalFiles` owns native file selection and atomic download writes, including stream/handle cleanup and preservation of the primary error. Paths and streams stay in main. Main and renderer share `normalizeRecordsCapabilities` to enforce the same strict boolean contract. Renderer file selection commits its path and contents together only after a successful read.
+
 The preload is built as a CommonJS bundle using the existing Vite dependency. Electron loads `build/main/preload.cjs` with context isolation and sandboxing enabled. Build the preload before launching Electron; the package scripts do this automatically.
 
 ## State and workflows

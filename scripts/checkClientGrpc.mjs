@@ -31,12 +31,12 @@ function parseArgs(argv) {
 
 const args = parseArgs(process.argv.slice(2));
 const values = new Map([
-  ["searchServer", { endpoint: args.endpoint, pageSize: args.pageSize, caCertificatePath: args.caCertificatePath, tlsServerName: args.tlsServerName }],
+  ["searchServer", { endpoint: args.endpoint, pageSize: args.pageSize, tlsServerName: args.tlsServerName }],
 ]);
 const connectionService = new ServerConnectionService({
   get: (key) => values.get(key),
   set: (key, value) => values.set(key, value),
-});
+}, { bundledCertificatePath: args.caCertificatePath });
 const client = new SearchClientService({ connectionService });
 let received = 0;
 

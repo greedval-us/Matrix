@@ -1,18 +1,36 @@
 <script setup>
-import { computed, ref, watch, nextTick } from 'vue';
+import { computed, onMounted, onUnmounted, shallowRef, useTemplateRef } from 'vue';
 import { ChevronDown, Search, Database, Info } from 'lucide-vue-next';
 import SearchIcons from './SearchIcons.vue';
 import SearchInputs from './SearchInputs.vue';
 import SearchButton from './SearchButton.vue';
 import SearchResults from './SearchResults.vue';
 import { useSearchUIStore } from '../../stores/uistore/serchStoreUI';
-import { groupSearchResults } from '../../utils/searchResults';
+import { useSearchResults } from '../../composables/useSearchResults.js';
 
 const props = defineProps({ tabId: { type: Number, required: true } });
 const searchUI = useSearchUIStore();
-const resultsPane = ref(null);
-const baseGroups = computed(() => groupSearchResults(searchUI.getResults(props.tabId)));
-const activeBase = computed(() => searchUI.getActiveBase(props.tabId));
+const tabContent = useTemplateRef('tabContent');
+const inspector = useTemplateRef('inspector');
+const resultsPane = useTemplateRef('resultsPane');
+const results = useTemplateRef('results');
+const wideLayout = shallowRef(false);
+const viewport = computed(() => wideLayout.value ? resultsPane.value : tabContent.value);
+const scrollLead = computed(() => wideLayout.value ? null : inspector.value);
+const searchResults = useSearchResults({ tabId: () => props.tabId, searchUI });
+const { bases: baseGroups, activeBase } = searchResults;
+let layoutMedia;
+
+function updateLayout() {
+  wideLayout.value = layoutMedia.matches;
+}
+
+onMounted(() => {
+  layoutMedia = window.matchMedia('(min-width: 1024px)');
+  updateLayout();
+  layoutMedia.addEventListener('change', updateLayout);
+});
+onUnmounted(() => layoutMedia?.removeEventListener('change', updateLayout));
 
 function submitSearch(event) {
   if (event.submitter || searchUI.getLoading(props.tabId)) return;
@@ -20,20 +38,19 @@ function submitSearch(event) {
   if (Object.values(fields).some((field) => String(field.value).trim()))
     searchUI.search(props.tabId);
 }
-watch(activeBase, async (name) => {
-  await nextTick();
-  const target = [...(resultsPane.value?.querySelectorAll('[data-base-name]') || [])].find(
-    (element) => element.dataset.baseName === name,
-  );
-  target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-});
+function showSource(source) {
+  searchUI.setActiveBase(source, props.tabId);
+  results.value?.scrollToSource(source);
+}
 </script>
 
 <template>
   <div
+    ref="tabContent"
     class="h-full min-h-0 min-w-0 overflow-auto lg:grid lg:grid-cols-[328px_minmax(0,1fr)] lg:overflow-hidden xl:grid-cols-[352px_minmax(0,1fr)]"
   >
     <aside
+      ref="inspector"
       class="search-inspector space-y-6 border-b border-matrix-border p-5 lg:overflow-y-auto lg:border-b-0 lg:border-r xl:p-6"
     >
       <div>
@@ -79,11 +96,11 @@ watch(activeBase, async (name) => {
             type="button"
             :class="[
               'search-source-link flex w-full items-start justify-between gap-2 rounded-xl px-3 py-2.5 text-left text-[13px]',
-              activeBase === base.name
+              activeBase === base.source
                 ? 'bg-matrix-accent/10 text-matrix-accent'
                 : 'text-matrix-muted hover:bg-matrix-raised',
             ]"
-            @click="searchUI.setActiveBase(base.name, tabId)"
+            @click="showSource(base.source)"
           >
             <span class="min-w-0 break-words">{{ base.name }}</span
             ><span class="shrink-0 text-matrix-muted">{{ base.data.length }}</span>
@@ -96,7 +113,8 @@ watch(activeBase, async (name) => {
       class="min-h-0 min-w-0 lg:overflow-y-auto"
       aria-label="Результаты поиска"
     >
-      <SearchResults :tab-id="tabId" />
+      <SearchResults ref="results" :tab-id="tabId" :state="searchResults"
+        :viewport="viewport" :scroll-lead="scrollLead" />
     </section>
   </div>
 </template>

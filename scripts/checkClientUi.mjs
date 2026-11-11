@@ -46,15 +46,24 @@ try {
     base: { source: 'A', name: '<Source>', info: 'Details', trust: '1', data:
       Array.from({ length: 52 }, (_, index) => [['number', index === 0 ? '<unsafe>' : String(index)]]) },
     fieldLabel: () => 'Телефон',
-    visibleCount: 50,
+    end: 2,
     saved: true,
   });
-  assert.equal((card.match(/class="mx-eyebrow mb-3"/g) || []).length, 50);
+  assert.equal((card.match(/class="mx-eyebrow mb-3"/g) || []).length, 2);
   assert.match(card, /&lt;unsafe&gt;/);
   assert.match(card, /&lt;Source&gt;/);
-  assert.match(card, /Показать ещё 50/);
+  assert.doesNotMatch(card, /Показать ещё/);
   assert.match(card, /Доступна/);
   assert.match(card, /Сохранено в заметки/);
+  const continuation = await renderComponent('/components/search/SearchSourceCard.vue', {
+    base: { source: 'A', name: 'Источник', data: Array.from({ length: 52 }, (_, index) => [['number', index]]) },
+    start: 50,
+    end: 52,
+    fieldLabel: () => 'Телефон',
+  });
+  assert.match(continuation, /Запись 51/);
+  assert.match(continuation, /Запись 52/);
+  assert.doesNotMatch(continuation, /Сохранить источник|Запись 50|Показать ещё/);
 
   const resultFields = [
     ['null-field', null], ['missing-field', undefined], ['empty-field', ''],
@@ -159,7 +168,7 @@ try {
   assert.match(batchReports, /Собрать отчёты/);
   assert.doesNotMatch(batchReports, /Форматы сохранения/);
   assert.doesNotMatch(batchReports, /<option[^>]+value="(?:fio|date_of_birth)"/);
-  console.log('UI smoke passed: catalog/source pagination, escaping, status/errors, suggestions, dynamic records, attachment permissions and report collection.');
+  console.log('UI smoke passed: catalog pagination, result ranges, escaping, status/errors, suggestions, dynamic records, attachment permissions and report collection.');
 } finally {
   await vite.close();
 }

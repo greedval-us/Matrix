@@ -26,9 +26,10 @@ export class FileService {
     return this.#withLoading(async () => {
       const filePath = await (this.fileDialog ?? getFileDialogApi()).openFile();
       if (!filePath) return null;
+      const data = await (this.fileAPI ?? getFileApi()).read(filePath);
       this.currentFilePath = filePath;
-      this.currentData = await (this.fileAPI ?? getFileApi()).read(filePath);
-      return { filePath, data: this.currentData };
+      this.currentData = data;
+      return { filePath, data };
     });
   }
 

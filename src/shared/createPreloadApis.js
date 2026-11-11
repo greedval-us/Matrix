@@ -16,7 +16,6 @@ export function createPreloadApis(ipcRenderer) {
     },
     fileDialog: {
       openFile: () => invoke(channels.dialog.openFile),
-      openCertificate: () => invoke(channels.dialog.openCertificate),
       openFolder: () => invoke(channels.dialog.openFolder),
     },
     fileAPI: {

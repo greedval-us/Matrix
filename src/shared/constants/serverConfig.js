@@ -1,7 +1,8 @@
+export const BUNDLED_CA_FILENAME = "matrix-server-ca.crt";
+
 export const DEFAULT_SERVER_CONFIG = Object.freeze({
   endpoint: "localhost:50051",
   tlsServerName: "",
-  caCertificatePath: "",
   pageSize: 1000,
   connectionTimeoutMs: 30000,
 });

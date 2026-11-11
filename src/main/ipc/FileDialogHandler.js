@@ -14,7 +14,6 @@ export class FileDialogHandler {
     this.unregister?.();
     this.unregister = registerIpcHandlers(this.ipc, {
       [channels.dialog.openFile]: () => this.fileService.openFile(),
-      [channels.dialog.openCertificate]: () => this.fileService.openCertificate(),
       [channels.dialog.openFolder]: () => this.fileService.openFolder(),
       [channels.dialog.saveFile]: (_, { defaultName, filters } = {}) => this.fileService.saveFile(defaultName, filters),
       [channels.file.read]: (_, filePath) => this.fileService.readFile(filePath),

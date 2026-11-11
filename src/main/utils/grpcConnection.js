@@ -10,9 +10,12 @@ export function createGrpcChannelOptions(config, additionalOptions = {}) {
   return options;
 }
 
-export function createApiKeyMetadata(grpc, apiKey) {
+export function createApiKeyMetadata(grpc, { apiKey, signDeviceRequest }, methodPath) {
   const metadata = new grpc.Metadata();
   metadata.set('x-api-key', apiKey);
+  if (signDeviceRequest) {
+    for (const [key, value] of Object.entries(signDeviceRequest(methodPath))) metadata.set(key, value);
+  }
   return metadata;
 }
 

@@ -43,7 +43,7 @@ export async function uploadRecordFiles(operation, { rowId, files }) {
   // Remote failures can precede local IO; retain the failure and interrupt drain waits.
   response.catch(() => {});
   const failed = error => { operation.controller.abort(error); rejectResponse(error); };
-  const call = operation.client.uploadFiles(operation.metadata, operation.options, (error, value) => error ? failed(error) : resolveResponse(value));
+  const call = operation.client.uploadFiles(operation.metadataFor('uploadFiles'), operation.options, (error, value) => error ? failed(error) : resolveResponse(value));
   operation.calls.add(call);
   call.on('error', failed);
   for (const file of files) {
@@ -80,7 +80,7 @@ async function* downloadBytes(iterator, file) {
 
 /** The repository retains operation ownership until this returned stream closes. */
 export async function downloadRecordFile(operation, request, payload, finish) {
-  const call = operation.client.downloadFile(request, operation.metadata, operation.options);
+  const call = operation.client.downloadFile(request, operation.metadataFor('downloadFile'), operation.options);
   operation.calls.add(call);
   const iterator = call[Symbol.asyncIterator]();
   const first = await iterator.next();

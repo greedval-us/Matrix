@@ -40,7 +40,7 @@ export class SearchHandler {
     this.sendProgress(owner, {
       tabId, type: result.cancelled ? "cancelled" : "completed", meta: result, received,
     });
-    return result;
+    return { meta: result, streamed: true };
   }
 
   register() {

@@ -6,7 +6,7 @@ import { useConnectionSettings } from '../composables/useConnectionSettings.js';
 import { DEFAULT_SERVER_CONFIG, SERVER_CONFIG_LIMITS } from '../../shared/constants/serverConfig.js';
 
 const { config, indexStatus, loading, saving, testing, message, error, busy,
-  certificateLabel, loadConfig, chooseCertificate, saveConfig, testConnection } = useConnectionSettings();
+  certificateLabel, loadConfig, saveConfig, testConnection } = useConnectionSettings();
 onMounted(loadConfig);
 </script>
 
@@ -49,19 +49,7 @@ onMounted(loadConfig);
             <ShieldCheck aria-hidden="true" class="h-4 w-4 text-matrix-accent" />Защищённое
             соединение
           </div>
-          <div class="mx-input break-all text-sm text-matrix-muted">{{ certificateLabel }}</div>
-          <div class="flex flex-wrap gap-2">
-            <button type="button" class="mx-button !py-2 text-sm" @click="chooseCertificate">
-              Выбрать сертификат</button
-            ><button
-              type="button"
-              class="mx-button !py-2 text-sm"
-              :disabled="!config.caCertificatePath"
-              @click="config.caCertificatePath = ''"
-            >
-              Сбросить выбор
-            </button>
-          </div>
+          <p class="text-sm text-matrix-muted">{{ certificateLabel }}</p>
         </div>
         <details class="border-t border-matrix-border pt-5 sm:col-span-2">
           <summary class="cursor-pointer text-sm font-medium text-matrix-muted">

@@ -1,6 +1,7 @@
 import { getRecordsApi } from '../infrastructure/desktopApi.js';
-import { RECORDS_IDENTIFIER_MAX_LENGTH, UNAVAILABLE_RECORDS_CAPABILITIES } from '../../shared/constants/records.js';
+import { RECORDS_IDENTIFIER_MAX_LENGTH } from '../../shared/constants/records.js';
 import { normalizeControlValues } from '../../shared/constants/controlRecord.js';
+import { normalizeRecordsCapabilities } from '../../shared/recordsCapabilities.js';
 
 function identifier(value, label) {
   const id = typeof value === 'number' && Number.isFinite(value) ? String(value) : value;
@@ -53,10 +54,7 @@ export class RecordsService {
   constructor({ getApi = getRecordsApi } = {}) { this.getApi = getApi; }
 
   async getCapabilities() {
-    const value = await this.getApi().getCapabilities();
-    const available = value?.available === true;
-    return { available, ...Object.fromEntries(['list', 'upload', 'download', 'remove', 'create', 'update', 'delete'].map(key => [key, available && value[key] === true])),
-      message: typeof value?.message === 'string' ? value.message : available ? '' : UNAVAILABLE_RECORDS_CAPABILITIES.message };
+    return normalizeRecordsCapabilities(await this.getApi().getCapabilities());
   }
 
   async list(request) { return normalizeRecordsPage(await this.getApi().list(request), request); }

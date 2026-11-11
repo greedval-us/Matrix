@@ -41,6 +41,22 @@ test('FileService propagates errors and releases its loading state', async () =>
   assert.equal(service.currentData, null);
 });
 
+test('FileService keeps the last successfully opened file when reading a new selection fails', async () => {
+  const failure = new Error('Selected file cannot be read');
+  const service = new FileService(
+    { openFile: async () => 'C:/unreadable.txt' },
+    { read: async () => { throw failure; } },
+  );
+  service.currentFilePath = 'C:/existing.txt';
+  service.currentData = 'Existing contents';
+
+  await assert.rejects(service.openFile(), error => error === failure);
+
+  assert.equal(service.currentFilePath, 'C:/existing.txt');
+  assert.equal(service.currentData, 'Existing contents');
+  assert.equal(service.isLoading, false);
+});
+
 test('FileService releases a rejected operation while another operation remains pending', async () => {
   const reading = deferred();
   const selecting = deferred();

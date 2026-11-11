@@ -3,7 +3,6 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 const TEXT_FILTERS = Object.freeze([{ name: "Text", extensions: ["txt"] }]);
-const CERTIFICATE_FILTERS = Object.freeze([{ name: "TLS certificate", extensions: ["crt", "pem", "cer"] }]);
 
 export class FileService {
   constructor({ dialog = electron.dialog, fileSystem = fs } = {}) {
@@ -18,10 +17,6 @@ export class FileService {
 
   openFile() {
     return this.chooseFile({ properties: ["openFile"], filters: [{ name: "Text Files", extensions: ["txt"] }] });
-  }
-
-  openCertificate() {
-    return this.chooseFile({ properties: ["openFile"], filters: CERTIFICATE_FILTERS });
   }
 
   openFolder() {

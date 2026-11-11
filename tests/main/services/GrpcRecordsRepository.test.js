@@ -21,7 +21,8 @@ async function loopback(t, handlers = {}) {
   const requests = [];
   const server = new grpc.Server();
   const capture = (name, fn) => (call, callback) => {
-    requests.push({ name, request: call.request, key: call.metadata.get('x-api-key')[0], deadline: call.getDeadline() });
+    requests.push({ name, request: call.request, key: call.metadata.get('x-api-key')[0],
+      deviceNonce: call.metadata.get('x-matrix-device-nonce')[0], deadline: call.getDeadline() });
     fn(call, callback);
   };
   server.addService(loadProto('records.proto').matrix.records.v1.Records.service, Object.fromEntries(Object.entries({
@@ -67,6 +68,26 @@ test('records use the current connection and client key for every operation and 
   assert.equal(second.requests[0].key, 'changed-client-key');
   assert.ok(second.requests[0].deadline <= Date.now() + 1100);
   assert.equal(first.requests.length, 1);
+});
+
+test('record queries and both file streams attach a new method-specific device proof', async t => {
+  const remote = await loopback(t);
+  const apiKey = `mxk_${'A'.repeat(43)}`;
+  const signed = [];
+  const repo = repository(t, { getResolvedConfig: async () => ({
+    ...config(remote.endpoint), apiKey,
+    signDeviceRequest(method) { signed.push(method); return { 'x-matrix-device-nonce': `proof-${signed.length}` }; },
+  }) });
+
+  await repo.list({ query: '', page: 1, pageSize: 50 });
+  await repo.uploadFiles({ rowId: '7', files: await localFiles(t) });
+  const download = await repo.downloadFile({ rowId: '7', fileId });
+  for await (const _chunk of download.stream) { /* consume and release the transport */ }
+
+  const client = loadProto('records.proto').matrix.records.v1.Records;
+  assert.deepEqual(signed, ['listRecords', 'uploadFiles', 'downloadFile'].map(method => client.prototype[method].path));
+  assert.deepEqual(remote.requests.map(request => request.deviceNonce), ['proof-1', 'proof-2', 'proof-3']);
+  assert.deepEqual(remote.requests.map(request => request.key), Array(3).fill(apiKey));
 });
 
 test('records transports use current TLS identity and credentials without search keepalive settings', async t => {

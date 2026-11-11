@@ -3,7 +3,6 @@ import { useTabStore } from '../stores/tabStore.js';
 import { useSearchUIStore } from '../stores/uistore/serchStoreUI.js';
 import { useNotesStore } from '../stores/notesStore.js';
 import { SEARCH_FIELD_IDS } from '../../shared/constants/searchItems.js';
-import { RESULT_PAGE_SIZE } from '../constants/resultPresentation.js';
 import { groupSearchResults, getSearchSuggestions, buildResultNote } from '../utils/searchResults.js';
 
 export function useSearchResults({ tabId, searchUI = useSearchUIStore(),
@@ -21,21 +20,15 @@ export function useSearchResults({ tabId, searchUI = useSearchUIStore(),
   const suggestions = computed(() => getSearchSuggestions(
     results.value, searchUI.getSelectedFields(toValue(tabId)), searchableTypes,
   ));
-  const visibleCounts = ref({});
   const notice = shallowRef('');
   const copied = shallowRef('');
   const savedSources = ref(new Set());
   const savingSources = ref(new Set());
 
   watch(results, () => {
-    visibleCounts.value = {};
     savedSources.value = new Set();
     notice.value = '';
   });
-
-  function showMore(source) {
-    visibleCounts.value[source] = (visibleCounts.value[source] || RESULT_PAGE_SIZE) + RESULT_PAGE_SIZE;
-  }
 
   function searchRelated(preload) {
     return searchUI.quickSearch(tabStore.addTab(), preload);
@@ -66,9 +59,9 @@ export function useSearchResults({ tabId, searchUI = useSearchUIStore(),
     }
   }
 
-  return { loading, error, meta, received, hasSearched, activeBase, bases, recordCount, suggestions,
-    visibleCounts: readonly(visibleCounts), notice: readonly(notice), copied: readonly(copied),
+  return { results, loading, error, meta, received, hasSearched, activeBase, bases, recordCount, suggestions,
+    notice: readonly(notice), copied: readonly(copied),
     savedSources: readonly(savedSources), savingSources: readonly(savingSources),
-    fieldLabel: searchUI.getFieldLabel, showMore, searchRelated, copyValue, saveNote,
+    fieldLabel: searchUI.getFieldLabel, searchRelated, copyValue, saveNote,
     retry: () => searchUI.search(toValue(tabId)) };
 }

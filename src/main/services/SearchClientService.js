@@ -24,6 +24,8 @@ function grpcError(error) {
   const details = error.details || error.message || String(error);
   switch (error.code) {
     case grpc.status.UNAUTHENTICATED: return new Error("Сервер отклонил API-ключ");
+    case grpc.status.PERMISSION_DENIED:
+      return new Error(details === "API key is already bound to another device" ? "API-ключ уже привязан к другому компьютеру" : details);
     case grpc.status.UNAVAILABLE: return new Error(`Сервер поиска недоступен: ${details}`);
     case grpc.status.INVALID_ARGUMENT: return new Error(details);
     case grpc.status.RESOURCE_EXHAUSTED: return new Error("Сервер занят. Повторите поиск через несколько секунд");
@@ -97,8 +99,8 @@ export class SearchClientService {
     }
   }
 
-  createMetadata(config = this.config) {
-    return createApiKeyMetadata(this.grpc, config.apiKey);
+  createMetadata(method, config = this.config) {
+    return createApiKeyMetadata(this.grpc, config, method.path);
   }
 
   async search(payload, { onChunk } = {}) {
@@ -114,7 +116,7 @@ export class SearchClientService {
       if (!SEARCH_FIELDS.some((field) => request[field])) throw new Error("Заполните хотя бы одно поле поиска");
 
       return await new Promise((resolve, reject) => {
-        const call = this.searchClient.streamSearch(request, this.createMetadata());
+        const call = this.searchClient.streamSearch(request, this.createMetadata(this.searchClient.streamSearch));
         this.activeCall = call;
         let batch = [];
         let meta = null;
@@ -159,7 +161,8 @@ export class SearchClientService {
     await this.connect();
     return await new Promise((resolve, reject) => {
       const rows = [];
-      const call = this.databaseClient.streamDatabaseAll({ request: String(payload.request || "") }, this.createMetadata());
+      const call = this.databaseClient.streamDatabaseAll({ request: String(payload.request || "") },
+        this.createMetadata(this.databaseClient.streamDatabaseAll));
       call.on("data", (row) => rows.push(row));
       call.on("end", () => resolve(rows));
       call.on("error", (error) => reject(grpcError(error)));
@@ -168,7 +171,7 @@ export class SearchClientService {
 
   fetchIndexStatus(client, config) {
     return new Promise((resolve, reject) => {
-      client.getIndexStatus({}, this.createMetadata(config), { deadline: deadlineAfter(config.connectionTimeoutMs) },
+      client.getIndexStatus({}, this.createMetadata(client.getIndexStatus, config), { deadline: deadlineAfter(config.connectionTimeoutMs) },
         (error, response) => error ? reject(grpcError(error)) : resolve(response));
     });
   }

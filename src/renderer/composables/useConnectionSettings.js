@@ -1,9 +1,9 @@
 import { computed, ref, shallowRef } from 'vue';
 import { DEFAULT_SERVER_CONFIG } from '../../shared/constants/serverConfig.js';
-import { getFileDialogApi, getSearchApi } from '../infrastructure/desktopApi.js';
+import { getSearchApi } from '../infrastructure/desktopApi.js';
 
-export function useConnectionSettings({ searchAPI = getSearchApi(), fileDialog } = {}) {
-  const config = ref({ ...DEFAULT_SERVER_CONFIG, apiKey: '', hasApiKey: false });
+export function useConnectionSettings({ searchAPI = getSearchApi() } = {}) {
+  const config = ref({ ...DEFAULT_SERVER_CONFIG, apiKey: '', hasApiKey: false, hasBundledCertificate: false });
   const indexStatus = shallowRef(null);
   const loading = shallowRef(true);
   const saving = shallowRef(false);
@@ -11,11 +11,13 @@ export function useConnectionSettings({ searchAPI = getSearchApi(), fileDialog }
   const message = shallowRef('');
   const error = shallowRef('');
   const busy = computed(() => loading.value || saving.value || testing.value);
-  const certificateLabel = computed(() => config.value.caCertificatePath || 'Выберите доверенный сертификат сервера');
+  const certificateLabel = computed(() => config.value.hasBundledCertificate
+    ? 'Встроенный сертификат'
+    : 'Встроенный сертификат отсутствует');
 
   function draftConfig() {
-    const { endpoint, apiKey, caCertificatePath, pageSize, connectionTimeoutMs } = config.value;
-    return { endpoint, apiKey, caCertificatePath, pageSize, connectionTimeoutMs };
+    const { endpoint, apiKey, pageSize, connectionTimeoutMs } = config.value;
+    return { endpoint, apiKey, pageSize, connectionTimeoutMs };
   }
 
   function applyConfig(value) {
@@ -33,16 +35,6 @@ export function useConnectionSettings({ searchAPI = getSearchApi(), fileDialog }
       showError(reason);
     } finally {
       loading.value = false;
-    }
-  }
-
-  async function chooseCertificate() {
-    if (busy.value) return;
-    try {
-      const selected = await (fileDialog || getFileDialogApi()).openCertificate();
-      if (selected) config.value.caCertificatePath = selected;
-    } catch (reason) {
-      showError(reason);
     }
   }
 
@@ -80,5 +72,5 @@ export function useConnectionSettings({ searchAPI = getSearchApi(), fileDialog }
   }
 
   return { config, indexStatus, loading, saving, testing, message, error, busy,
-    certificateLabel, loadConfig, chooseCertificate, saveConfig, testConnection };
+    certificateLabel, loadConfig, saveConfig, testConnection };
 }
