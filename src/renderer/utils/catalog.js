@@ -6,7 +6,7 @@ export const CATALOG_PAGE_SIZE = 50;
 export const CATALOG_COLUMNS = Object.freeze([
   { key: 'name', label: 'Источник' }, { key: 'info', label: 'Описание' },
   { key: 'relevance_date', label: 'Актуальность' }, { key: 'type', label: 'Тип' },
-  { key: 'count', label: 'Записей' }, { key: 'trust', label: 'Доступность' },
+  { key: 'count', label: 'Записей' }, { key: 'trust', label: 'Достоверность' },
 ]);
 export const getCatalogCount = (value) => parseInt(value) || 0;
 export function getCatalogTypes(rows) {

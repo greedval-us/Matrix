@@ -7,7 +7,7 @@ const GRPC_ERROR_MESSAGES = Object.freeze({
   [grpc.status.UNAUTHENTICATED]: 'Сервер отклонил API-ключ.',
   [grpc.status.PERMISSION_DENIED]: 'Недостаточно прав для операции с записями.',
   [grpc.status.UNAVAILABLE]: 'Сервер записей недоступен.',
-  [grpc.status.UNIMPLEMENTED]: 'Сервер не поддерживает раздел «Записи».',
+  [grpc.status.UNIMPLEMENTED]: 'Сервер не поддерживает раздел «Контроль».',
   [grpc.status.NOT_FOUND]: 'Запись или файл не найдены.',
   [grpc.status.INVALID_ARGUMENT]: 'Сервер отклонил данные записи или файла.',
   [grpc.status.RESOURCE_EXHAUSTED]: 'Превышен лимит файлов или сервер занят.',

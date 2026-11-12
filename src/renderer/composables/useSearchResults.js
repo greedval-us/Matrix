@@ -16,6 +16,7 @@ export function useSearchResults({ tabId, searchUI = useSearchUIStore(),
   const hasSearched = computed(() => tabStore.getSearchState(toValue(tabId))?.hasSearched);
   const activeBase = computed(() => searchUI.getActiveBase(toValue(tabId)));
   const bases = computed(() => groupSearchResults(results.value));
+  const fieldLabels = computed(() => bases.value.find((base) => base.fieldLabels)?.fieldLabels);
   const recordCount = computed(() => bases.value.reduce((count, base) => count + base.data.length, 0));
   const suggestions = computed(() => getSearchSuggestions(
     results.value, searchUI.getSelectedFields(toValue(tabId)), searchableTypes,
@@ -29,6 +30,12 @@ export function useSearchResults({ tabId, searchUI = useSearchUIStore(),
     savedSources.value = new Set();
     notice.value = '';
   });
+
+  function fieldLabel(key) {
+    const labels = fieldLabels.value;
+    if (!labels) return searchUI.getFieldLabel(key);
+    return Object.hasOwn(labels, key) ? labels[key] || key : key;
+  }
 
   function searchRelated(preload) {
     return searchUI.quickSearch(tabStore.addTab(), preload);
@@ -50,7 +57,7 @@ export function useSearchResults({ tabId, searchUI = useSearchUIStore(),
     savingSources.value.add(base.source);
     notice.value = '';
     try {
-      await notesStore.addNote(buildResultNote(base, searchUI.getFieldLabel));
+      await notesStore.addNote(buildResultNote(base, fieldLabel));
       if (snapshot === results.value) savedSources.value.add(base.source);
     } catch (reason) {
       if (snapshot === results.value) notice.value = reason?.message || 'Не удалось сохранить заметку';
@@ -62,6 +69,6 @@ export function useSearchResults({ tabId, searchUI = useSearchUIStore(),
   return { results, loading, error, meta, received, hasSearched, activeBase, bases, recordCount, suggestions,
     notice: readonly(notice), copied: readonly(copied),
     savedSources: readonly(savedSources), savingSources: readonly(savingSources),
-    fieldLabel: searchUI.getFieldLabel, searchRelated, copyValue, saveNote,
+    fieldLabel, searchRelated, copyValue, saveNote,
     retry: () => searchUI.search(toValue(tabId)) };
 }

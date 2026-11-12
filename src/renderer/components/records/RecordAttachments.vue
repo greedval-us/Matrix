@@ -74,12 +74,12 @@ function actionLabel(action, file) {
 </template>
 
 <style scoped>
-.record-attachments { min-width: 250px; max-width: 350px; }
+.record-attachments { min-width: 0; max-width: 480px; }
 .record-attachment-list { display: grid; gap: 8px; }
 .record-attachment { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .record-file-icon { flex: none; width: 16px; height: 16px; color: var(--mx-muted); }
 .record-file-details { flex: 1; min-width: 0; }
-.record-file-name { display: block; max-width: 240px; overflow-wrap: anywhere; font-size: 13px; line-height: 1.45; }
+.record-file-name { display: block; overflow-wrap: anywhere; font-size: 13px; line-height: 1.45; }
 .record-file-size { display: block; color: var(--mx-muted); font-size: 11px; margin-top: 2px; }
 .record-file-actions { display: flex; flex: none; gap: 1px; }
 .record-file-remove:hover:not(:disabled) { color: rgb(var(--mx-error-rgb)); background: var(--mx-error-surface); }

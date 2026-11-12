@@ -117,14 +117,28 @@ try {
   });
   assert.match(records, /&lt;Dynamic column&gt;/);
   assert.match(records, /&lt;unsafe&gt;/);
-  assert.match(records, /&lt;script&gt;\.pdf/);
   assert.match(records, /aria-sort="ascending"/);
   assert.match(records, /Нет/);
-  assert.match(records, /0 Б/);
   assert.doesNotMatch(records, /<script>/);
   assert.equal((records.match(/class="records-cell/g) || []).length, 3);
-  assert.match(records, /aria-label="Скачать файл [^"]+"[^>]*disabled/);
-  assert.match(records, /aria-label="Удалить файл [^"]+"[^>]*disabled/);
+  assert.match(records, /aria-expanded="false"[^>]*aria-label="Открыть запись row-1"/);
+  assert.doesNotMatch(records, /record-attachment-list/);
+  const attachments = await renderComponent('/components/records/RecordAttachments.vue', {
+    row: { id: 'row-1', files: [{ id: 'file-1', name: '<script>.pdf', size: 0 }] },
+    capabilities: { upload: true, download: false, remove: false },
+  });
+  assert.match(attachments, /&lt;script&gt;\.pdf/);
+  assert.match(attachments, /0 Б/);
+  assert.doesNotMatch(attachments, /<script>/);
+  assert.match(attachments, /aria-label="Скачать файл [^"]+"[^>]*disabled/);
+  assert.match(attachments, /aria-label="Удалить файл [^"]+"[^>]*disabled/);
+  const pagination = await renderComponent('/components/records/RecordsPagination.vue', {
+    page: 1, pageSize: 25, total: 350,
+  });
+  assert.match(pagination, /1–25\s*из 350/);
+  assert.match(pagination, /Страница 1 из 14/);
+  assert.match(pagination, /aria-label="Первая страница"[^>]*disabled/);
+  assert.match(pagination, /aria-label="Последняя страница"/);
   const reportData = {
     seedQuery: { number: '<unsafe seed>' }, complete: false, cancelled: false,
     stats: { records: 2, queries: 3, sources: 1, duplicates: 4 }, warnings: ['<partial warning>'],

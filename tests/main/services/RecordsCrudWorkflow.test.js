@@ -19,10 +19,12 @@ test('new record defaults to local calendar today and validation keeps entered v
   assert.equal(state.editor.values.date, '2026-01-02');
   assert.equal(state.editor.values.initiator, '');
   actions.setEditorValue('initiator', 'Новый инициатор');
-  actions.setEditorValue('date_of_birth', '2025-02-29');
+  actions.setEditorValue('date', '2025-02-29');
+  actions.setEditorValue('date_of_birth', '1986 г.');
   await actions.saveRecord();
   assert.equal(calls, 0); assert.match(state.editorError, /дат/);
-  assert.equal(state.editor.values.date_of_birth, '2025-02-29');
+  assert.equal(state.editor.values.date, '2025-02-29');
+  assert.equal(state.editor.values.date_of_birth, '1986 г.');
   assert.equal(state.editor.values.initiator, 'Новый инициатор');
   actions.closeEditor(); assert.equal(state.editor, null);
 });

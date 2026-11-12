@@ -1,6 +1,6 @@
 <script setup>
 import { computed, useId } from 'vue';
-import { ChevronLeft, ChevronRight } from 'lucide-vue-next';
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-vue-next';
 import { RECORDS_PAGE_SIZES } from '../../../shared/constants/records.js';
 
 const props = defineProps({
@@ -20,8 +20,7 @@ const numberFormat = new Intl.NumberFormat('ru-RU');
 <template>
   <footer class="records-pagination">
     <p class="records-range" role="status">
-      {{ numberFormat.format(firstRecord) }}–{{ numberFormat.format(lastRecord) }}
-      из {{ numberFormat.format(total) }}
+      {{ total ? `${numberFormat.format(firstRecord)}–${numberFormat.format(lastRecord)} из ${numberFormat.format(total)}` : '0 записей' }}
     </p>
     <div class="records-page-size">
       <label :for="pageSizeId">Строк на странице</label>
@@ -36,34 +35,44 @@ const numberFormat = new Intl.NumberFormat('ru-RU');
       </select>
     </div>
     <nav class="records-page-navigation" aria-label="Страницы таблицы">
+      <button type="button" class="mx-icon-button mx-icon-button-compact"
+        aria-label="Первая страница" title="Первая страница" :disabled="loading || page <= 1" @click="emit('page', 1)">
+        <ChevronsLeft aria-hidden="true" class="h-4 w-4" />
+      </button>
       <button
         type="button"
-        class="mx-icon-button"
+        class="mx-icon-button mx-icon-button-compact"
         aria-label="Предыдущая страница"
+        title="Предыдущая страница"
         :disabled="loading || page <= 1"
         @click="emit('page', page - 1)"
       >
         <ChevronLeft aria-hidden="true" class="h-4 w-4" />
       </button>
-      <span class="records-page-count">Страница {{ page }} из {{ pageCount }}</span>
+      <span class="records-page-count">Страница {{ numberFormat.format(page) }} из {{ numberFormat.format(pageCount) }}</span>
       <button
         type="button"
-        class="mx-icon-button"
+        class="mx-icon-button mx-icon-button-compact"
         aria-label="Следующая страница"
+        title="Следующая страница"
         :disabled="loading || page >= pageCount"
         @click="emit('page', page + 1)"
       >
         <ChevronRight aria-hidden="true" class="h-4 w-4" />
+      </button>
+      <button type="button" class="mx-icon-button mx-icon-button-compact"
+        aria-label="Последняя страница" title="Последняя страница" :disabled="loading || page >= pageCount" @click="emit('page', pageCount)">
+        <ChevronsRight aria-hidden="true" class="h-4 w-4" />
       </button>
     </nav>
   </footer>
 </template>
 
 <style scoped>
-.records-pagination { display: flex; align-items: center; flex-wrap: wrap; gap: 14px 20px; padding: 16px 2px 0; color: var(--mx-muted); font-size: 12px; }
-.records-range { margin-right: auto; font-variant-numeric: tabular-nums; }
-.records-page-size { display: flex; align-items: center; gap: 10px; }
-.records-page-select { width: 74px; min-height: 36px; padding: 6px 9px; font-size: 12px; border-radius: 9px; }
-.records-page-navigation { display: flex; align-items: center; gap: 6px; }
-.records-page-count { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.records-pagination { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; color: var(--mx-muted); font-size: 12px; }
+.records-range { margin-right: auto; color: rgb(var(--mx-secondary-rgb)); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.records-page-size { display: flex; align-items: center; gap: 6px; }
+.records-page-select { width: 60px; min-height: 32px; padding: 4px 6px; font-size: 12px; border-radius: 8px; }
+.records-page-navigation { display: flex; align-items: center; gap: 1px; }
+.records-page-count { padding-inline: 5px; white-space: nowrap; font-variant-numeric: tabular-nums; }
 </style>

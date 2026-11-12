@@ -17,12 +17,13 @@ test('main validates control writes and returns confirmed rows without exposing 
   };
   const service = new RecordsService({ repository });
   assert.equal((await service.getCapabilities()).create, true);
-  assert.deepEqual(await service.createRecord({ values: { fio: 'Запись', number: '001' }, path: 'discard' }), row);
+  const values = { fio: 'Запись', number: '001', date_of_birth: 'около 1980 года' };
+  assert.deepEqual(await service.createRecord({ values, path: 'discard' }), row);
   assert.deepEqual(await service.updateRecord({ rowId: row.id, values: { note: '' }, apiKey: 'discard' }), row);
   assert.deepEqual(await service.deleteRecord({ rowId: row.id, fileId: 'discard' }), { deleted: true });
-  assert.deepEqual(calls, [{ values: { fio: 'Запись', number: '001' } }, { rowId: row.id, values: { note: '' } }, { rowId: row.id }]);
-  for (const values of [{ id: '1' }, { files: '[]' }, { arbitrary: 'value' }, { date_of_birth: '2025-02-29' }]) {
-    await assert.rejects(service.createRecord({ values }));
+  assert.deepEqual(calls, [{ values }, { rowId: row.id, values: { note: '' } }, { rowId: row.id }]);
+  for (const invalid of [{ id: '1' }, { files: '[]' }, { arbitrary: 'value' }, { date: '2025-02-29' }]) {
+    await assert.rejects(service.createRecord({ values: invalid }));
   }
   assert.equal(calls.length, 3);
 })

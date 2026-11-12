@@ -1,8 +1,10 @@
 export const CONTROL_RECORD_FIELDS = Object.freeze([
   { key: 'date', label: 'Дата', type: 'date' },
+  { key: 'source_id', label: 'Telegram ID', type: 'text', maxLength: 255 },
   { key: 'number', label: 'Номер', type: 'text', maxLength: 64 },
   { key: 'fio', label: 'ФИО', type: 'text', maxLength: 255 },
-  { key: 'date_of_birth', label: 'Дата рождения', type: 'date' },
+  { key: 'date_of_birth', label: 'Дата рождения', type: 'textarea', maxBytes: 65535 },
+  { key: 'group_chat_locality', label: 'Группа, чат, н.п.', type: 'text', maxLength: 255 },
   { key: 'initiator', label: 'Инициатор', type: 'text', maxLength: 255 },
   { key: 'executor', label: 'Исполнитель', type: 'text', maxLength: 255 },
   { key: 'note', label: 'Примечание', type: 'textarea', maxBytes: 65535 },

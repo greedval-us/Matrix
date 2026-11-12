@@ -24,7 +24,7 @@ export class ResultParser {
 
     for (const key of Object.keys(this.handlers)) {
       if (item[key]) {
-        return this.handlers[key].call(this, item[key])
+        return this.handlers[key].call(this, item[key], item.field_labels)
       }
     }
 
@@ -34,7 +34,7 @@ export class ResultParser {
   // =====================
   // Handlers
   // =====================
-  parseObjectDataBase(obj) {
+  parseObjectDataBase(obj, fieldLabels) {
     return {
       type: 'object_data_base',
       source: obj.name_table,
@@ -44,7 +44,8 @@ export class ResultParser {
       country: obj.country,
       count: obj.count,
       relevance_date: obj.relevance_date,
-      trust: obj.trust
+      trust: obj.trust,
+      ...(fieldLabels && Object.keys(fieldLabels).length ? { fieldLabels } : {})
     }
   }
 

@@ -31,7 +31,7 @@ export const useSearchUIStore = defineStore('searchUI', () => {
   const getMeta = (id) => getTab(id)?.meta || null;
   const getReceived = (id) => getTab(id)?.received || 0;
   const getFieldValue = (id, type) => getTab(id)?.selectedFields[type]?.value || '';
-  const getFieldLabel = (type) => translateKey[type] || type;
+  const getFieldLabel = (type) => Object.hasOwn(translateKey, type) ? translateKey[type] : type;
   const getPlaceholder = (type) => defaultPlaceholders[type] || '';
   const getPattern = (type) => defaultPatterns[type] || '.*';
   const getHelp = (type) => (help[type] || '') + (help.wildcards || '');

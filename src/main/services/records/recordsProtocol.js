@@ -2,7 +2,7 @@ import { RECORDS_IDENTIFIER_MAX_LENGTH } from '../../../shared/constants/records
 import { RecordsError } from './recordsErrors.js';
 import { RECORDS_TRANSFER_LIMITS } from './recordsTransferPolicy.js';
 
-export const RECORDS_SERVER_UNAVAILABLE_MESSAGE = 'Раздел «Записи» недоступен. Проверьте подключение и поддержку этого раздела сервером.';
+export const RECORDS_SERVER_UNAVAILABLE_MESSAGE = 'Раздел «Контроль» недоступен. Проверьте подключение и поддержку этого раздела сервером.';
 
 export function identifier(value) {
   if (typeof value !== 'string' || !value.trim() || value.length > RECORDS_IDENTIFIER_MAX_LENGTH || /[\u0000-\u001f\u007f]/.test(value)) {

@@ -646,11 +646,33 @@ async function runVisualChecks() {
   assert.deepEqual(rendererErrors, [], 'Renderer must not log runtime errors');
 }
 
+async function assertRecordsViewport(label) {
+  const layout = await evaluate(() => {
+    const main = document.querySelector('#main-content');
+    const table = document.querySelector('.records-table-viewport');
+    const footer = document.querySelector('.records-pagination').getBoundingClientRect();
+    table.scrollTop = table.scrollHeight;
+    const head = table.querySelector('th').getBoundingClientRect();
+    const pane = table.getBoundingClientRect();
+    const layout = {
+      footerVisible: footer.bottom <= main.getBoundingClientRect().bottom + 1,
+      pageFits: main.scrollHeight <= main.clientHeight + 1,
+      tableFits: table.scrollWidth <= table.clientWidth + 1,
+      onlyTableScrolls: table.scrollTop > 0 && table.tabIndex === 0 && Math.abs(head.top - pane.top) <= 1,
+    };
+    table.scrollTop = 0;
+    return layout;
+  });
+  assert.deepEqual(layout, { footerVisible: true, pageFits: true, tableFits: true, onlyTableScrolls: true }, label);
+  checks.push(`${label}: visible pagination, sticky header and confined row scrolling`);
+}
+
 async function runRecordsChecks() {
   progress('records-checks');
-  window.setContentSize(VIEWPORT.width, VIEWPORT.height);
+  const recordsViewport = { width: 1280, height: 720 };
+  window.setContentSize(recordsViewport.width, recordsViewport.height);
   await window.webContents.debugger.sendCommand('Emulation.setDeviceMetricsOverride', {
-    ...VIEWPORT, deviceScaleFactor: await evaluate(() => devicePixelRatio), mobile: false,
+    ...recordsViewport, deviceScaleFactor: await evaluate(() => devicePixelRatio), mobile: false,
   });
   await window.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', { features: [] });
   await navigate('/records');
@@ -664,7 +686,16 @@ async function runRecordsChecks() {
   assert.deepEqual(recordsFixture.requests.at(-1), { query: '', sort: null, page: 1, pageSize: 25 });
   assert.equal(await evaluate(() => document.querySelector('.records-table').textContent.includes('Дальний результат')), false);
   checks.push('Records: dynamic server columns and page DTO render through the real preload');
+  await assertRecordsViewport('Records at 1280×720');
   await capture('records-light');
+
+  await click('button[aria-label="Открыть запись record-1"]');
+  assert.equal(await evaluate(() => document.querySelectorAll('.record-details').length), 1);
+  assert.equal(await evaluate(() => document.querySelector('.record-details .record-file-name').textContent), 'Пояснение.pdf');
+  await click('button[aria-label="Открыть запись record-2"]');
+  assert.equal(await evaluate(() => document.querySelector('.record-details').getAttribute('aria-label')), 'Подробности записи record-2');
+  assert.equal(await evaluate(() => document.querySelectorAll('.record-details').length), 1);
+  checks.push('Records: only the selected row opens and exposes its fields and files');
 
   await click('button[aria-label="Сортировать «Рейтинг» по возрастанию"]');
   await waitFor(() => document.querySelector('.records-row .records-value:nth-child(1)') &&
@@ -681,6 +712,11 @@ async function runRecordsChecks() {
   assert.equal(recordsFixture.requests.at(-1).page, 2);
   assert.notDeepEqual(await evaluate(rowValues), firstPage);
   await click('button[aria-label="Предыдущая страница"]');
+  assert.deepEqual(await evaluate(rowValues), firstPage);
+  await click('button[aria-label="Последняя страница"]');
+  assert.equal(recordsFixture.requests.at(-1).page, 3);
+  assert.equal(await evaluate(() => document.querySelectorAll('.records-row').length), 5);
+  await click('button[aria-label="Первая страница"]');
   assert.deepEqual(await evaluate(rowValues), firstPage);
   await evaluate(() => {
     const select = document.querySelector('.records-page-select');
@@ -718,7 +754,8 @@ async function runRecordsChecks() {
 
   await setInput('.records-search-input', 'Пояснение.pdf');
   await waitFor(() => document.querySelectorAll('.records-row').length === 1 &&
-    Boolean(document.querySelector('button[aria-label="Добавить файлы к записи record-1"]')));
+    Boolean(document.querySelector('button[aria-label="Открыть запись record-1"]')));
+  await click('button[aria-label="Открыть запись record-1"]');
   const fileSelector = (action, name) => `button[aria-label="${action} файл «${name}» из записи record-1"]`;
   const uploadSelector = 'button[aria-label="Добавить файлы к записи record-1"]';
   const originalFiles = await evaluate(() => [...document.querySelectorAll('.record-file-name')].map(file => file.textContent));
@@ -778,13 +815,7 @@ async function runRecordsChecks() {
     ...measuredMinimumViewport, deviceScaleFactor: await evaluate(() => devicePixelRatio), mobile: false,
   });
   await capture('records-minimum-light');
-  const viewportScroll = await evaluate(() => {
-    const table = document.querySelector('.records-table-viewport');
-    return { width: table.clientWidth, contentWidth: table.scrollWidth, focusable: table.tabIndex === 0 };
-  });
-  assert.ok(viewportScroll.contentWidth > viewportScroll.width && viewportScroll.focusable,
-    'Wide columns must scroll inside the focusable table region at the native minimum width');
-  checks.push('Records: wide columns scroll inside the accessible table region at minimum window size');
+  await assertRecordsViewport('Records at the native minimum window size');
 
   recordsFixture.mode = 'empty';
   await clickText('Обновить', '.records-refresh');
@@ -809,8 +840,8 @@ async function runRecordsCrudChecks() {
   recordsColumns.splice(0, recordsColumns.length,
     ...[CONTROL_RECORD_FIELDS[0], { key: 'id', label: 'ID', type: 'text' }, ...CONTROL_RECORD_FIELDS.slice(1)]
       .map(field => ({ key: field.key, label: field.label, type: field.type === 'date' ? 'date' : 'text', sortable: true })));
-  for (const row of recordsFixture.rows) row.values = { date: '2026-11-05', id: row.id, number: row.id,
-    fio: row.values.title, date_of_birth: '', initiator: '', executor: row.values.team, note: '', realization: '', intersections: '' };
+  for (const row of recordsFixture.rows) row.values = { date: '2026-11-05', id: row.id, source_id: '00001234', number: row.id,
+    fio: row.values.title, date_of_birth: '1988\nДата уточняется', initiator: '', executor: row.values.team, note: '', realization: '', intersections: '' };
   window.setContentSize(VIEWPORT.width, VIEWPORT.height);
   await window.webContents.debugger.sendCommand('Emulation.setDeviceMetricsOverride', {
     ...VIEWPORT, deviceScaleFactor: await evaluate(() => devicePixelRatio), mobile: false,
@@ -818,12 +849,30 @@ async function runRecordsCrudChecks() {
   await navigate('/info');
   await navigate('/records');
   await waitFor(() => document.querySelectorAll('.records-row').length > 0);
+  assert.deepEqual(await evaluate(() => [...document.querySelectorAll('.records-heading-label')].map(label => label.textContent)),
+    ['Дата', 'ID', 'Telegram ID', 'Номер', 'ФИО']);
+  assert.equal(await evaluate(() => Boolean(document.querySelector('th[data-field="date_of_birth"]'))), false);
+  await click('button[aria-label="Открыть запись record-1"]');
+  assert.ok(await evaluate(() => document.querySelector('.record-details').textContent.includes('1988\nДата уточняется')));
+  await click('button[aria-label="Свернуть запись record-1"]');
+  await evaluate(() => {
+    const select = document.querySelector('.records-sort-select');
+    select.value = 'date_of_birth';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await waitForFixture(() => recordsFixture.requests.at(-1).sort?.key === 'date_of_birth');
+  assert.equal(recordsFixture.requests.at(-1).sort.direction, 'asc');
+  await click('button[aria-label="Изменить направление сортировки"]');
+  assert.equal(recordsFixture.requests.at(-1).sort.direction, 'desc');
+  checks.push('Records: compact columns, multiline birth date in details and sorting on a secondary field');
+  await capture('records-control-light');
   await clickText('Новая запись');
   await waitFor(() => Boolean(document.querySelector('.record-editor-form')));
   assert.equal(await evaluate(() => document.querySelectorAll('.record-editor-form input, .record-editor-form textarea').length), CONTROL_RECORD_FIELDS.length);
   assert.equal(await evaluate(() => Boolean(document.querySelector('.record-editor-form [name="id"]'))), false);
   await setInput('.record-editor-form [name="number"]', '00123');
   await setInput('.record-editor-form [name="fio"]', 'Проверка формы');
+  await setInput('.record-editor-form [name="date_of_birth"]', '1988\nДата уточняется');
   await setInput('.record-editor-form [name="note"]', '<b>Примечание</b>');
   recordsFixture.nextRecordOutcome = 'error';
   await clickText('Сохранить', 'dialog button');
@@ -836,12 +885,14 @@ async function runRecordsCrudChecks() {
   assert.ok(created);
   await setInput('.records-search-input', 'Проверка формы');
   await waitFor(() => document.querySelectorAll('.records-row').length === 1);
-  assert.equal(await evaluate(() => Boolean(document.querySelector('.records-row b'))), false);
+  await click(`button[aria-label="Открыть запись ${created.id}"]`);
+  assert.ok(await evaluate(() => document.querySelector('.record-details').textContent.includes('<b>Примечание</b>')));
+  assert.equal(await evaluate(() => Boolean(document.querySelector('.record-details b'))), false);
   await click(`button[aria-label="Редактировать запись ${created.id}"]`);
   await waitFor(() => document.querySelector('.record-editor-form [name="number"]')?.value === '00123');
   await setInput('.record-editor-form [name="realization"]', 'Выполнено');
   await clickText('Сохранить', 'dialog button');
-  await waitFor(() => !document.querySelector('dialog') && document.querySelector('.records-row')?.textContent.includes('Выполнено'));
+  await waitFor(() => !document.querySelector('dialog') && document.querySelector('.record-details')?.textContent.includes('Выполнено'));
   assert.equal(recordsFixture.rows.find(row => row.id === created.id).values.realization, 'Выполнено');
   checks.push('Records CRUD: all configured fields, retained draft on failure, confirmed create/edit, literal rendered text and stable ID');
 
