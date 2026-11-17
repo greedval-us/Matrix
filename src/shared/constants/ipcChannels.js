@@ -1,4 +1,8 @@
 export const IPC_CHANNELS = Object.freeze({
+  update: Object.freeze({
+    getState: 'update:get-state', check: 'update:check', download: 'update:download', cancel: 'update:cancel',
+    install: 'update:install', saveCopy: 'update:save-copy', state: 'update:state',
+  }),
   dialog: Object.freeze({ openFile: "dialog:openFile", openFolder: "dialog:openFolder", saveFile: "dialog:saveFile" }),
   file: Object.freeze({ read: "file:read", write: "file:write" }),
   records: Object.freeze({
@@ -14,6 +18,7 @@ export const IPC_CHANNELS = Object.freeze({
   }),
   search: Object.freeze({
     createClient: "search:create-client", run: "search:run", cancel: "search:cancel", destroyClient: "search:destroy-client",
+    readResults: "search:read-results", clearResults: "search:clear-results", exportResults: "search:export-results",
     listDatabases: "search:list-databases", getConfig: "search:get-config", setConfig: "search:set-config",
     testConnection: "search:test-connection", getIndexStatus: "search:get-index-status", progress: "search:progress",
   }),

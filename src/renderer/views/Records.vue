@@ -1,9 +1,11 @@
 <script setup>
+import { computed, shallowRef } from 'vue';
 import PageHeading from '../components/ui/PageHeading.vue';
 import { finishDialogLeave } from '../components/ui/AppDialog.vue';
 import RecordsToolbar from '../components/records/RecordsToolbar.vue';
 import RecordsTable from '../components/records/RecordsTable.vue';
 import RecordsPagination from '../components/records/RecordsPagination.vue';
+import RecordsFiltersDialog from '../components/records/RecordsFiltersDialog.vue';
 import RemoveAttachmentDialog from '../components/records/RemoveAttachmentDialog.vue';
 import RecordEditorDialog from '../components/records/RecordEditorDialog.vue';
 import DeleteRecordDialog from '../components/records/DeleteRecordDialog.vue';
@@ -11,6 +13,12 @@ import { useRecordsTable } from '../composables/useRecordsTable.js';
 
 const records = useRecordsTable();
 const { state, available, busy } = records;
+const showFilters = shallowRef(false);
+const activeFilterCount = computed(() => Object.keys(state.filters).length);
+function applyFilters(filters) {
+  showFilters.value = false;
+  void records.setFilters(filters);
+}
 </script>
 
 <template>
@@ -21,12 +29,14 @@ const { state, available, busy } = records;
     <section class="mx-panel records-panel" aria-label="Таблица записей">
       <div class="records-toolbar-container">
         <RecordsToolbar :query="state.query" :loading="busy" :available="available" :can-create="state.capabilities.create === true"
-          :columns="state.columns" :sort="state.sort"
-          @query="records.setQuery" @sort="records.setSort" @refresh="records.refresh" @create="records.requestCreate" />
+          :columns="state.columns" :sort="state.sort" :can-filter="state.capabilities.columnFilters"
+          :active-filter-count="activeFilterCount"
+          @query="records.setQuery" @sort="records.setSort" @refresh="records.refresh" @create="records.requestCreate"
+          @filters="showFilters = true" />
       </div>
       <RecordsTable :columns="state.columns" :rows="state.rows" :loading="busy" :available="available"
         :error="state.error" :query="state.query" :sort="state.sort" :capabilities="state.capabilities"
-        :page="state.page" :page-size="state.pageSize"
+        :page="state.page" :page-size="state.pageSize" :filters="state.filters"
         :pending-rows="state.pendingRows" :pending-files="state.pendingFiles"
         @sort="records.setSort" @upload="records.upload" @download="records.download" @remove="records.requestRemove" @edit="records.requestEdit" @delete="records.requestDelete" />
       <div class="records-pagination-container">
@@ -34,6 +44,10 @@ const { state, available, busy } = records;
           @page="records.setPage" @page-size="records.setPageSize" />
       </div>
     </section>
+    <Transition name="dialog" @after-leave="finishDialogLeave">
+      <RecordsFiltersDialog v-if="showFilters" :columns="state.columns" :filters="state.filters"
+        @apply="applyFilters" @close="showFilters = false" />
+    </Transition>
     <Transition name="dialog" @after-leave="finishDialogLeave">
       <RecordEditorDialog v-if="state.editor" :editor="state.editor" :busy="state.editorBusy" :error="state.editorError"
         @change="records.setEditorValue" @save="records.saveRecord" @close="records.closeEditor" />

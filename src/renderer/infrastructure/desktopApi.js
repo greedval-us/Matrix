@@ -9,3 +9,4 @@ export const getStoreApi = () => requireApi('storeAPI');
 export const getFileApi = () => requireApi('fileAPI');
 export const getFileDialogApi = () => requireApi('fileDialog');
 export const getRecordsApi = () => requireApi('recordsAPI');
+export const getUpdateApi = () => requireApi('updateAPI');

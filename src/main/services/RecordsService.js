@@ -6,7 +6,7 @@ import {
   RECORDS_QUERY_MAX_LENGTH, RECORDS_IDENTIFIER_MAX_LENGTH,
 } from '../../shared/constants/records.js';
 import { UnavailableRecordsRepository } from './records/UnavailableRecordsRepository.js';
-import { normalizeControlValues } from '../../shared/constants/controlRecord.js';
+import { normalizeControlFilters, normalizeControlValues } from '../../shared/constants/controlRecord.js';
 import { normalizeRecordsCapabilities } from '../../shared/recordsCapabilities.js';
 import { selectRecordUploadFiles, saveRecordDownload } from './records/recordsLocalFiles.js';
 
@@ -36,7 +36,8 @@ function listRequest(payload = {}) {
     if (!sort || typeof sort !== 'object' || !['asc', 'desc'].includes(sort.direction)) throw new Error('Некорректная сортировка');
     sorting = { key: identifier(sort.key, 'столбца'), direction: sort.direction };
   }
-  return { query, page, pageSize, sort: sorting };
+  const filters = normalizeControlFilters(payload.filters);
+  return { query, page, pageSize, sort: sorting, ...(Object.keys(filters).length ? { filters } : {}) };
 }
 
 function fileMetadata(file) {
@@ -67,11 +68,13 @@ export class RecordsService {
   async requireCapability(capability) {
     const capabilities = await this.getCapabilities();
     if (!capabilities[capability]) throw new Error(capabilities.message || 'Операция недоступна для этого подключения');
+    return capabilities;
   }
 
   async list(payload) {
     const request = listRequest(payload);
-    await this.requireCapability('list');
+    const capabilities = await this.requireCapability('list');
+    if (request.filters && !capabilities.columnFilters) throw new Error('Сервер не поддерживает фильтры по столбцам.');
     return this.repository.list(request);
   }
 

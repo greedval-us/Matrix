@@ -28,7 +28,7 @@ test('records remain explicitly unavailable without a server adapter and never o
   const service = new RecordsService({ dialog: {} });
   assert.deepEqual(await service.getCapabilities(), {
     available: false, list: false, upload: false, download: false, remove: false,
-    create: false, update: false, delete: false,
+    create: false, update: false, delete: false, columnFilters: false,
     message: RECORDS_UNAVAILABLE_MESSAGE,
   });
   await assert.rejects(service.list(), /серверного API/);
@@ -71,6 +71,23 @@ test('records reject malformed pagination, sorting, search and identities before
   }
   await assert.rejects(service.downloadFile({ rowId: 'valid', fileId: null }), /идентификатор файла/);
   await assert.rejects(service.removeFile({ rowId: 'valid', fileId: '\n' }), /идентификатор файла/);
+});
+
+test('column filters reach only a server that advertises support', async () => {
+  const requests = [];
+  let columnFilters = false;
+  const service = new RecordsService({ repository: {
+    getCapabilities: async () => ({ ...capabilities, columnFilters }),
+    list: async request => requests.push(request),
+  } });
+  const query = { filters: { location: 'В РФ', executor: ' Отдел ', note: '' } };
+  await assert.rejects(service.list(query), /не поддерживает/);
+  assert.equal(requests.length, 0);
+  columnFilters = true;
+  await service.list(query);
+  assert.deepEqual(requests[0].filters, { location: 'В РФ', executor: 'Отдел' });
+  await assert.rejects(service.list({ filters: { files: 'bad' } }), /Некорректные фильтры/);
+  assert.equal(requests.length, 1);
 });
 
 test('cancelled file selection performs no upload and does not apply a TXT extension filter', async () => {

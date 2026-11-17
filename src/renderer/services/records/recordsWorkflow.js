@@ -6,7 +6,7 @@ import { createRecordCrudActions } from './recordCrudActions.js';
 
 export function createRecordsState() {
   return { capabilities: { ...UNAVAILABLE_RECORDS_CAPABILITIES }, columns: [], rows: [], total: 0,
-    query: '', sort: null, page: 1, pageSize: DEFAULT_RECORDS_PAGE_SIZE,
+    query: '', filters: {}, sort: null, page: 1, pageSize: DEFAULT_RECORDS_PAGE_SIZE,
     loading: false, connecting: false, error: '', notice: '', pendingRows: [], pendingFiles: [],
     deleteTarget: null, deleteBusy: false, deleteError: '',
     editor: null, editorBusy: false, editorError: '', rowDeleteTarget: null, rowDeleteBusy: false, rowDeleteError: '' };
@@ -26,7 +26,7 @@ export function createRecordsWorkflow({ state, service, setTimer = setTimeout, c
 
   return {
     initialize: list.initialize, refresh: list.refresh, setQuery: list.setQuery,
-    setSort: list.setSort, setPage: list.setPage, setPageSize: list.setPageSize,
+    setFilters: list.setFilters, setSort: list.setSort, setPage: list.setPage, setPageSize: list.setPageSize,
     ...attachments, ...records, dispose,
   };
 }

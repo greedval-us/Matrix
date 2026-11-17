@@ -12,22 +12,22 @@ for (const [layer, createService] of Object.entries(services)) {
   test(`${layer} disables all record operations when availability is not explicitly true`, async () => {
     for (const available of [false, undefined, 1, 'true']) {
       const service = createService({ available, list: true, upload: true, download: true, remove: true,
-        create: true, update: true, delete: true, message: 'Unavailable for this connection', internalPath: '/private' });
+        create: true, update: true, delete: true, columnFilters: true, message: 'Unavailable for this connection', internalPath: '/private' });
 
       assert.deepEqual(await service.getCapabilities(), {
         available: false, list: false, upload: false, download: false, remove: false,
-        create: false, update: false, delete: false, message: 'Unavailable for this connection',
+        create: false, update: false, delete: false, columnFilters: false, message: 'Unavailable for this connection',
       });
     }
   });
 
   test(`${layer} enables only explicitly supported record operations`, async () => {
     const service = createService({ available: true, list: true, upload: 1, download: 'true',
-      remove: false, create: true, update: true, message: null, internalPath: '/private' });
+      remove: false, create: true, update: true, columnFilters: true, message: null, internalPath: '/private' });
 
     assert.deepEqual(await service.getCapabilities(), {
       available: true, list: true, upload: false, download: false, remove: false,
-      create: true, update: true, delete: false, message: '',
+      create: true, update: true, delete: false, columnFilters: true, message: '',
     });
   });
 
@@ -35,7 +35,7 @@ for (const [layer, createService] of Object.entries(services)) {
     for (const value of [null, undefined]) {
       assert.deepEqual(await createService(value).getCapabilities(), {
         available: false, list: false, upload: false, download: false, remove: false,
-        create: false, update: false, delete: false,
+        create: false, update: false, delete: false, columnFilters: false,
         message: 'Данные появятся после подключения серверного API этого раздела.',
       });
     }

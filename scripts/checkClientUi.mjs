@@ -123,6 +123,17 @@ try {
   assert.equal((records.match(/class="records-cell/g) || []).length, 3);
   assert.match(records, /aria-expanded="false"[^>]*aria-label="Открыть запись row-1"/);
   assert.doesNotMatch(records, /record-attachment-list/);
+  const recordDates = await renderComponent('/components/records/RecordsTable.vue', {
+    available: true,
+    columns: [{ key: 'date', label: 'Дата', type: 'date' }, { key: 'number', label: 'Номер' }],
+    rows: [
+      { id: 'record-dated', values: { date: '2026-11-05', number: '2026-11-05' }, files: [] },
+      { id: 'record-undated', values: { date: '' }, files: [] },
+    ],
+  });
+  assert.match(recordDates, /data-field="date"[^>]*><span[^>]*title="05\.11\.2026"[^>]*>05\.11\.2026<\/span>/u);
+  assert.match(recordDates, /data-field="date"[^>]*><span[^>]*>—<\/span>/u);
+  assert.match(recordDates, /data-field="number"[^>]*><span[^>]*>2026-11-05<\/span>/u);
   const attachments = await renderComponent('/components/records/RecordAttachments.vue', {
     row: { id: 'row-1', files: [{ id: 'file-1', name: '<script>.pdf', size: 0 }] },
     capabilities: { upload: true, download: false, remove: false },

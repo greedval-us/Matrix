@@ -46,6 +46,7 @@ export function capabilitiesMetadata(value) {
   return { available, list: available && value.list === true, upload: available && value.upload === true,
     download: available && value.download === true, remove: available && value.remove === true,
     create: available && value.create === true, update: available && value.update === true, delete: available && value.delete === true,
+    columnFilters: available && value.list === true && value.column_filters === true,
     message: available ? '' : RECORDS_SERVER_UNAVAILABLE_MESSAGE };
 }
 

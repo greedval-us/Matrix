@@ -1,6 +1,6 @@
 <script setup>
 import { computed, useId } from 'vue';
-import { ArrowDown, ArrowUp, Plus, RefreshCw, Search, X } from 'lucide-vue-next';
+import { ArrowDown, ArrowUp, ListFilter, Plus, RefreshCw, Search, X } from 'lucide-vue-next';
 import { RECORDS_QUERY_MAX_LENGTH } from '../../../shared/constants/records.js';
 
 const props = defineProps({
@@ -8,10 +8,12 @@ const props = defineProps({
   loading: { type: Boolean, default: false },
   available: { type: Boolean, default: false },
   canCreate: { type: Boolean, default: false },
+  canFilter: { type: Boolean, default: false },
+  activeFilterCount: { type: Number, default: 0 },
   columns: { type: Array, default: () => [] },
   sort: { type: Object, default: null },
 });
-const emit = defineEmits(['query', 'sort', 'refresh', 'create']);
+const emit = defineEmits(['query', 'sort', 'refresh', 'create', 'filters']);
 const queryId = useId();
 const sortableColumns = computed(() => props.columns.filter(column => column.sortable !== false));
 </script>
@@ -43,6 +45,10 @@ const sortableColumns = computed(() => props.columns.filter(column => column.sor
         <X aria-hidden="true" class="h-4 w-4" />
       </button>
     </div>
+    <button v-if="canFilter" type="button" class="mx-button records-filters-toggle" :class="{ 'records-filter-active': activeFilterCount }"
+      :disabled="!available || !columns.length" aria-haspopup="dialog" @click="emit('filters')">
+      <ListFilter aria-hidden="true" class="h-4 w-4" />Фильтры<span v-if="activeFilterCount">({{ activeFilterCount }})</span>
+    </button>
     <div v-if="sortableColumns.length" class="records-sort-control">
       <select class="mx-input records-sort-select" aria-label="Поле сортировки" :value="sort?.key ?? ''"
         :disabled="loading" @change="emit('sort', $event.target.value)">
@@ -68,6 +74,7 @@ const sortableColumns = computed(() => props.columns.filter(column => column.sor
 <style scoped>
 .records-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
 .records-search { position: relative; flex: 1; min-width: 0; max-width: 560px; }
+.records-filter-active { color: var(--mx-accent); border-color: var(--mx-accent); }
 .records-sort-control { display: flex; align-items: center; min-width: 0; gap: 2px; }
 .records-sort-select { width: clamp(112px, 17vw, 154px); padding: 7px; font-size: 12px; }
 .records-search-icon { position: absolute; left: 14px; top: 50%; width: 18px; height: 18px; transform: translateY(-50%); color: var(--mx-muted); pointer-events: none; }

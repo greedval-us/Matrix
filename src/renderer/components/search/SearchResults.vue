@@ -7,6 +7,7 @@ import SearchResultsStatus from './SearchResultsStatus.vue';
 import SearchSuggestions from './SearchSuggestions.vue';
 import SearchSourceCard from './SearchSourceCard.vue';
 import ReportPanel from '../report/ReportPanel.vue';
+import LargeSearchResults from './LargeSearchResults.vue';
 import { useSearchUIStore } from '../../stores/uistore/serchStoreUI.js';
 
 const RECORDS_PER_BLOCK = 6;
@@ -18,11 +19,12 @@ const props = defineProps({
 });
 const searchUI = useSearchUIStore();
 const reportState = computed(() => searchUI.getReportState(props.tabId));
-const { results, loading, error, meta, received, hasSearched, activeBase, bases, recordCount,
+const { results, largeResults, loading, error, meta, received, hasSearched, activeBase, bases, recordCount,
   suggestions, notice, copied, savedSources, savingSources, fieldLabel,
   searchRelated, copyValue, saveNote, retry } = props.state;
 const intro = useTemplateRef('intro');
 const list = useTemplateRef('list');
+const largeList = useTemplateRef('largeList');
 const scrollMargin = shallowRef(0);
 const expandedSources = shallowReactive(new Set());
 const focusedKey = shallowRef(null);
@@ -30,6 +32,7 @@ const focusedKey = shallowRef(null);
 const layout = computed(() => {
   const blocks = [];
   const sourcePositions = new Map();
+  if (largeResults.value) return { blocks, sourcePositions };
   for (const base of bases.value) {
     sourcePositions.set(base.source, blocks.length);
     const blockCount = Math.max(1, Math.ceil(base.data.length / RECORDS_PER_BLOCK));
@@ -105,6 +108,10 @@ function measureBlock(element) {
 }
 
 function scrollToSource(source) {
+  if (largeResults.value) {
+    largeList.value?.showSource();
+    return;
+  }
   const index = layout.value.sourcePositions.get(source);
   if (index !== undefined) virtualizer.value.scrollToIndex(index, { align: 'start' });
 }
@@ -136,7 +143,7 @@ defineExpose({ scrollToSource });
         @cancel="searchUI.cancelReport(tabId)" @save="searchUI.saveCollectedReport(tabId)" />
       <SearchResultsStatus
         :has-searched="hasSearched" :loading="loading" :meta="meta" :error="error"
-        :received="received" :record-count="recordCount" @retry="retry"
+        :received="received" :record-count="recordCount" :large-results="Boolean(largeResults)" @retry="retry"
       />
       <p v-if="notice" role="alert" class="mx-alert text-sm">{{ notice }}</p>
       <SearchSuggestions
@@ -179,7 +186,8 @@ defineExpose({ scrollToSource });
         </p>
       </div>
     </div>
-    <div v-if="bases.length" ref="list" class="search-result-list relative"
+    <LargeSearchResults v-if="largeResults" ref="largeList" :tab-id="tabId" :state="state" :viewport="viewport" />
+    <div v-else-if="bases.length" ref="list" class="search-result-list relative"
       :style="{ height: `${virtualizer.getTotalSize()}px` }">
       <div v-for="{ item, block } in visibleBlocks" :key="item.key" :ref="measureBlock"
         :data-index="item.index" class="absolute inset-x-0 top-0"

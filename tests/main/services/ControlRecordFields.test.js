@@ -5,7 +5,7 @@ import * as policy from '../../../src/shared/constants/controlRecord.js';
 test('the shared editable field policy exposes Telegram ID and one text birth date', () => {
   assert.deepEqual(policy.CONTROL_RECORD_FIELDS.map(field => field.key), [
     'date', 'source_id', 'number', 'fio', 'date_of_birth', 'group_chat_locality',
-    'initiator', 'executor', 'note', 'realization', 'intersections',
+    'initiator', 'executor', 'location', 'note', 'realization', 'intersections',
   ]);
   assert.equal(policy.CONTROL_RECORD_FIELDS.find(field => field.key === 'source_id').label, 'Telegram ID');
   assert.equal(policy.CONTROL_RECORD_FIELDS.find(field => field.key === 'date_of_birth').type, 'textarea');
@@ -17,6 +17,20 @@ test('the shared editable field policy exposes Telegram ID and one text birth da
   assert.notEqual(policy.normalizeControlValues(input), input);
   assert.deepEqual(policy.normalizeControlValues({}, { create: true }), {});
   assert.throws(() => policy.normalizeControlValues({}), /поле/);
+});
+
+test('control locations are fixed choices and column filters are validated separately', () => {
+  assert.deepEqual(policy.CONTROL_LOCATIONS, ['В РФ', 'Выехал из РФ', 'Неизвестно']);
+  for (const location of policy.CONTROL_LOCATIONS) {
+    assert.deepEqual(policy.normalizeControlValues({ location }), { location });
+  }
+  assert.throws(() => policy.normalizeControlValues({ location: '' }));
+  assert.throws(() => policy.normalizeControlValues({ location: 'Другой статус' }));
+  assert.deepEqual(policy.normalizeControlFilters({ id: ' 01 ', date: '2024-02-29', location: 'В РФ', note: '%_=', executor: ' ' }),
+    { id: '01', date: '2024-02-29', location: 'В РФ', note: '%_=' });
+  for (const filters of [{ files: 'x' }, { date: '2025-02-29' }, { location: 'РФ' }, { executor: 1 }]) {
+    assert.throws(() => policy.normalizeControlFilters(filters));
+  }
 });
 
 test('field policy rejects reserved keys, wrong types and impossible record dates', () => {

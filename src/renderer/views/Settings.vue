@@ -2,6 +2,7 @@
 import { onMounted } from 'vue';
 import { ShieldCheck, Wifi, RefreshCw, Check } from 'lucide-vue-next';
 import PageHeading from '../components/ui/PageHeading.vue';
+import AppUpdateSettings from '../components/updates/AppUpdateSettings.vue';
 import { useConnectionSettings } from '../composables/useConnectionSettings.js';
 import { DEFAULT_SERVER_CONFIG, SERVER_CONFIG_LIMITS } from '../../shared/constants/serverConfig.js';
 
@@ -108,5 +109,6 @@ onMounted(loadConfig);
         {{ Number(indexStatus.progress_percent || 0).toFixed(1) }}%
       </p>
     </div>
+    <AppUpdateSettings />
   </div>
 </template>

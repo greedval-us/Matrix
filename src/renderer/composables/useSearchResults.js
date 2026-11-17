@@ -9,17 +9,19 @@ export function useSearchResults({ tabId, searchUI = useSearchUIStore(),
   tabStore = useTabStore(), notesStore = useNotesStore(), clipboard = globalThis.navigator?.clipboard }) {
   const searchableTypes = new Set(SEARCH_FIELD_IDS);
   const results = computed(() => searchUI.getResults(toValue(tabId)));
+  const largeResults = computed(() => searchUI.getLargeResults(toValue(tabId)));
   const loading = computed(() => searchUI.getLoading(toValue(tabId)));
   const error = computed(() => searchUI.getError(toValue(tabId)));
   const meta = computed(() => searchUI.getMeta(toValue(tabId)));
   const received = computed(() => searchUI.getReceived(toValue(tabId)));
   const hasSearched = computed(() => tabStore.getSearchState(toValue(tabId))?.hasSearched);
   const activeBase = computed(() => searchUI.getActiveBase(toValue(tabId)));
-  const bases = computed(() => groupSearchResults(results.value));
-  const fieldLabels = computed(() => bases.value.find((base) => base.fieldLabels)?.fieldLabels);
-  const recordCount = computed(() => bases.value.reduce((count, base) => count + base.data.length, 0));
+  const bases = computed(() => largeResults.value?.sources ?? groupSearchResults(results.value));
+  const fieldLabels = computed(() => largeResults.value?.fieldLabels ?? bases.value.find((base) => base.fieldLabels)?.fieldLabels);
+  const recordCount = computed(() => largeResults.value?.recordCount ?? bases.value.reduce((count, base) => count + base.data.length, 0));
   const suggestions = computed(() => getSearchSuggestions(
-    results.value, searchUI.getSelectedFields(toValue(tabId)), searchableTypes,
+    largeResults.value ? [{ type: 'object_add_search', fields: largeResults.value.suggestions }] : results.value,
+    searchUI.getSelectedFields(toValue(tabId)), searchableTypes,
   ));
   const notice = shallowRef('');
   const copied = shallowRef('');
@@ -66,7 +68,7 @@ export function useSearchResults({ tabId, searchUI = useSearchUIStore(),
     }
   }
 
-  return { results, loading, error, meta, received, hasSearched, activeBase, bases, recordCount, suggestions,
+  return { results, largeResults, loading, error, meta, received, hasSearched, activeBase, bases, recordCount, suggestions,
     notice: readonly(notice), copied: readonly(copied),
     savedSources: readonly(savedSources), savingSources: readonly(savingSources),
     fieldLabel, searchRelated, copyValue, saveNote,

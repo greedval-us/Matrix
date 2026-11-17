@@ -1,4 +1,4 @@
-import { CONTROL_RECORD_FIELDS, normalizeControlValues } from '../../../shared/constants/controlRecord.js';
+import { CONTROL_RECORD_FIELDS, DEFAULT_CONTROL_LOCATION, normalizeControlValues } from '../../../shared/constants/controlRecord.js';
 import { getLastRecordsPage } from './recordsListWorkflow.js';
 import { recordsErrorMessage } from './recordsOperationContext.js';
 
@@ -10,21 +10,27 @@ export function createRecordCrudActions({ state, service, operations, load, inva
   function canOpenDialog() {
     return isActive() && isAvailable() && !state.editorBusy && !state.rowDeleteTarget && !state.deleteTarget;
   }
+  const editableFields = () => CONTROL_RECORD_FIELDS.filter(({ key }) =>
+    key !== 'location' || state.columns.some(column => column.key === key));
+
   function requestCreate() {
     if (!canOpenDialog() || !state.capabilities.create || createPending) return;
     const today = now();
     const date = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-    state.editor = { mode: 'create', rowId: null, values: Object.fromEntries(CONTROL_RECORD_FIELDS.map(field => [field.key, field.key === 'date' ? date : ''])) };
+    const defaults = { date, location: DEFAULT_CONTROL_LOCATION };
+    state.editor = { mode: 'create', rowId: null,
+      values: Object.fromEntries(editableFields().map(({ key }) => [key, defaults[key] ?? ''])) };
     state.editorError = '';
   }
   function requestEdit(row) {
     if (!canOpenDialog() || !state.capabilities.update || isRowPending(row.id)) return;
     state.editor = { mode: 'edit', rowId: row.id,
-      values: Object.fromEntries(CONTROL_RECORD_FIELDS.map(field => [field.key, String(row.values[field.key] ?? '')])) };
+      values: Object.fromEntries(editableFields().map(({ key }) =>
+        [key, String(row.values[key] ?? (key === 'location' ? DEFAULT_CONTROL_LOCATION : ''))])) };
     state.editorError = '';
   }
   function setEditorValue(key, value) {
-    if (!isActive() || !state.editor || state.editorBusy || !CONTROL_RECORD_FIELDS.some(field => field.key === key)) return;
+    if (!isActive() || !state.editor || state.editorBusy || !Object.hasOwn(state.editor.values, key)) return;
     state.editor.values[key] = value;
   }
   function closeEditor() {

@@ -136,6 +136,33 @@ test('a deleted last server page is recovered using the new last page', async ()
   actions.dispose();
 });
 
+test('column filters combine with quick search and stay active across pages and sorting', async () => {
+  const requests = [];
+  const { state, actions } = setup({
+    getCapabilities: async () => ({ ...capabilities, columnFilters: true }),
+    list: async request => {
+      requests.push(request);
+      return { ...page([row], 101), columns: [{ key: 'location', sortable: true }, { key: 'initiator', sortable: true }] };
+    },
+  });
+  await actions.initialize();
+  await actions.setPage(4);
+  state.query = ' quick ';
+  const filters = { location: 'В РФ', initiator: ' Отдел ' };
+  await actions.setFilters(filters);
+  assert.deepEqual(requests.at(-1), {
+    query: 'quick', filters: { location: 'В РФ', initiator: 'Отдел' }, sort: null, page: 1, pageSize: 25,
+  });
+  await actions.setSort('location');
+  await actions.setPage(2);
+  assert.equal(requests.at(-1).page, 2);
+  assert.deepEqual(requests.at(-1).filters, state.filters);
+  await actions.setFilters({});
+  assert.equal(requests.at(-1).query, 'quick');
+  assert.equal(requests.at(-1).filters, undefined);
+  actions.dispose();
+});
+
 test('cancelled upload/download are normal outcomes without false success notices', async () => {
   let listCalls = 0;
   const { state, actions } = setup({

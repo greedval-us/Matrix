@@ -13,6 +13,7 @@ export function normalizeRecordsCapabilities(value) {
     create: available && value.create === true,
     update: available && value.update === true,
     delete: available && value.delete === true,
+    columnFilters: available && value.list === true && value.columnFilters === true,
     message: typeof value?.message === 'string' ? value.message : (available ? '' : RECORDS_UNAVAILABLE_MESSAGE),
   };
 }

@@ -14,8 +14,17 @@ app.whenReady().then(() => {
   });
 });
 
-app.on("before-quit", () => {
-  void ipcManager.shutdown().catch((error) => log.error("Failed to shut down IPC:", error));
+let shutdownStarted = false;
+let shutdownFinished = false;
+app.on("before-quit", (event) => {
+  if (shutdownFinished) return;
+  event.preventDefault();
+  if (shutdownStarted) return;
+  shutdownStarted = true;
+  void ipcManager.shutdown().catch((error) => log.error("Failed to shut down IPC:", error)).finally(() => {
+    shutdownFinished = true;
+    app.quit();
+  });
 });
 
 app.on('window-all-closed', () => {

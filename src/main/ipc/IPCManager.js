@@ -12,6 +12,11 @@ import { ServerConnectionService } from "../services/ServerConnectionService.js"
 import { createDeviceIdentityStore } from "../services/DeviceAccessCredentials.js";
 import { GrpcRecordsRepository } from "../services/records/GrpcRecordsRepository.js";
 import { BUNDLED_CA_FILENAME } from "../../shared/constants/serverConfig.js";
+import { AppUpdateService } from '../services/updates/AppUpdateService.js';
+import { GrpcReleaseRepository } from '../services/updates/GrpcReleaseRepository.js';
+import { PortableInstaller } from '../services/updates/PortableInstaller.js';
+import { releaseTarget } from '../services/updates/releasePolicy.js';
+import { UpdateHandler } from './UpdateHandler.js';
 
 export class IPCManager {
   constructor() { this.handlers = []; }
@@ -33,6 +38,13 @@ export class IPCManager {
       new StoreHandler(storeService),
       new SearchHandler(storeService, { connectionService }),
       new RecordsHandler(new RecordsService({ repository: new GrpcRecordsRepository({ connectionService }) })),
+      new UpdateHandler(new AppUpdateService({
+        repository: new GrpcReleaseRepository({ connectionService }),
+        currentVersion: app.getVersion(), target: releaseTarget(),
+        directory: path.join(app.getPath('userData'), 'updates', 'downloads'),
+        installer: new PortableInstaller({ app }),
+        currentExecutable: process.env.PORTABLE_EXECUTABLE_FILE || process.execPath,
+      })),
     ];
     this.handlers.forEach((handler) => handler.register());
   }

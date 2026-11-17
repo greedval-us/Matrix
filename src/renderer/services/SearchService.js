@@ -38,7 +38,9 @@ export class SearchService {
           options.onChunk?.(eventPayload.items, eventPayload.received);
         }
       });
-      const response = await this.searchAPI.run(tabId, payload);
+      const response = options.largeResults
+        ? await this.searchAPI.run(tabId, payload, true)
+        : await this.searchAPI.run(tabId, payload);
       if (response?.streamed !== true) return { meta: response };
       // The invoke reply can arrive before the final progress events.
       await progressFinished;
@@ -61,6 +63,18 @@ export class SearchService {
     if (this.isSearching[tabId]) {
       this.searchAPI.cancel(tabId);
     }
+  }
+
+  readResults(tabId, token, source, start, limit) {
+    return this.searchAPI.readResults(tabId, token, source, start, limit);
+  }
+
+  clearResults(tabId) {
+    return this.searchAPI.clearResults(tabId);
+  }
+
+  exportResults(tabId, token, format) {
+    return this.searchAPI.exportResults(tabId, token, format);
   }
 
   async listDatabases(payload) {

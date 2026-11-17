@@ -7,6 +7,6 @@ export const RECORDS_UNAVAILABLE_MESSAGE = 'Данные появятся пос
 
 export const UNAVAILABLE_RECORDS_CAPABILITIES = Object.freeze({
   available: false, list: false, upload: false, download: false, remove: false,
-  create: false, update: false, delete: false,
+  create: false, update: false, delete: false, columnFilters: false,
   message: RECORDS_UNAVAILABLE_MESSAGE,
 });

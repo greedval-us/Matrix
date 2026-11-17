@@ -8,6 +8,7 @@ defineProps({
   error: { type: String, default: '' },
   received: { type: Number, default: 0 },
   recordCount: { type: Number, default: 0 },
+  largeResults: Boolean,
 });
 const emit = defineEmits(['retry']);
 </script>
@@ -28,7 +29,7 @@ const emit = defineEmits(['retry']);
           <span class="text-xl font-semibold tabular-nums text-matrix-strong">{{
             formatResultCount(recordCount)
           }}</span
-          ><span class="ml-2 text-sm text-matrix-muted">уникальных записей</span>
+          ><span class="ml-2 text-sm text-matrix-muted">{{ largeResults ? 'записей' : 'уникальных записей' }}</span>
         </div>
       </div>
       <span class="text-sm text-matrix-muted">{{

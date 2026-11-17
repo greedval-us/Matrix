@@ -1,3 +1,7 @@
+export const DEFAULT_CONTROL_LOCATION = 'Неизвестно';
+export const CONTROL_LOCATIONS = Object.freeze(['В РФ', 'Выехал из РФ', DEFAULT_CONTROL_LOCATION]);
+export const CONTROL_FILTER_MAX_LENGTH = 4096;
+
 export const CONTROL_RECORD_FIELDS = Object.freeze([
   { key: 'date', label: 'Дата', type: 'date' },
   { key: 'source_id', label: 'Telegram ID', type: 'text', maxLength: 255 },
@@ -7,10 +11,13 @@ export const CONTROL_RECORD_FIELDS = Object.freeze([
   { key: 'group_chat_locality', label: 'Группа, чат, н.п.', type: 'text', maxLength: 255 },
   { key: 'initiator', label: 'Инициатор', type: 'text', maxLength: 255 },
   { key: 'executor', label: 'Исполнитель', type: 'text', maxLength: 255 },
+  { key: 'location', label: 'Находится', type: 'select', options: CONTROL_LOCATIONS },
   { key: 'note', label: 'Примечание', type: 'textarea', maxBytes: 65535 },
   { key: 'realization', label: 'Реализация', type: 'textarea', maxBytes: 65535 },
   { key: 'intersections', label: 'Пересечения', type: 'textarea', maxBytes: 65535 },
 ].map(Object.freeze));
+
+export const CONTROL_FILTER_FIELDS = Object.freeze(['id', ...CONTROL_RECORD_FIELDS.map(({ key }) => key)]);
 
 function validDate(value) {
   if (value === '') return true;
@@ -31,8 +38,24 @@ export function normalizeControlValues(values, { create = false } = {}) {
     if (!field) throw new Error(`Недопустимое поле записи: ${key}.`);
     if (typeof value !== 'string') throw new Error(`Поле «${field.label}» должно содержать текст.`);
     if (field.type === 'date' && !validDate(value)) throw new Error(`Укажите корректную дату в поле «${field.label}».`);
+    if (field.options && !field.options.includes(value)) throw new Error(`Выберите значение поля «${field.label}» из списка.`);
     if (field.maxLength && [...value].length > field.maxLength) throw new Error(`Поле «${field.label}»: не более ${field.maxLength} символов.`);
     if (field.maxBytes && encoder.encode(value).length > field.maxBytes) throw new Error(`Поле «${field.label}» превышает допустимый объём текста (65 535 байт).`);
+  }
+  return Object.fromEntries(entries);
+}
+
+export function normalizeControlFilters(filters = {}) {
+  if (!filters || typeof filters !== 'object' || Array.isArray(filters)) throw new Error('Некорректные фильтры по столбцам.');
+  const entries = [];
+  for (const [key, raw] of Object.entries(filters)) {
+    if (!CONTROL_FILTER_FIELDS.includes(key) || typeof raw !== 'string' || !raw.isWellFormed()
+      || [...raw].length > CONTROL_FILTER_MAX_LENGTH) throw new Error('Некорректные фильтры по столбцам.');
+    const value = raw.trim();
+    if (!value) continue;
+    if (key === 'date' && !validDate(value)) throw new Error('Укажите корректную дату в фильтре.');
+    if (key === 'location' && !CONTROL_LOCATIONS.includes(value)) throw new Error('Выберите значение фильтра «Находится» из списка.');
+    entries.push([key, value]);
   }
   return Object.fromEntries(entries);
 }

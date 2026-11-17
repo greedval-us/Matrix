@@ -8,7 +8,9 @@ import TaskModal from '../../components/modal/TaskModal.vue';
 import { finishDialogLeave } from '../../components/ui/AppDialog.vue';
 import { useModalsStore } from '../../stores/modals';
 import { sidebarItems } from '../../../shared/constants/sidebarItems';
+import { APP_DISPLAY_NAME } from '../../../shared/constants/appDisplayName.js';
 import { useAppearance } from '../../composables/useAppearance.js';
+import AppUpdateIndicator from '../../components/updates/AppUpdateIndicator.vue';
 
 const isCollapsed = shallowRef(false);
 const mainContent = useTemplateRef('mainContent');
@@ -16,7 +18,7 @@ const route = useRoute();
 const modalsStore = useModalsStore();
 const { isDark, toggleAppearance } = useAppearance();
 const pageTitle = computed(
-  () => sidebarItems.find((item) => item.to === route.path)?.label || 'Matrix',
+  () => sidebarItems.find((item) => item.to === route.path)?.label || APP_DISPLAY_NAME,
 );
 </script>
 
@@ -39,11 +41,12 @@ const pageTitle = computed(
           >
             <PanelLeft aria-hidden="true" class="h-4 w-4" />
           </button>
-          <span class="hidden text-[13px] text-matrix-muted lg:inline">Matrix</span>
+          <span class="hidden text-[13px] text-matrix-muted lg:inline">{{ APP_DISPLAY_NAME }}</span>
           <ChevronRight aria-hidden="true" class="hidden h-3 w-3 text-matrix-muted lg:block" />
           <span class="truncate text-sm font-medium text-matrix-text">{{ pageTitle }}</span>
         </div>
         <div class="flex shrink-0 items-center gap-2">
+          <AppUpdateIndicator />
           <router-link
             to="/settings"
             class="connection-link"

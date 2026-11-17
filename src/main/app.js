@@ -1,6 +1,7 @@
 import { BrowserWindow, Menu, app } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { APP_DISPLAY_NAME } from "../shared/constants/appDisplayName.js";
 import { showWindowAfterSplash } from "./windowLifecycle.js";
 
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
@@ -16,6 +17,7 @@ export default function createWindow() {
 
   const main = new BrowserWindow({
     width: 1200, height: 700, minWidth: 820, minHeight: 560,
+    title: APP_DISPLAY_NAME,
     show: false, backgroundColor: "#f5f5f7", icon: publicPath("matrix.ico"),
     webPreferences: {
       preload: path.resolve(moduleDirectory, "../../build/main/preload.cjs"),

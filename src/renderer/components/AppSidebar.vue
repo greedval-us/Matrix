@@ -1,6 +1,7 @@
 <script setup>
 import { PanelLeftClose, PanelLeftOpen } from 'lucide-vue-next';
 import matrixLogo from '../../public/matrix.png';
+import { APP_DISPLAY_NAME } from '../../shared/constants/appDisplayName.js';
 import SidebarNav from './sidebar/SidebarNav.vue';
 import SidebarBot from './sidebar/SidebarBot.vue';
 const isCollapsed = defineModel({ type: Boolean, default: false });
@@ -15,7 +16,7 @@ const isCollapsed = defineModel({ type: Boolean, default: false });
     <router-link
       to="/"
       class="sidebar-brand flex h-16 shrink-0 items-center gap-3"
-      aria-label="Matrix — главная"
+      :aria-label="`${APP_DISPLAY_NAME} — главная`"
     >
       <img
         :src="matrixLogo"
@@ -24,7 +25,7 @@ const isCollapsed = defineModel({ type: Boolean, default: false });
         height="32"
         class="brand-mark h-8 w-8 shrink-0 object-contain"
       />
-      <span class="brand-name sidebar-label">Matrix</span>
+      <span class="brand-name sidebar-label">{{ APP_DISPLAY_NAME }}</span>
     </router-link>
     <div class="min-h-0 flex-1 overflow-y-auto overflow-x-hidden py-5">
       <SidebarNav :collapsed="isCollapsed" />

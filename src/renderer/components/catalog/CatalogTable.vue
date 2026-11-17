@@ -69,7 +69,7 @@ watch(() => props.rows, () => { if (viewport.value) viewport.value.scrollTop = 0
                   ? '!border-matrix-accent/20 !text-matrix-accent'
                   : '!text-matrix-muted'
               "
-              >{{ row.trust === SOURCE_AVAILABLE_TRUST ? 'Доступна' : 'Недоступна' }}</span
+              >{{ row.trust === SOURCE_AVAILABLE_TRUST ? 'Подтверждена' : 'Не подтверждена' }}</span
             >
           </td>
         </tr>

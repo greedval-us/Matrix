@@ -26,7 +26,15 @@ vm.runInNewContext(source, {
     return electron;
   },
 }, { filename: 'preload.cjs' });
-assert.deepEqual(Object.keys(apis).sort(), ['fileAPI', 'fileDialog', 'recordsAPI', 'searchAPI', 'storeAPI']);
+assert.deepEqual(Object.keys(apis).sort(), ['fileAPI', 'fileDialog', 'recordsAPI', 'searchAPI', 'storeAPI', 'updateAPI']);
+await apis.updateAPI.check();
+assert.equal(calls.at(-1).channel, IPC_CHANNELS.update.check);
+let updateState;
+const stopUpdates = apis.updateAPI.onState(value => { updateState = value; });
+const state = { status: 'available' };
+listeners.get(IPC_CHANNELS.update.state)({ privileged: true }, state);
+assert.equal(updateState, state);
+stopUpdates();
 await apis.recordsAPI.downloadFile({ rowId: 'row-1', fileId: 'file-1' });
 assert.equal(calls.at(-1).channel, IPC_CHANNELS.records.downloadFile);
 assert.equal(calls.at(-1).args[0].rowId, 'row-1');

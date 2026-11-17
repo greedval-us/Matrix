@@ -13,10 +13,14 @@ const props = defineProps({
   start: { type: Number, default: 0 },
   end: Number,
   expanded: Boolean,
+  continuation: Boolean,
+  recordOffset: { type: Number, default: 0 },
+  recordCount: Number,
+  hideSave: Boolean,
   fieldLabel: { type: Function, required: true },
 });
 const emit = defineEmits(['save', 'copy', 'toggle-details']);
-const first = computed(() => props.start === 0);
+const first = computed(() => props.start === 0 && !props.continuation);
 const last = computed(() => props.end === undefined || props.end === props.base.data.length);
 const visibleData = computed(() => props.base.data.slice(props.start, props.end)
   .map(nonEmptyResultFields));
@@ -43,7 +47,7 @@ function toggleDetails(event) {
             ><Database aria-hidden="true" class="h-4 w-4 text-matrix-accent"
           /></span>
           <h3 class="break-words text-[17px] font-semibold tracking-tight">{{ base.name }}</h3>
-          <span class="mx-badge">{{ formatResultCount(base.data.length) }}</span>
+          <span class="mx-badge">{{ formatResultCount(recordCount ?? base.data.length) }}</span>
         </div>
         <p
           v-if="base.type_sources || base.country || base.relevance_date"
@@ -53,6 +57,7 @@ function toggleDetails(event) {
         </p>
       </div>
       <button
+        v-if="!hideSave"
         class="mx-icon-button"
         :disabled="saving"
         :aria-label="'Сохранить источник ' + base.name + ' в заметки'"
@@ -79,7 +84,7 @@ function toggleDetails(event) {
     </details>
     <div v-if="visibleData.length" :class="['divide-y divide-matrix-border', { 'border-t border-matrix-border': first }]">
       <div v-for="(fields, index) in visibleData" :key="index" class="p-5 sm:px-6 sm:py-6">
-        <p class="mx-eyebrow mb-3">Запись {{ start + index + 1 }}</p>
+        <p class="mx-eyebrow mb-3">Запись {{ recordOffset + start + index + 1 }}</p>
         <dl class="mx-record grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-[144px_minmax(0,1fr)]">
           <template v-for="([key, value], fieldIndex) in fields" :key="fieldIndex"
             ><dt class="pt-1.5">{{ fieldLabel(key) }}</dt>

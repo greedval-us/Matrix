@@ -12,6 +12,7 @@ const props = defineProps({
   available: { type: Boolean, default: false },
   error: { type: String, default: '' },
   query: { type: String, default: '' },
+  filters: { type: Object, default: () => ({}) },
   sort: { type: Object, default: null },
   page: { type: Number, default: 1 },
   pageSize: { type: Number, default: 25 },
@@ -20,36 +21,51 @@ const props = defineProps({
   pendingFiles: { type: Array, default: () => [] },
 });
 const emit = defineEmits(['sort', 'upload', 'download', 'remove', 'edit', 'delete']);
-const primaryKeys = new Set(['date', 'id', 'source_id', 'number', 'fio']);
+const primaryKeys = new Set(['date', 'source_id', 'number', 'fio', 'initiator', 'executor', 'location']);
 const wideDetailKeys = new Set(['note', 'realization', 'intersections']);
 const tableId = useId();
 const viewport = shallowRef(null);
 const viewportWidth = shallowRef(Infinity);
 const expandedId = shallowRef(null);
-const minimumColumnWidths = { date: 360, id: 615, source_id: 470 };
+const minimumColumnWidths = { date: 525, source_id: 890, number: 650 };
 const primaryColumns = computed(() => {
   const summary = props.columns.filter(({ key }) =>
     primaryKeys.has(key) && viewportWidth.value > (minimumColumnWidths[key] ?? 0));
-  return summary.length ? summary : props.columns.slice(0, primaryKeys.size);
+  return summary.length ? summary : props.columns.filter(({ key }) => key !== 'id').slice(0, 5);
 });
 const pendingRowIds = computed(() => new Set(props.pendingRows));
 const hasRows = computed(() => props.rows.length > 0);
-const emptyMessage = computed(() => props.query.trim() ? 'Ничего не найдено' : 'В таблице пока нет записей');
+const emptyMessage = computed(() => props.query.trim() || Object.keys(props.filters).length
+  ? 'Ничего не найдено' : 'В таблице пока нет записей');
 
 watch(viewport, (element, _, onCleanup) => {
   if (!element) return;
-  const observer = new ResizeObserver(([entry]) => { viewportWidth.value = entry.contentRect.width; });
+  let frame;
+  const observer = new ResizeObserver(([entry]) => {
+    cancelAnimationFrame(frame);
+    frame = requestAnimationFrame(() => { viewportWidth.value = entry.contentRect.width; });
+  });
   observer.observe(element);
-  onCleanup(() => observer.disconnect());
+  onCleanup(() => {
+    observer.disconnect();
+    cancelAnimationFrame(frame);
+  });
 });
 
-watch([() => props.page, () => props.pageSize, () => props.query, () => props.sort], () => {
+watch([() => props.page, () => props.pageSize, () => props.query, () => props.sort, () => props.filters], () => {
   expandedId.value = null;
   if (viewport.value) viewport.value.scrollTop = 0;
 });
 
 function displayValue(row, key) {
-  return formatRecordValue(getRecordValue(row, key));
+  const value = formatRecordValue(getRecordValue(row, key));
+  return key === 'date' ? value.replace(/^(\d{4})-(\d{2})-(\d{2})$/u, '$3.$2.$1') : value;
+}
+
+function rowHighlight(row) {
+  if (String(getRecordValue(row, 'realization') ?? '').trim()) return 'records-row-realized';
+  if (String(getRecordValue(row, 'executor') ?? '').trim()) return 'records-row-assigned';
+  return '';
 }
 
 function detailColumns(row) {
@@ -136,7 +152,7 @@ function sortLabel(column) {
         </thead>
         <tbody>
           <template v-for="(row, index) in rows" :key="row.id">
-            <tr class="records-row" :class="{ 'records-row-expanded': expandedId === row.id }">
+            <tr class="records-row" :class="[rowHighlight(row), { 'records-row-expanded': expandedId === row.id }]">
               <td v-for="column in primaryColumns" :key="column.key" class="records-cell" :data-field="column.key">
                 <span class="records-value" :title="displayValue(row, column.key)">{{ displayValue(row, column.key) }}</span>
               </td>
@@ -207,15 +223,20 @@ function sortLabel(column) {
 .records-sort-icon { width: 12px; height: 12px; flex: none; color: var(--mx-muted); }
 .records-sort-active { color: var(--mx-accent); }
 .records-heading[data-field="date"] { width: 96px; }
-.records-heading[data-field="id"] { width: 65px; }
 .records-heading[data-field="source_id"] { width: 112px; }
 .records-heading[data-field="number"] { width: 124px; }
+.records-heading[data-field="location"] { width: 128px; }
 .records-actions-heading { width: 136px; text-align: right; }
-.records-row:hover, .records-row-expanded { background: rgb(var(--mx-raised-rgb) / .56); }
+.records-row { background-color: var(--records-row-surface, transparent); }
+.records-row-assigned { --records-row-surface: var(--mx-warning-surface); }
+.records-row-realized { --records-row-surface: var(--mx-success-surface); }
+.records-row:hover, .records-row-expanded {
+  background-color: color-mix(in srgb, var(--records-row-surface, var(--mx-panel)) 74%, var(--mx-raised));
+}
 .records-cell { padding: 4px 10px; border-bottom: 1px solid rgb(var(--mx-border-rgb) / .7); vertical-align: middle; }
 .records-value { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.45; }
 .records-cell[data-field="fio"] { font-weight: 550; }
-.records-cell[data-field="date"], .records-cell[data-field="id"], .records-cell[data-field="source_id"],
+.records-cell[data-field="date"], .records-cell[data-field="source_id"],
 .records-cell[data-field="number"] { font-variant-numeric: tabular-nums; }
 .record-row-actions { display: flex; align-items: center; justify-content: flex-end; gap: 1px; }
 .record-details-toggle { width: auto; min-width: 32px; padding-inline: 4px; gap: 2px; color: var(--mx-accent); font-size: 11px; }

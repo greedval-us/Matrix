@@ -109,7 +109,7 @@ export class ServerConnectionService {
 
   async readBundledCertificate() {
     if (!this.bundledCertificatePath) {
-      throw new Error("В сборке Matrix отсутствует встроенный CA-сертификат сервера");
+      throw new Error("В сборке приложения отсутствует встроенный CA-сертификат сервера");
     }
     let certificate;
     try {

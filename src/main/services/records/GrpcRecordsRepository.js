@@ -66,9 +66,10 @@ export class GrpcRecordsRepository {
     } finally { if (operation) this.finish(operation); }
   }
 
-  async list({ query, sort, page, pageSize }) {
+  async list({ query, sort, page, pageSize, filters }) {
     return this.execute(async operation => listMetadata(await this.unary(operation, 'listRecords', {
       query, sort_key: sort?.key || '', sort_direction: sort?.direction || '', page, page_size: pageSize,
+      ...(filters ? { filters } : {}),
     })));
   }
 

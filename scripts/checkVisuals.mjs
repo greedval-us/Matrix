@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { app, BrowserWindow, ipcMain, Menu } from 'electron';
 import { IPC_CHANNELS as channels } from '../src/shared/constants/ipcChannels.js';
 import { DEFAULT_SERVER_CONFIG } from '../src/shared/constants/serverConfig.js';
-import { CONTROL_RECORD_FIELDS } from '../src/shared/constants/controlRecord.js';
+import { CONTROL_FILTER_FIELDS, CONTROL_LOCATIONS, CONTROL_RECORD_FIELDS } from '../src/shared/constants/controlRecord.js';
 
 // This harness renders fixture data only. It never opens the application's store or server.
 const projectDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -31,6 +31,9 @@ const MINIMUM_WINDOW = { width: 820, height: 560 };
 const LARGE_SEARCH_NUMBER = '79000009999';
 const LARGE_SOURCE_NAME = 'Длинный тестовый источник';
 const LARGE_SOURCE_SIZE = 2000;
+const DISK_SEARCH_NUMBER = '7978%';
+const DISK_SOURCE_SIZE = 500000;
+const diskSearchReads = [];
 const WAIT_TIMEOUT_MS = 8000;
 const TRANSITION_SETTLE_MS = 420;
 const fixtureStatus = { status: 'ready', indexed_shards: 12, total_shards: 12, progress_percent: 100 };
@@ -41,6 +44,14 @@ const handledChannels = [];
 const rendererErrors = [];
 const screenshots = [];
 const checks = [];
+const updateRelease = { version: '1.0.28', name: 'Matrix.exe', size: 104857600, notes: 'Обновлён интерфейс.\nУлучшена стабильность приложения.', platform: 'win32', arch: 'x64', kind: 'portable', sha256: 'a'.repeat(64), publishedAt: '2026-11-16T10:00:00Z' };
+let updateState = { status: 'idle', currentVersion: '1.0.27', release: null, canInstall: true, progress: 0, error: '', checkedAt: null };
+const updateActions = [];
+function emitUpdate(values) {
+  updateState = { ...updateState, ...values };
+  if (window && !window.isDestroyed()) window.webContents.send(channels.update.state, updateState);
+  return updateState;
+}
 const primaryAccents = {};
 const reportFixture = { mode: 'complete', saveOutcome: 'cancelled', folderOutcome: 'cancelled', requests: [], saved: [], pending: new Map() };
 const ordinarySearchRequests = [];
@@ -50,7 +61,7 @@ const recordsColumns = [
   { key: 'team', label: 'Группа', type: 'string', sortable: true },
 ];
 const recordsFixture = {
-  mode: 'available', nextFileOutcome: 'success', nextRecordOutcome: 'success', requests: [], fileActions: [], recordActions: [], nextRecordId: 1000,
+  mode: 'available', columnFilters: false, nextFileOutcome: 'success', nextRecordOutcome: 'success', requests: [], fileActions: [], recordActions: [], nextRecordId: 1000,
   rows: Array.from({ length: 55 }, (_, index) => ({
     id: `record-${index + 1}`,
     values: { title: index === 54 ? 'Дальний результат' : `Тестовая запись ${index + 1}`,
@@ -76,6 +87,12 @@ function fixtureItem(data) {
 }
 
 function registerFixtureApis() {
+  handle(channels.update.getState, () => updateState);
+  handle(channels.update.check, () => { updateActions.push('check'); return emitUpdate({ status: 'available', release: updateRelease, checkedAt: Date.now(), error: '' }); });
+  handle(channels.update.download, () => { updateActions.push('download'); return emitUpdate({ status: 'downloading', progress: 37 }); });
+  handle(channels.update.cancel, () => { updateActions.push('cancel'); return emitUpdate({ status: 'available', progress: 0 }); });
+  handle(channels.update.install, () => { updateActions.push('install'); return emitUpdate({ status: 'installing' }); });
+  handle(channels.update.saveCopy, () => { updateActions.push('saveCopy'); return { saved: true }; });
   for (const key of Object.keys(collections)) {
     const collectionChannels = channels.store[key];
     handle(collectionChannels.get, () => collections[key]);
@@ -140,11 +157,29 @@ function registerFixtureApis() {
     { name_table: 'visual_archive', name: 'Тестовый архив', type: 'Архив',
       info: 'Пример недоступного источника.', relevance_date: '2025', count: '1800', trust: '0' },
   ]);
-  handle(channels.search.run, async (event, tabId, query) => {
+  handle(channels.search.clearResults, () => {});
+  handle(channels.search.readResults, (_event, tabId, token, source, start, limit) => {
+    assert.equal(token, `disk-${tabId}`);
+    assert.equal(source, 'disk-fixture');
+    assert.ok(limit <= 36);
+    diskSearchReads.push(start);
+    return Array.from({ length: Math.min(limit, DISK_SOURCE_SIZE - start) }, (_, index) => [
+      ['number', String(79780000000 + start + index)], ['info', `Тестовая строка ${start + index + 1}`],
+    ]);
+  });
+  handle(channels.search.run, async (event, tabId, query, largeResults) => {
     assert.ok(sessions.has(tabId), 'Search must create its session before running');
     if (String(tabId).startsWith('report-')) return runReportFixture(event, tabId, query);
     ordinarySearchRequests.push({ tabId, query: structuredClone(query) });
     assert.ok(query.number, 'The fixture search must contain its phone field');
+    if (query.number === DISK_SEARCH_NUMBER) {
+      assert.equal(largeResults, true);
+      const meta = { total_hits: String(DISK_SOURCE_SIZE), returned_hits: String(DISK_SOURCE_SIZE) };
+      event.sender.send(channels.search.progress, { tabId, type: 'completed', meta, received: DISK_SOURCE_SIZE,
+        largeResults: { token: `disk-${tabId}`, recordCount: DISK_SOURCE_SIZE, suggestions: [], fieldLabels: {},
+          sources: [{ source: 'disk-fixture', name: 'Результаты с диска', recordCount: DISK_SOURCE_SIZE }] } });
+      return { meta, streamed: true };
+    }
     if (query.number === LARGE_SEARCH_NUMBER) {
       const sources = Array.from({ length: 41 }, (_, index) => `virtual_${index}`);
       const items = sources.flatMap((source, index) => {
@@ -214,6 +249,7 @@ function registerRecordsFixtures() {
   handle(channels.records.getCapabilities, () => {
     const available = recordsFixture.mode !== 'unavailable';
     return { available, list: available, upload: available, download: available, remove: available, create: available, update: available, delete: available,
+      columnFilters: available && recordsFixture.columnFilters,
       message: available ? '' : 'Тестовый сервер записей недоступен' };
   });
   handle(channels.records.list, async (_event, request) => {
@@ -228,6 +264,12 @@ function registerRecordsFixtures() {
       rows = rows.filter(row => Object.values(row.values).some(value => String(value).toLocaleLowerCase('ru').includes(query)) ||
         row.files.some(file => file.name.toLocaleLowerCase('ru').includes(query)));
     }
+    const filters = Object.entries(request.filters || {});
+    rows = rows.filter(row => filters.every(([key, value]) => {
+      const field = String(row.values[key] ?? '');
+      if (['date', 'id', 'location'].includes(key)) return field === value;
+      return field.toLocaleLowerCase('ru').includes(value.toLocaleLowerCase('ru'));
+    }));
     if (request.sort) {
       const { key, direction } = request.sort;
       rows.sort((left, right) => {
@@ -367,7 +409,7 @@ async function setInput(selector, value) {
     const input = document.querySelector(selector);
     if (!input || input.disabled) throw new Error(`Input unavailable: ${selector}`);
     input.value = value;
-    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event(input.tagName === 'SELECT' ? 'change' : 'input', { bubbles: true }));
   }, selector, value);
 }
 
@@ -473,7 +515,7 @@ async function checkCinematicSplash() {
         logoSize: { width: logo?.naturalWidth, height: logo?.naturalHeight },
         canvasPresent: Boolean(canvas), greenPixels };
     });
-    assert.match(splashDetails.title, /Matrix/i);
+    assert.equal(splashDetails.title, 'Загрузка model 404');
     assert.ok(splashDetails.logoLoaded, 'Cinematic splash must load the actual Matrix logo');
     assert.deepEqual(splashDetails.logoSize, expectedLogoSize, 'Splash must use the project Matrix PNG');
     assert.ok(splashDetails.canvasPresent && splashDetails.greenPixels > 100,
@@ -481,7 +523,7 @@ async function checkCinematicSplash() {
     assert.deepEqual(splashErrors, [], 'Splash must not log runtime errors');
     splashDetails.consoleErrors = splashErrors;
     await captureSurface(splash.webContents, 'splash-matrix-rain');
-    checks.push('Cinematic splash: Matrix title, actual logo loaded, green rain canvas, no runtime errors');
+    checks.push('Cinematic splash: model 404 title, actual logo loaded, green rain canvas, no runtime errors');
   } finally {
     if (splash.webContents.debugger.isAttached()) splash.webContents.debugger.detach();
     splash.webContents.removeAllListeners('console-message');
@@ -837,21 +879,49 @@ async function runRecordsChecks() {
 async function runRecordsCrudChecks() {
   progress('records-crud-checks');
   recordsFixture.mode = 'available';
+  recordsFixture.columnFilters = true;
   recordsColumns.splice(0, recordsColumns.length,
     ...[CONTROL_RECORD_FIELDS[0], { key: 'id', label: 'ID', type: 'text' }, ...CONTROL_RECORD_FIELDS.slice(1)]
       .map(field => ({ key: field.key, label: field.label, type: field.type === 'date' ? 'date' : 'text', sortable: true })));
-  for (const row of recordsFixture.rows) row.values = { date: '2026-11-05', id: row.id, source_id: '00001234', number: row.id,
-    fio: row.values.title, date_of_birth: '1988\nДата уточняется', initiator: '', executor: row.values.team, note: '', realization: '', intersections: '' };
-  window.setContentSize(VIEWPORT.width, VIEWPORT.height);
+  for (const [index, row] of recordsFixture.rows.entries()) row.values = {
+    date: '2026-11-05', id: row.id, source_id: '00001234', number: row.id, fio: row.values.title,
+    date_of_birth: '1988\nДата уточняется', initiator: index % 2 ? 'Петров' : 'Иванов',
+    executor: index === 2 ? '  ' : row.values.team,
+    location: index % 3 ? 'Неизвестно' : 'В РФ', note: '',
+    realization: index === 1 ? 'Выполнено' : '  ', intersections: '',
+  };
+  const recordsViewport = { width: 1320, height: 800 };
+  window.setContentSize(recordsViewport.width, recordsViewport.height);
   await window.webContents.debugger.sendCommand('Emulation.setDeviceMetricsOverride', {
-    ...VIEWPORT, deviceScaleFactor: await evaluate(() => devicePixelRatio), mobile: false,
+    ...recordsViewport, deviceScaleFactor: await evaluate(() => devicePixelRatio), mobile: false,
   });
   await navigate('/info');
   await navigate('/records');
   await waitFor(() => document.querySelectorAll('.records-row').length > 0);
   assert.deepEqual(await evaluate(() => [...document.querySelectorAll('.records-heading-label')].map(label => label.textContent)),
-    ['Дата', 'ID', 'Telegram ID', 'Номер', 'ФИО']);
+    ['Дата', 'Telegram ID', 'Номер', 'ФИО', 'Инициатор', 'Исполнитель', 'Находится']);
   assert.equal(await evaluate(() => Boolean(document.querySelector('th[data-field="date_of_birth"]'))), false);
+  assert.equal(await evaluate(() => Boolean(document.querySelector('.records-table [data-field="id"]'))), false);
+  const rowAppearance = () => ['record-1', 'record-2', 'record-3'].map(id => {
+    const row = document.querySelector(`button[aria-label="Редактировать запись ${id}"]`).closest('tr');
+    return {
+      assigned: row.classList.contains('records-row-assigned'),
+      realized: row.classList.contains('records-row-realized'),
+      background: getComputedStyle(row).backgroundColor,
+    };
+  });
+  const lightRows = await evaluate(rowAppearance);
+  assert.deepEqual(lightRows.map(({ assigned, realized }) => [assigned, realized]), [[true, false], [false, true], [false, false]]);
+  assert.equal(new Set(lightRows.map(({ background }) => background)).size, 3);
+  await click('button[aria-label="Включить тёмную тему"]');
+  const darkRows = await evaluate(rowAppearance);
+  assert.deepEqual(darkRows.map(({ assigned, realized }) => [assigned, realized]), [[true, false], [false, true], [false, false]]);
+  assert.equal(new Set(darkRows.map(({ background }) => background)).size, 3);
+  assert.notEqual(darkRows[0].background, lightRows[0].background);
+  assert.notEqual(darkRows[1].background, lightRows[1].background);
+  await capture('records-control-status-dark');
+  await click('button[aria-label="Включить светлую тему"]');
+  checks.push('Records: ID hidden in the table, executor and realization colors in both themes, realization precedence, whitespace ignored');
   await click('button[aria-label="Открыть запись record-1"]');
   assert.ok(await evaluate(() => document.querySelector('.record-details').textContent.includes('1988\nДата уточняется')));
   await click('button[aria-label="Свернуть запись record-1"]');
@@ -866,13 +936,43 @@ async function runRecordsCrudChecks() {
   assert.equal(recordsFixture.requests.at(-1).sort.direction, 'desc');
   checks.push('Records: compact columns, multiline birth date in details and sorting on a secondary field');
   await capture('records-control-light');
+  await click('button[aria-label="Следующая страница"]');
+  assert.equal(recordsFixture.requests.at(-1).page, 2);
+  await click('.records-filters-toggle');
+  await waitFor(() => Boolean(document.querySelector('.records-filter-form')));
+  assert.deepEqual((await evaluate(() => [...document.querySelectorAll('.records-filter-form input, .records-filter-form select')]
+    .map(field => field.name))).sort(), [...CONTROL_FILTER_FIELDS].sort());
+  await setInput('.records-filter-form [name="initiator"]', 'Иванов');
+  await setInput('.records-filter-form [name="location"]', 'В РФ');
+  await capture('records-column-filters-light');
+  await clickText('Применить', '.records-filter-form button');
+  await waitFor(() => !document.querySelector('.records-filter-form') &&
+    document.querySelectorAll('.records-row').length === 10);
+  assert.deepEqual(recordsFixture.requests.at(-1).filters, { initiator: 'Иванов', location: 'В РФ' });
+  assert.equal(recordsFixture.requests.at(-1).page, 1);
+  await setInput('.records-search-input', 'record-1');
+  await waitForFixture(() => recordsFixture.requests.at(-1).query === 'record-1');
+  assert.deepEqual(recordsFixture.requests.at(-1).filters, { initiator: 'Иванов', location: 'В РФ' });
+  await click('.records-filters-toggle');
+  assert.equal(await evaluate(() => document.querySelector('.records-filter-form [name="location"]').value), 'В РФ');
+  await clickText('Сбросить фильтры', '.records-filter-form button');
+  await waitForFixture(() => !recordsFixture.requests.at(-1).filters);
+  await waitFor(() => !document.querySelector('.records-filter-form'));
+  assert.equal(recordsFixture.requests.at(-1).query, 'record-1');
+  await setInput('.records-search-input', '');
+  await waitForFixture(() => recordsFixture.requests.at(-1).query === '');
+  checks.push('Records: per-column filters combine with quick search, reset pagination and clear separately');
   await clickText('Новая запись');
   await waitFor(() => Boolean(document.querySelector('.record-editor-form')));
-  assert.equal(await evaluate(() => document.querySelectorAll('.record-editor-form input, .record-editor-form textarea').length), CONTROL_RECORD_FIELDS.length);
+  assert.equal(await evaluate(() => document.querySelectorAll('.record-editor-form input, .record-editor-form textarea, .record-editor-form select').length), CONTROL_RECORD_FIELDS.length);
+  assert.deepEqual(await evaluate(() => [...document.querySelector('.record-editor-form select[name="location"]').options]
+    .map(option => option.value)), CONTROL_LOCATIONS);
+  assert.equal(await evaluate(() => document.querySelector('.record-editor-form [name="location"]').value), 'Неизвестно');
   assert.equal(await evaluate(() => Boolean(document.querySelector('.record-editor-form [name="id"]'))), false);
   await setInput('.record-editor-form [name="number"]', '00123');
   await setInput('.record-editor-form [name="fio"]', 'Проверка формы');
   await setInput('.record-editor-form [name="date_of_birth"]', '1988\nДата уточняется');
+  await setInput('.record-editor-form [name="location"]', 'Выехал из РФ');
   await setInput('.record-editor-form [name="note"]', '<b>Примечание</b>');
   recordsFixture.nextRecordOutcome = 'error';
   await clickText('Сохранить', 'dialog button');
@@ -883,6 +983,7 @@ async function runRecordsCrudChecks() {
   await waitFor(() => !document.querySelector('dialog') && document.querySelector('.records-page .mx-success')?.textContent === 'Запись создана.');
   const created = recordsFixture.rows.find(row => row.values.fio === 'Проверка формы');
   assert.ok(created);
+  assert.equal(created.values.location, 'Выехал из РФ');
   await setInput('.records-search-input', 'Проверка формы');
   await waitFor(() => document.querySelectorAll('.records-row').length === 1);
   await click(`button[aria-label="Открыть запись ${created.id}"]`);
@@ -1097,6 +1198,65 @@ async function runSearchScrollChecks() {
     ...VIEWPORT, deviceScaleFactor: await evaluate(() => devicePixelRatio), mobile: false,
   });
   checks.push(`Search: ${renderedRecords} records mounted for 2480 matches, source jumps at both widths, final record visible`);
+
+  await setInput('input[id$="-number"]', DISK_SEARCH_NUMBER);
+  await click('.search-primary-action');
+  await waitFor(() => document.body.textContent.includes('Тестовая строка 1'));
+  await evaluate(() => {
+    const pane = document.querySelector('section[aria-label="Результаты поиска"]');
+    pane.scrollTop = pane.scrollHeight;
+  });
+  await waitFor(() => document.body.textContent.includes('Тестовая строка 40'));
+  assert.ok(diskSearchReads.includes(18));
+  await evaluate(() => document.querySelector('label[for^="search-row-"]').scrollIntoView());
+  await setInput('input[id^="search-row-"]', String(DISK_SOURCE_SIZE));
+  await clickText('Перейти');
+  await waitFor(size => document.body.textContent.includes(`Тестовая строка ${size}`), DISK_SOURCE_SIZE);
+  assert.ok(diskSearchReads.includes(DISK_SOURCE_SIZE - 1));
+  assert.ok(await evaluate(() => document.querySelectorAll('.search-results-page .mx-record').length <= 36));
+  checks.push('Disk-backed search: automatic scroll, direct jump to row 500000, bounded result windows');
+}
+
+async function runUpdateChecks() {
+  await navigate('/settings');
+  assert.equal(await evaluate(() => Boolean(document.querySelector('.update-indicator'))), false);
+  await clickText('Проверить обновления');
+  await click('.update-indicator');
+  await waitFor(() => document.querySelector('dialog[open]')?.textContent.includes('Версия 1.0.28'));
+  await capture('update-available-light');
+  await clickText('Загрузить обновление');
+  assert.equal(await evaluate(() => document.querySelector('progress')?.value), 37);
+  await clickText('Отменить загрузку');
+  assert.equal(updateState.status, 'available');
+  emitUpdate({ status: 'error', error: 'Не удалось скачать обновление. Повторите попытку.' });
+  await waitFor(() => document.querySelector('dialog[open] [role="alert"]'));
+  await clickText('Проверить снова');
+  await clickText('Загрузить обновление');
+  await window.webContents.debugger.sendCommand('Emulation.setDeviceMetricsOverride', {
+    ...MINIMUM_WINDOW, deviceScaleFactor: await evaluate(() => devicePixelRatio), mobile: false,
+  });
+  await evaluate(() => { document.documentElement.dataset.appearance = 'dark'; });
+  await capture('update-progress-dark-minimum');
+  emitUpdate({ status: 'ready', progress: 100, error: '' });
+  await waitFor(() => [...document.querySelectorAll('button')].some(button => button.textContent.includes('Обновить и перезапустить')));
+  await capture('update-ready-dark-minimum');
+  await clickText('Скачать файл');
+  await waitFor(() => document.querySelector('dialog[open]')?.textContent.includes('Файл обновления сохранён.'));
+  emitUpdate({ canInstall: false });
+  await waitFor(() => ![...document.querySelectorAll('button')].some(button => button.textContent.includes('Обновить и перезапустить')));
+  assert.ok(await evaluate(() => document.querySelector('dialog[open]')?.textContent.includes('вручную')));
+  emitUpdate({ canInstall: true });
+  await clickText('Обновить и перезапустить');
+  assert.equal(updateActions.at(-1), 'install');
+  assert.ok(await evaluate(() => document.querySelector('dialog[open] button[aria-label="Закрыть окно"]')?.disabled));
+  emitUpdate({ status: 'idle', release: null, error: '' });
+  await waitFor(() => !document.querySelector('dialog[open]'));
+  await evaluate(() => { document.documentElement.dataset.appearance = 'light'; });
+  await window.webContents.debugger.sendCommand('Emulation.setDeviceMetricsOverride', {
+    ...VIEWPORT, deviceScaleFactor: await evaluate(() => devicePixelRatio), mobile: false,
+  });
+  assert.equal(rendererErrors.length, 0, rendererErrors.join('\n'));
+  checks.push('Updates: hidden without release, manual check, header icon, cancel/retry, progress, save copy, portable restart, nonportable fallback, modal busy state, both themes/minimum viewport');
 }
 
 async function main() {
@@ -1127,12 +1287,15 @@ try {
   await window.webContents.debugger.sendCommand('Emulation.setDeviceMetricsOverride', {
     ...VIEWPORT, deviceScaleFactor: await evaluate(() => devicePixelRatio), mobile: false,
   });
+  await runUpdateChecks();
+  if (!process.argv.includes('--updates-only')) {
   await runVisualChecks();
   await runRecordsChecks();
   await runRecordsCrudChecks();
   await runReportChecks();
   await runSearchScrollChecks();
   await checkCinematicSplash();
+  }
   progress('checks-passed');
   console.log(`Visual check passed: ${checks.length} checks, ${screenshots.length} fixture screenshots in ${outputDirectory}`);
 } catch (error) {

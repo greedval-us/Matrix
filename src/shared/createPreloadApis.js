@@ -4,6 +4,19 @@ import { IPC_CHANNELS as channels } from "./constants/ipcChannels.js";
 export function createPreloadApis(ipcRenderer) {
   const invoke = (channel, ...args) => ipcRenderer.invoke(channel, ...args);
   return {
+    updateAPI: {
+      getState: () => invoke(channels.update.getState),
+      check: () => invoke(channels.update.check),
+      download: () => invoke(channels.update.download),
+      cancel: () => invoke(channels.update.cancel),
+      install: () => invoke(channels.update.install),
+      saveCopy: () => invoke(channels.update.saveCopy),
+      onState: (callback) => {
+        const listener = (_event, state) => callback(state);
+        ipcRenderer.on(channels.update.state, listener);
+        return () => ipcRenderer.removeListener(channels.update.state, listener);
+      },
+    },
     recordsAPI: {
       getCapabilities: () => invoke(channels.records.getCapabilities),
       list: (payload) => invoke(channels.records.list, payload),
@@ -45,9 +58,14 @@ export function createPreloadApis(ipcRenderer) {
     },
     searchAPI: {
       createClient: (tabId) => invoke(channels.search.createClient, tabId),
-      run: (tabId, payload) => invoke(channels.search.run, tabId, payload),
+      run: (tabId, payload, largeResults) => largeResults === true
+        ? invoke(channels.search.run, tabId, payload, true)
+        : invoke(channels.search.run, tabId, payload),
       cancel: (tabId) => ipcRenderer.send(channels.search.cancel, tabId),
       destroyClient: (tabId) => invoke(channels.search.destroyClient, tabId),
+      readResults: (tabId, token, source, start, limit) => invoke(channels.search.readResults, tabId, token, source, start, limit),
+      clearResults: (tabId) => invoke(channels.search.clearResults, tabId),
+      exportResults: (tabId, token, format) => invoke(channels.search.exportResults, tabId, token, format),
       listDatabases: (payload) => invoke(channels.search.listDatabases, payload),
       getConfig: () => invoke(channels.search.getConfig),
       setConfig: (config) => invoke(channels.search.setConfig, config),

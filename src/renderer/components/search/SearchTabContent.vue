@@ -103,7 +103,7 @@ function showSource(source) {
             @click="showSource(base.source)"
           >
             <span class="min-w-0 break-words">{{ base.name }}</span
-            ><span class="shrink-0 text-matrix-muted">{{ base.data.length }}</span>
+            ><span class="shrink-0 text-matrix-muted">{{ base.recordCount ?? base.data.length }}</span>
           </button>
         </div>
       </details>

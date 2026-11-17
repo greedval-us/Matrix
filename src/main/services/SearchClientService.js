@@ -103,7 +103,7 @@ export class SearchClientService {
     return createApiKeyMetadata(this.grpc, config, method.path);
   }
 
-  async search(payload, { onChunk } = {}) {
+  async search(payload, { onChunk, supportsLargeResults = false } = {}) {
     if (this.searchPending) throw new Error("Поиск в этой вкладке уже выполняется");
     this.searchPending = true;
     this.cancelled = false;
@@ -114,6 +114,10 @@ export class SearchClientService {
       const request = Object.fromEntries(SEARCH_FIELDS.map((field) => [field, String(payload?.[field] || "").trim()]));
       request.limit = requestLimit(payload?.limit, this.config.pageSize);
       if (!SEARCH_FIELDS.some((field) => request[field])) throw new Error("Заполните хотя бы одно поле поиска");
+      if (supportsLargeResults) {
+        request.supports_large_results = true;
+        return await this.streamLargeSearch(request, onChunk);
+      }
 
       return await new Promise((resolve, reject) => {
         const call = this.searchClient.streamSearch(request, this.createMetadata(this.searchClient.streamSearch));
@@ -154,6 +158,33 @@ export class SearchClientService {
       });
     } finally {
       this.searchPending = false;
+    }
+  }
+
+  async streamLargeSearch(request, onChunk) {
+    const call = this.searchClient.streamSearch(request, this.createMetadata(this.searchClient.streamSearch));
+    this.activeCall = call;
+    let batch = [];
+    let meta;
+    try {
+      try {
+        for await (const message of call) {
+          if (message.meta) meta = message.meta;
+          else batch.push(message);
+          if (batch.length >= STREAM_CHUNK_SIZE) {
+            const items = batch;
+            batch = [];
+            await onChunk(items);
+          }
+        }
+      } catch (error) {
+        if (!this.cancelled || error.code !== this.grpc.status.CANCELLED) throw grpcError(error);
+      }
+      if (batch.length) await onChunk(batch);
+      return this.cancelled ? { ...meta, cancelled: true } : meta || {};
+    } finally {
+      if (this.activeCall === call) this.activeCall = null;
+      if (!call.readableEnded) call.cancel();
     }
   }
 

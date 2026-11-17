@@ -10,18 +10,27 @@ const exportError = ref('');
 const fields = computed(() => searchUI.getSelectedFields(props.tabId));
 const loading = computed(() => searchUI.getLoading(props.tabId));
 const results = computed(() => searchUI.getResults(props.tabId));
+const largeResults = computed(() => searchUI.getLargeResults(props.tabId));
 const reportState = computed(() => searchUI.getReportState(props.tabId));
 const canCollectReport = computed(() => searchUI.canCollectReport(props.tabId));
 const reportLoading = computed(() => Boolean(reportState.value?.loading));
 const hasSearchValue = computed(() =>
   Object.values(fields.value).some((field) => String(field?.value || '').trim()),
 );
-const hasRecords = computed(() => results.value.some((item) => item.type === 'object_data'));
+const hasRecords = computed(() => largeResults.value ? largeResults.value.recordCount > 0 : results.value.some((item) => item.type === 'object_data'));
+const activeFormat = computed({
+  get: () => largeResults.value && !['csv', 'txt'].includes(exportFormat.value) ? 'csv' : exportFormat.value,
+  set: value => { exportFormat.value = value; },
+});
 let exporter;
 async function handleExport() {
   exportError.value = '';
   exporting.value = true;
   try {
+    if (largeResults.value) {
+      await searchUI.exportLargeResults(props.tabId, largeResults.value.token, activeFormat.value);
+      return;
+    }
     if (!exporter) {
       const { default: ExportManager } = await import('../../services/export/MenegerExport');
       exporter = new ExportManager();
@@ -74,13 +83,13 @@ function handleSearch() {
     </p>
     <div v-if="hasRecords" class="search-export-controls flex items-center gap-2 pt-1">
       <select
-        v-model="exportFormat"
+        v-model="activeFormat"
         class="mx-input !w-24 !py-2 text-xs"
         aria-label="Формат экспорта"
       >
         <option value="csv">CSV</option>
-        <option value="excel">Excel</option>
-        <option value="pdf">PDF</option>
+        <option v-if="!largeResults" value="excel">Excel</option>
+        <option v-if="!largeResults" value="pdf">PDF</option>
         <option value="txt">TXT</option>
       </select>
       <button

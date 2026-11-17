@@ -5,10 +5,10 @@ import path from "node:path";
 export const isDeviceApiKey = (value) => value.startsWith("mxk_");
 
 function assertDeviceApiKey(value) {
-  if (!/^mxk_[A-Za-z0-9_-]{43}$/.test(value)) throw new Error("Проверьте формат ключа доступа Matrix");
+  if (!/^mxk_[A-Za-z0-9_-]{43}$/.test(value)) throw new Error("Проверьте формат ключа доступа");
 }
 
-const storageError = () => new Error("Не удалось открыть защищённое хранилище Matrix в этом профиле системы");
+const storageError = () => new Error("Не удалось открыть защищённое хранилище приложения в этом профиле системы");
 
 export function createDeviceIdentityStore(profileDirectory) {
   const filename = path.join(profileDirectory, "matrix-device-key-v1.dpapi");
@@ -102,7 +102,7 @@ export class DeviceAccessCredentials {
     const { privateKey, publicKey } = this.#getIdentity();
     const keyHash = createHash("sha256").update(apiKey).digest("hex");
     return (methodPath) => {
-      if (!methodPath) throw new Error("Не удалось определить метод защищённого запроса Matrix");
+      if (!methodPath) throw new Error("Не удалось определить метод защищённого запроса");
       const time = String(Date.now());
       const nonce = randomBytes(16).toString("base64url");
       const message = Buffer.from(["matrix-device-v1", methodPath, keyHash, time, nonce].join("\n"), "utf8");

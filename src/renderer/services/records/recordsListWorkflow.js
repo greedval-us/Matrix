@@ -1,4 +1,5 @@
 import { RECORDS_PAGE_SIZES, RECORDS_SEARCH_DELAY_MS, RECORDS_QUERY_MAX_LENGTH } from '../../../shared/constants/records.js';
+import { normalizeControlFilters } from '../../../shared/constants/controlRecord.js';
 import { recordsErrorMessage } from './recordsOperationContext.js';
 
 export const getLastRecordsPage = (total, pageSize) => Math.max(1, Math.ceil(total / pageSize));
@@ -15,6 +16,7 @@ export function createRecordsListWorkflow({ state, service, isActive, isAvailabl
     if (!isActive() || !isAvailable()) return false;
     const version = ++requestVersion;
     const request = { query: state.query.trim(), sort: state.sort ? { ...state.sort } : null, page: state.page, pageSize: state.pageSize };
+    if (state.capabilities.columnFilters && Object.keys(state.filters).length) request.filters = { ...state.filters };
     state.loading = true;
     state.error = '';
     try {
@@ -45,6 +47,7 @@ export function createRecordsListWorkflow({ state, service, isActive, isAvailabl
       const capabilities = await service.getCapabilities();
       if (!isActive() || version !== connectionVersion) return;
       state.capabilities = capabilities;
+      if (!capabilities.columnFilters) state.filters = {};
       if (isAvailable()) await load();
       else { invalidate(); Object.assign(state, { rows: [], columns: [], total: 0, loading: false }); }
     } catch (error) {
@@ -67,6 +70,16 @@ export function createRecordsListWorkflow({ state, service, isActive, isAvailabl
     state.page = 1;
     return load();
   }
+  function setFilters(filters) {
+    if (!isActive() || !isAvailable() || !state.capabilities.columnFilters) return;
+    try { state.filters = normalizeControlFilters(filters); }
+    catch (error) {
+      state.error = recordsErrorMessage(error);
+      return;
+    }
+    state.page = 1;
+    return load();
+  }
   function setPage(page) {
     if (!Number.isSafeInteger(page)) return;
     state.page = Math.max(1, Math.min(page, getLastRecordsPage(state.total, state.pageSize)));
@@ -85,5 +98,5 @@ export function createRecordsListWorkflow({ state, service, isActive, isAvailabl
     ++connectionVersion;
     clearSearchTimer();
   }
-  return { initialize, refresh, setQuery, setSort, setPage, setPageSize, load, invalidate, dispose };
+  return { initialize, refresh, setQuery, setFilters, setSort, setPage, setPageSize, load, invalidate, dispose };
 }

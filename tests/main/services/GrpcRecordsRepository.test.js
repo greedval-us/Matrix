@@ -60,14 +60,25 @@ test('records use the current connection and client key for every operation and 
   const second = await loopback(t);
   let current = config(first.endpoint);
   const repo = repository(t, { getResolvedConfig: async () => current });
-  assert.deepEqual(await repo.getCapabilities(), capabilities);
+  assert.deepEqual(await repo.getCapabilities(), { ...capabilities, columnFilters: false });
   current = { ...config(second.endpoint), apiKey: 'changed-client-key' };
   const result = await repo.list({ query: 'Иван', sort: { key: 'date', direction: 'desc' }, page: 2, pageSize: 50 });
   assert.deepEqual(result, { columns: [{ key: 'number', label: 'Номер', type: 'text', sortable: true }], rows: [{ id: '9007199254740993', values: { number: '+001' }, files: [{ id: fileId, name: 'отчёт.bin', size: 3, mimeType: 'application/octet-stream' }] }], total: 1 });
-  assert.deepEqual(second.requests[0].request, { query: 'Иван', sort_key: 'date', sort_direction: 'desc', page: 2, page_size: 50 });
+  assert.deepEqual(second.requests[0].request, { query: 'Иван', sort_key: 'date', sort_direction: 'desc', page: 2, page_size: 50, filters: {} });
   assert.equal(second.requests[0].key, 'changed-client-key');
   assert.ok(second.requests[0].deadline <= Date.now() + 1100);
   assert.equal(first.requests.length, 1);
+});
+
+test('record filter capability and column filters cross the protobuf boundary', async t => {
+  const remote = await loopback(t, {
+    getCapabilities: (_call, callback) => callback(null, { ...capabilities, column_filters: true }),
+  });
+  const repo = repository(t, { getResolvedConfig: async () => config(remote.endpoint) });
+  assert.equal((await repo.getCapabilities()).columnFilters, true);
+  const filters = { location: 'Выехал из РФ', initiator: 'Инициатор' };
+  await repo.list({ query: 'пример', page: 1, pageSize: 25, filters });
+  assert.deepEqual(remote.requests[1].request.filters, filters);
 });
 
 test('record queries and both file streams attach a new method-specific device proof', async t => {

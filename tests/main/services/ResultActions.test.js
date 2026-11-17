@@ -8,7 +8,7 @@ import { createResultAccumulator } from '../../../src/renderer/services/search/r
 function setup({ addNote = async () => {}, clipboard = { writeText: async () => {} }, getFieldLabel = key => key } = {}) {
   const results = ref([{ type: 'object_data', source: 'A', fields: [['number', '<123>']] }]);
   const searchUI = {
-    getResults: () => results.value, getLoading: () => false, getError: () => '',
+    getResults: () => results.value, getLargeResults: () => null, getLoading: () => false, getError: () => '',
     getMeta: () => null, getReceived: () => 1, getSelectedFields: () => ({}),
     getActiveBase: () => 'A', getFieldLabel,
     search: async () => {}, quickSearch: async () => {},

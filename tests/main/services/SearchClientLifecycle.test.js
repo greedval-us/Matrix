@@ -166,3 +166,44 @@ test("a pending connection already owns the search slot and rejects duplicate re
   assert.equal(calls.length, 0);
   await service.dispose();
 });
+
+test('large-result search advertises support and waits for each batch to reach disk', async () => {
+  const { service, clients, ready } = fixture();
+  ready();
+  await service.connect();
+  let produced = 0;
+  let releaseBatch;
+  let firstBatch;
+  const batchStarted = new Promise(resolve => { firstBatch = resolve; });
+  const batches = [];
+  clients[0].streamSearch = request => {
+    assert.equal(request.supports_large_results, true);
+    const call = {
+      cancel() {},
+      async *[Symbol.asyncIterator]() {
+        while (produced < 130) {
+          produced += 1;
+          yield { object_data: { fields: { id: String(produced) } } };
+        }
+        yield { meta: { total_hits: '130', returned_hits: '130' } };
+        this.readableEnded = true;
+      },
+    };
+    return call;
+  };
+  const search = service.search({ number: '7978%' }, {
+    supportsLargeResults: true,
+    async onChunk(items) {
+      batches.push(items.length);
+      if (batches.length === 1) {
+        await new Promise(resolve => { releaseBatch = resolve; firstBatch(); });
+      }
+    },
+  });
+  await batchStarted;
+  assert.equal(produced, 100);
+  releaseBatch();
+  assert.deepEqual(await search, { total_hits: '130', returned_hits: '130' });
+  assert.deepEqual(batches, [100, 30]);
+  await service.dispose();
+});

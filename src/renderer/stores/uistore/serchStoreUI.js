@@ -26,6 +26,7 @@ export const useSearchUIStore = defineStore('searchUI', () => {
   const getTab = (id) => tabStore.getSearchState(id);
   const getSelectedFields = (id) => getTab(id)?.selectedFields || {};
   const getResults = (id) => getTab(id)?.results || [];
+  const getLargeResults = (id) => getTab(id)?.largeResults || null;
   const getLoading = (id) => getTab(id)?.loading || false;
   const getError = (id) => getTab(id)?.error || '';
   const getMeta = (id) => getTab(id)?.meta || null;
@@ -94,6 +95,7 @@ export const useSearchUIStore = defineStore('searchUI', () => {
     reports.clear(id);
     delete activeBases[id];
     resultsByTab.delete(id);
+    if (getLargeResults(id)) void useSearchStore().searchService.clearResults(id).catch(() => {});
   }
 
   async function search(id) {
@@ -103,6 +105,8 @@ export const useSearchUIStore = defineStore('searchUI', () => {
     const operation = { cancelled: false };
     pendingSearches.set(id, operation);
     const searchStore = useSearchStore();
+    const hadLargeResults = Boolean(getLargeResults(id));
+    const largeResults = /^[0-9]{4,5}%$/u.test(String(query.number ?? '').trim());
     reports.collapse(id);
     clearResults(id);
     updateState(id, 'hasSearched', true);
@@ -110,12 +114,20 @@ export const useSearchUIStore = defineStore('searchUI', () => {
     tabStore.updateTabTitleBySearch(id, getQueryTitle(query));
 
     try {
+      if (hadLargeResults) await searchStore.searchService.clearResults(id);
       await withSearchClient(searchStore, id, async () => {
         if (operation.cancelled || !getTab(id)) {
           setMeta(id, { cancelled: true });
           return;
         }
         const response = await searchStore.search(id, query, {
+          largeResults,
+          onProgress(event) {
+            if (event.largeResults && getTab(id)) {
+              updateState(id, 'largeResults', event.largeResults);
+              setReceived(id, event.received);
+            }
+          },
           onChunk(items, received) {
             if (operation.cancelled || !getTab(id)) return;
             appendResults(id, items);
@@ -137,6 +149,7 @@ export const useSearchUIStore = defineStore('searchUI', () => {
       if (operation.cancelled) setMeta(id, { cancelled: true });
       else setError(id, error?.message || String(error));
     } finally {
+      if (!getTab(id) && largeResults) await searchStore.searchService.clearResults(id).catch(() => {});
       pendingSearches.delete(id);
       setLoading(id, false);
     }
@@ -174,6 +187,9 @@ export const useSearchUIStore = defineStore('searchUI', () => {
     getActiveBase,
     getSelectedFields,
     getResults,
+    getLargeResults,
+    readLargeResults: (id, token, source, start, limit) => useSearchStore().searchService.readResults(id, token, source, start, limit),
+    exportLargeResults: (id, token, format) => useSearchStore().searchService.exportResults(id, token, format),
     getLoading,
     getError,
     getMeta,
