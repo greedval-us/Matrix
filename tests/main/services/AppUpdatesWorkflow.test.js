@@ -140,3 +140,46 @@ test('browser previews without a desktop bridge remain usable', async () => {
   assert.equal(controller.error.value, '');
   leave();
 });
+
+test('portable manual download is reserved for a failed installation of the current release', async () => {
+  const fixture = bridge({
+    getState: async () => snapshot({ status: 'available', release }),
+    install: async () => { throw new Error('Не удалось подготовить установку.'); },
+  });
+  const leave = fixture.controller.connect();
+  await settle();
+  assert.equal(fixture.controller.showManualDownload.value, false);
+  await fixture.controller.download();
+  assert.equal(fixture.controller.showManualDownload.value, false);
+  await fixture.controller.install();
+  assert.equal(fixture.controller.showManualDownload.value, true);
+  fixture.emit(snapshot({ status: 'available', release: { ...release, version: '1.0.29' } }));
+  assert.equal(fixture.controller.showManualDownload.value, false);
+  leave();
+});
+
+test('failed checks do not expose the portable manual fallback, but installation state events do', async () => {
+  const fixture = bridge({ getState: async () => snapshot({ status: 'ready', release, progress: 100 }) });
+  const leave = fixture.controller.connect();
+  await settle();
+  fixture.emit(snapshot({ status: 'checking', release }));
+  fixture.emit(snapshot({ status: 'ready', release, progress: 100, error: 'Сервер недоступен.' }));
+  assert.equal(fixture.controller.showManualDownload.value, false);
+  fixture.emit(snapshot({ status: 'installing', release, progress: 100 }));
+  fixture.emit(snapshot({ status: 'ready', release, progress: 100, error: 'Не удалось подготовить установку.' }));
+  assert.equal(fixture.controller.showManualDownload.value, true);
+  fixture.emit(snapshot({ status: 'downloading', release }));
+  fixture.emit(snapshot({ status: 'ready', release, progress: 100 }));
+  assert.equal(fixture.controller.showManualDownload.value, false);
+  leave();
+});
+
+test('installed and Linux clients retain manual download for available releases', async () => {
+  const fixture = bridge({ getState: async () => snapshot({ status: 'available', release, canInstall: false }) });
+  const leave = fixture.controller.connect();
+  await settle();
+  assert.equal(fixture.controller.showManualDownload.value, true);
+  fixture.emit(snapshot({ canInstall: false }));
+  assert.equal(fixture.controller.showManualDownload.value, false);
+  leave();
+});

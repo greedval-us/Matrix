@@ -1,4 +1,4 @@
-# Matrix client architecture
+# model 404 client architecture
 
 ## Boundaries
 

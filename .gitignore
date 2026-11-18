@@ -18,8 +18,8 @@ node_modules/
 /output/
 /.electron-cache/
 /.electron-builder-cache/
-/*.exe
-/*.blockmap
+*.exe
+*.blockmap
 /latest*.yml
 *.tgz
 
@@ -27,6 +27,9 @@ node_modules/
 logs/
 *.log
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+*.heapsnapshot
+*.heapprofile
+*.cpuprofile
 pids/
 *.pid
 *.pid.lock
@@ -66,6 +69,15 @@ coverage/
 *.dump
 *.sqlite
 *.sqlite3
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite-journal
+*.sqlite3-wal
+*.sqlite3-shm
+*.sqlite3-journal
+*.db-wal
+*.db-shm
+*.db-journal
 *.sql.gz
 id_rsa
 id_ed25519
@@ -87,9 +99,15 @@ id_ed25519.pub
 /temp/
 
 # Local user data and attachment stores
+matrix-device-key-v*.dpapi
 /data/
 /attachments/
 /runtime/
+/indexes/
+/state/
+/private/
+/backups/
+/files/
 
 # Python caches created by local development tools
 __pycache__/

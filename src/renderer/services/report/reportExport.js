@@ -1,4 +1,5 @@
 import { CFB } from 'xlsx/xlsx.mjs';
+import { APP_DISPLAY_NAME } from '../../../shared/constants/appDisplayName.js';
 import { getSearchField } from '../../../shared/constants/searchItems.js';
 import { key as fieldLabels } from '../../../shared/constants/translateKey.js';
 import { groupReportRecords } from '../../utils/reportRecordGroups.js';
@@ -219,8 +220,8 @@ function packageParts(report) {
       ['rId2', 'http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties', 'docProps/core.xml'],
       ['rId3', `${RELATIONSHIP_NAMESPACE}/extended-properties`, 'docProps/app.xml'],
     ]),
-    'docProps/core.xml': `${XML_HEADER}<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>Отчёт по результатам поиска</dc:title><dc:creator>Matrix</dc:creator><cp:lastModifiedBy>Matrix</cp:lastModifiedBy><dcterms:created xsi:type="dcterms:W3CDTF">${timestamp}</dcterms:created><dcterms:modified xsi:type="dcterms:W3CDTF">${timestamp}</dcterms:modified></cp:coreProperties>`,
-    'docProps/app.xml': `${XML_HEADER}<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Application>Matrix</Application></Properties>`,
+    'docProps/core.xml': `${XML_HEADER}<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>Отчёт по результатам поиска</dc:title><dc:creator>${xml(APP_DISPLAY_NAME)}</dc:creator><cp:lastModifiedBy>${xml(APP_DISPLAY_NAME)}</cp:lastModifiedBy><dcterms:created xsi:type="dcterms:W3CDTF">${timestamp}</dcterms:created><dcterms:modified xsi:type="dcterms:W3CDTF">${timestamp}</dcterms:modified></cp:coreProperties>`,
+    'docProps/app.xml': `${XML_HEADER}<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Application>${xml(APP_DISPLAY_NAME)}</Application></Properties>`,
     'word/document.xml': `${XML_HEADER}<w:document xmlns:w="${WORD_NAMESPACE}" xmlns:r="${RELATIONSHIP_NAMESPACE}"><w:body>${documentBody(report)}</w:body></w:document>`,
     'word/styles.xml': stylesXml(),
     'word/settings.xml': `${XML_HEADER}<w:settings xmlns:w="${WORD_NAMESPACE}"><w:defaultTabStop w:val="720"/><w:updateFields w:val="true"/></w:settings>`,
@@ -230,7 +231,7 @@ function packageParts(report) {
       ['rIdHeader', `${RELATIONSHIP_NAMESPACE}/header`, 'header1.xml'],
       ['rIdFooter', `${RELATIONSHIP_NAMESPACE}/footer`, 'footer1.xml'],
     ]),
-    'word/header1.xml': `${XML_HEADER}<w:hdr xmlns:w="${WORD_NAMESPACE}">${paragraph('Matrix     Отчёт по результатам поиска', { style: 'Header' })}</w:hdr>`,
+    'word/header1.xml': `${XML_HEADER}<w:hdr xmlns:w="${WORD_NAMESPACE}">${paragraph(`${APP_DISPLAY_NAME}     Отчёт по результатам поиска`, { style: 'Header' })}</w:hdr>`,
     'word/footer1.xml': `${XML_HEADER}<w:ftr xmlns:w="${WORD_NAMESPACE}"><w:p><w:pPr><w:pStyle w:val="Footer"/></w:pPr>${textRun('Страница ')}<w:fldSimple w:instr="PAGE">${textRun('1')}</w:fldSimple>${textRun(' из ')}<w:fldSimple w:instr="NUMPAGES">${textRun('1')}</w:fldSimple></w:p></w:ftr>`,
   };
 }
@@ -250,5 +251,5 @@ export function getReportFileName(report) {
     ? new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Moscow', year: 'numeric', month: '2-digit', day: '2-digit' }).format(date)
     : 'без-даты';
   const queryPart = Array.from(queryText(report?.seedQuery).replace(/[<>:"/\\|?*\x00-\x1F]/g, '_').replace(/\s+/g, ' ').replace(/[. ]+$/g, '').trim()).slice(0, 80).join('').replace(/[. ]+$/g, '') || 'поиск';
-  return `Отчёт Matrix ${datePart} ${queryPart}.docx`;
+  return `Отчёт ${APP_DISPLAY_NAME} ${datePart} ${queryPart}.docx`;
 }

@@ -1,8 +1,8 @@
 {
-  "name": "matrix",
-  "version": "1.0.28",
-  "description": "Desktop gRPC client for Matrix Search powered by Manticore.",
-  "author": "Matrix Team",
+  "name": "model-404",
+  "version": "1.0.30",
+  "description": "model 404 desktop search client.",
+  "author": "model 404",
   "type": "module",
   "main": "src/main/index.js",
   "scripts": {
@@ -27,7 +27,7 @@
   },
   "build": {
     "appId": "com.example.myapp",
-    "productName": "Matrix",
+    "productName": "model 404",
     "directories": {
       "output": "dist",
       "buildResources": "src/public"
@@ -49,6 +49,9 @@
       "oneClick": false,
       "perMachine": true,
       "allowToChangeInstallationDirectory": true
+    },
+    "portable": {
+      "artifactName": "${productName}.${ext}"
     },
     "mac": {
       "target": "dmg"

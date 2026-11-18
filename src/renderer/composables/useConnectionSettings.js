@@ -3,7 +3,7 @@ import { DEFAULT_SERVER_CONFIG } from '../../shared/constants/serverConfig.js';
 import { getSearchApi } from '../infrastructure/desktopApi.js';
 
 export function useConnectionSettings({ searchAPI = getSearchApi() } = {}) {
-  const config = ref({ ...DEFAULT_SERVER_CONFIG, apiKey: '', hasApiKey: false, hasBundledCertificate: false });
+  const config = ref({ endpoint: DEFAULT_SERVER_CONFIG.endpoint, apiKey: '', hasApiKey: false, hasBundledCertificate: false });
   const indexStatus = shallowRef(null);
   const loading = shallowRef(true);
   const saving = shallowRef(false);
@@ -16,8 +16,8 @@ export function useConnectionSettings({ searchAPI = getSearchApi() } = {}) {
     : 'Встроенный сертификат отсутствует');
 
   function draftConfig() {
-    const { endpoint, apiKey, pageSize, connectionTimeoutMs } = config.value;
-    return { endpoint, apiKey, pageSize, connectionTimeoutMs };
+    const { endpoint, apiKey } = config.value;
+    return { endpoint, apiKey };
   }
 
   function applyConfig(value) {

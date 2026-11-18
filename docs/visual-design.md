@@ -1,4 +1,4 @@
-# Matrix desktop appearance
+# model 404 desktop appearance
 
 The desktop client follows the user's Apple-inspired direction: a calm macOS-style workspace with a translucent navigation rail, crisp content surfaces and purposeful motion. This is a visual update of the existing workflows; RPC, storage and export contracts stay unchanged.
 

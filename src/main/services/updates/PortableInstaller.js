@@ -28,12 +28,47 @@ function isWithin(parent, child) {
   return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative));
 }
 
+/** Called only after the packaged main window has successfully loaded its UI. */
+export async function acknowledgePortableUpdate({ app, environment = process.env, platform = process.platform,
+  processId = process.pid, launcherPid = process.ppid } = {}) {
+  const configPath = environment.MATRIX_UPDATE_ACK_CONFIG;
+  const token = environment.MATRIX_UPDATE_ACK_TOKEN;
+  delete environment.MATRIX_UPDATE_ACK_CONFIG;
+  delete environment.MATRIX_UPDATE_ACK_TOKEN;
+  if (platform !== 'win32' || !app?.isPackaged || !configPath || !token) return false;
+  const userData = await fs.realpath(app.getPath('userData'));
+  const resolvedConfig = await fs.realpath(configPath);
+  const runDirectory = path.dirname(resolvedConfig);
+  if (path.basename(resolvedConfig) !== 'install.json'
+    || !/^install-[a-f\d-]{36}$/i.test(path.basename(runDirectory))
+    || path.dirname(runDirectory).toLowerCase() !== path.join(userData, 'updates').toLowerCase()) {
+    throw new Error('Invalid portable update acknowledgement profile.');
+  }
+  const config = JSON.parse(await fs.readFile(resolvedConfig, 'utf8'));
+  const ackPath = path.join(runDirectory, 'started.json');
+  const targetPath = await fs.realpath(environment.PORTABLE_EXECUTABLE_FILE || '');
+  if (config.token !== token || config.ackPath !== ackPath
+    || config.userDataPath.toLowerCase() !== userData.toLowerCase()
+    || config.targetPath.toLowerCase() !== targetPath.toLowerCase()) {
+    throw new Error('Invalid portable update acknowledgement token or target.');
+  }
+  await verify(targetPath, config.sha256, config.size);
+  const temporary = `${ackPath}.${randomUUID()}.tmp`;
+  try {
+    await fs.writeFile(temporary, JSON.stringify({ token, processId, launcherPid }), { flag: 'wx' });
+    await fs.rename(temporary, ackPath);
+  } finally {
+    await fs.unlink(temporary).catch(() => {});
+  }
+  return true;
+}
+
 export class PortableInstaller {
   constructor({ app, environment = process.env, platform = process.platform, spawn = spawnProcess,
     processId = process.pid, launcherPid = process.ppid, executablePath = process.execPath,
-    handshakeTimeoutMs = 15000, exitTimeoutMs = 120000 } = {}) {
+    handshakeTimeoutMs = 15000, exitTimeoutMs = 120000, startupTimeoutMs = 60000, startupStabilityMs = 2000 } = {}) {
     Object.assign(this, { app, environment, platform, spawn, processId, launcherPid, executablePath,
-      handshakeTimeoutMs, exitTimeoutMs });
+      handshakeTimeoutMs, exitTimeoutMs, startupTimeoutMs, startupStabilityMs });
     this.preparing = false;
     this.prepared = false;
   }
@@ -74,11 +109,14 @@ export class PortableInstaller {
       await fs.mkdir(runDirectory, { recursive: true });
       candidatePath = path.join(path.dirname(targetPath), `.matrix-update-${id}.exe`);
       config = {
+        protocolVersion: 2,
         targetPath, candidatePath, backupPath: path.join(path.dirname(targetPath), `.matrix-backup-${id}.exe`),
         failedPath: path.join(path.dirname(targetPath), `.matrix-failed-${id}.exe`),
         sha256: sha256.toLowerCase(), size, originalSha256: await digest(targetPath),
         processId: this.processId, launcherPid: this.launcherPid, exitTimeoutMs: this.exitTimeoutMs,
+        userDataPath: userData, startupTimeoutMs: this.startupTimeoutMs, startupStabilityMs: this.startupStabilityMs,
         token: randomUUID(), readyPath: path.join(runDirectory, 'ready'),
+        ackPath: path.join(runDirectory, 'started.json'),
         cancelPath: path.join(runDirectory, 'cancel'), errorPath: path.join(runDirectory, 'error.txt'),
         logPath: path.join(runDirectory, 'install.log'), successPath: path.join(runDirectory, 'complete'),
       };

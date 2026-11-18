@@ -10,7 +10,10 @@ export function createAppUpdatesController({ getApi = getUpdateApi } = {}) {
   const localError = shallowRef('');
   const message = shallowRef('');
   const dialogOpen = shallowRef(false);
+  const installationFailed = shallowRef(false);
   const hasUpdate = computed(() => Boolean(state.value.release));
+  const showManualDownload = computed(() => hasUpdate.value
+    && (!state.value.canInstall || installationFailed.value && state.value.status === 'ready'));
   const error = computed(() => localError.value || state.value.error || '');
   const busy = computed(() => Boolean(pendingAction.value)
     || ['checking', 'downloading', 'installing'].includes(state.value.status));
@@ -24,8 +27,16 @@ export function createAppUpdatesController({ getApi = getUpdateApi } = {}) {
   function applyState(value) {
     if (!value || typeof value.status !== 'string') return;
     revision++;
+    const previous = state.value;
     state.value = { ...state.value, ...value,
       progress: Math.min(100, Math.max(0, Number(value.progress) || 0)) };
+    if (!state.value.release || previous.release?.version !== state.value.release.version
+      || previous.release?.sha256 !== state.value.release.sha256
+      || ['available', 'downloading', 'installing', 'idle'].includes(state.value.status)) {
+      installationFailed.value = false;
+    } else if (previous.status === 'installing' && state.value.status === 'ready' && state.value.error) {
+      installationFailed.value = true;
+    }
     localError.value = '';
     if (!state.value.release) dialogOpen.value = false;
   }
@@ -78,6 +89,7 @@ export function createAppUpdatesController({ getApi = getUpdateApi } = {}) {
     const session = generation;
     const previousRevision = revision;
     pendingAction.value = name;
+    if (name === 'install') installationFailed.value = false;
     localError.value = '';
     message.value = '';
     try {
@@ -90,6 +102,7 @@ export function createAppUpdatesController({ getApi = getUpdateApi } = {}) {
       }
     } catch (reason) {
       if (id === actionId && generation === session) {
+        if (name === 'install') installationFailed.value = true;
         localError.value = reason?.message || 'Не удалось выполнить действие с обновлением.';
       }
     } finally {
@@ -112,7 +125,7 @@ export function createAppUpdatesController({ getApi = getUpdateApi } = {}) {
 
   return { state: readonly(state), supported: readonly(supported), loaded: readonly(loaded),
     pendingAction: readonly(pendingAction), message: readonly(message), dialogOpen: readonly(dialogOpen),
-    hasUpdate, error, busy, statusMessage, connect,
+    hasUpdate, showManualDownload, error, busy, statusMessage, connect,
     check: () => runAction('check'), download: () => runAction('download'),
     cancel: () => runAction('cancel'), install: () => runAction('install'),
     saveCopy: () => runAction('saveCopy'),

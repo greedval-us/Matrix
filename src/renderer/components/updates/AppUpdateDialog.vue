@@ -5,11 +5,19 @@ import AppDialog from '../ui/AppDialog.vue';
 import { useAppUpdates } from '../../composables/useAppUpdates.js';
 
 const emit = defineEmits(['close']);
-const { state, pendingAction, error, message, busy, statusMessage, check, download, cancel, install, saveCopy } = useAppUpdates();
+const { state, pendingAction, showManualDownload, error, message, busy, statusMessage, check, download, cancel, install, saveCopy } = useAppUpdates();
 const release = computed(() => state.value.release);
 const downloading = computed(() => state.value.status === 'downloading');
 const ready = computed(() => state.value.status === 'ready');
 const installing = computed(() => state.value.status === 'installing' || pendingAction.value === 'install');
+const checking = computed(() => state.value.status === 'checking' || pendingAction.value === 'check');
+const primaryAction = computed(() => {
+  if (downloading.value) return 'cancel';
+  if (installing.value) return 'install';
+  if (checking.value || state.value.status === 'error') return 'check';
+  if (showManualDownload.value) return 'saveCopy';
+  return ready.value ? 'install' : 'download';
+});
 const sizeLabel = computed(() => {
   const bytes = Number(release.value?.size);
   if (!(bytes > 0)) return '';
@@ -38,7 +46,7 @@ const sizeLabel = computed(() => {
         <progress v-if="downloading" class="update-progress mt-3" :value="state.progress" max="100" aria-label="Загрузка обновления" />
         <p v-if="downloading" class="mt-2 text-xs leading-5 text-matrix-muted">Можно закрыть это окно — загрузка продолжится.</p>
       </div>
-      <p v-if="state.canInstall" class="text-sm leading-6 text-matrix-muted">
+      <p v-if="state.canInstall && !showManualDownload" class="text-sm leading-6 text-matrix-muted">
         Перед установкой завершите текущую работу. После нажатия «Обновить и перезапустить» приложение закроется и запустится в новой версии.
       </p>
       <p v-else class="text-sm leading-6 text-matrix-muted">
@@ -47,23 +55,21 @@ const sizeLabel = computed(() => {
       <p v-if="error" role="alert" class="mx-alert text-sm">{{ error }}</p>
       <p v-if="message" role="status" class="mx-alert mx-success text-sm">{{ message }}</p>
       <div class="update-actions border-t border-matrix-border pt-4">
-        <button v-if="downloading" type="button" class="mx-button" :disabled="pendingAction === 'cancel'" @click="cancel">
+        <button v-if="primaryAction === 'cancel'" type="button" class="mx-button" :disabled="pendingAction === 'cancel'" @click="cancel">
           <X aria-hidden="true" class="h-4 w-4" />{{ pendingAction === 'cancel' ? 'Отмена…' : 'Отменить загрузку' }}
         </button>
-        <template v-else>
-          <button v-if="state.status === 'error' && release" type="button" class="mx-button" :disabled="busy" @click="check">
-            <RefreshCw aria-hidden="true" class="h-4 w-4" />Проверить снова
-          </button>
-          <button v-if="state.canInstall && !ready" type="button" class="mx-button mx-button-primary" :disabled="busy" @click="download">
-            <Download aria-hidden="true" class="h-4 w-4" />{{ pendingAction === 'download' ? 'Подготовка…' : 'Загрузить обновление' }}
-          </button>
-          <button v-if="ready && state.canInstall" type="button" class="mx-button mx-button-primary" :disabled="busy" @click="install">
-            <RefreshCw aria-hidden="true" class="h-4 w-4" />Обновить и перезапустить
-          </button>
-          <button type="button" class="mx-button" :class="{ 'mx-button-primary': !state.canInstall }" :disabled="busy" @click="saveCopy">
-            <Download aria-hidden="true" class="h-4 w-4" />{{ pendingAction === 'saveCopy' ? 'Сохраняем файл…' : 'Скачать файл' }}
-          </button>
-        </template>
+        <button v-else-if="primaryAction === 'check'" type="button" class="mx-button mx-button-primary" :disabled="busy" @click="check">
+          <RefreshCw aria-hidden="true" class="h-4 w-4" :class="{ 'animate-spin': checking }" />{{ checking ? 'Проверяем…' : 'Проверить снова' }}
+        </button>
+        <button v-else-if="primaryAction === 'download'" type="button" class="mx-button mx-button-primary" :disabled="busy" @click="download">
+          <Download aria-hidden="true" class="h-4 w-4" />{{ pendingAction === 'download' ? 'Подготовка…' : 'Загрузить обновление' }}
+        </button>
+        <button v-else-if="primaryAction === 'install'" type="button" class="mx-button mx-button-primary" :disabled="busy" @click="install">
+          <RefreshCw aria-hidden="true" class="h-4 w-4" :class="{ 'animate-spin': installing }" />{{ installing ? 'Обновляем…' : 'Обновить и перезапустить' }}
+        </button>
+        <button v-else type="button" class="mx-button mx-button-primary" :disabled="busy" @click="saveCopy">
+          <Download aria-hidden="true" class="h-4 w-4" />{{ pendingAction === 'saveCopy' ? 'Сохраняем файл…' : 'Скачать файл' }}
+        </button>
       </div>
     </div>
   </AppDialog>

@@ -1223,13 +1223,16 @@ async function runUpdateChecks() {
   await clickText('Проверить обновления');
   await click('.update-indicator');
   await waitFor(() => document.querySelector('dialog[open]')?.textContent.includes('Версия 1.0.28'));
+  assert.deepEqual(await evaluate(() => [...document.querySelectorAll('.update-actions button')].map(button => button.textContent.trim())), ['Загрузить обновление']);
   await capture('update-available-light');
   await clickText('Загрузить обновление');
   assert.equal(await evaluate(() => document.querySelector('progress')?.value), 37);
+  assert.deepEqual(await evaluate(() => [...document.querySelectorAll('.update-actions button')].map(button => button.textContent.trim())), ['Отменить загрузку']);
   await clickText('Отменить загрузку');
   assert.equal(updateState.status, 'available');
   emitUpdate({ status: 'error', error: 'Не удалось скачать обновление. Повторите попытку.' });
   await waitFor(() => document.querySelector('dialog[open] [role="alert"]'));
+  assert.deepEqual(await evaluate(() => [...document.querySelectorAll('.update-actions button')].map(button => button.textContent.trim())), ['Проверить снова']);
   await clickText('Проверить снова');
   await clickText('Загрузить обновление');
   await window.webContents.debugger.sendCommand('Emulation.setDeviceMetricsOverride', {
@@ -1239,16 +1242,26 @@ async function runUpdateChecks() {
   await capture('update-progress-dark-minimum');
   emitUpdate({ status: 'ready', progress: 100, error: '' });
   await waitFor(() => [...document.querySelectorAll('button')].some(button => button.textContent.includes('Обновить и перезапустить')));
+  assert.deepEqual(await evaluate(() => [...document.querySelectorAll('.update-actions button')].map(button => button.textContent.trim())), ['Обновить и перезапустить']);
   await capture('update-ready-dark-minimum');
-  await clickText('Скачать файл');
-  await waitFor(() => document.querySelector('dialog[open]')?.textContent.includes('Файл обновления сохранён.'));
   emitUpdate({ canInstall: false });
   await waitFor(() => ![...document.querySelectorAll('button')].some(button => button.textContent.includes('Обновить и перезапустить')));
   assert.ok(await evaluate(() => document.querySelector('dialog[open]')?.textContent.includes('вручную')));
+  assert.deepEqual(await evaluate(() => [...document.querySelectorAll('.update-actions button')].map(button => button.textContent.trim())), ['Скачать файл']);
+  await clickText('Скачать файл');
+  await waitFor(() => document.querySelector('dialog[open]')?.textContent.includes('Файл обновления сохранён.'));
   emitUpdate({ canInstall: true });
   await clickText('Обновить и перезапустить');
   assert.equal(updateActions.at(-1), 'install');
   assert.ok(await evaluate(() => document.querySelector('dialog[open] button[aria-label="Закрыть окно"]')?.disabled));
+  assert.deepEqual(await evaluate(() => [...document.querySelectorAll('.update-actions button')].map(button => button.textContent.trim())), ['Обновляем…']);
+  emitUpdate({ status: 'ready', error: 'Не удалось подготовить замену приложения. Можно сохранить файл обновления и запустить его вручную.' });
+  await waitFor(() => document.querySelector('.update-actions button')?.textContent.includes('Скачать файл'));
+  assert.deepEqual(await evaluate(() => [...document.querySelectorAll('.update-actions button')].map(button => button.textContent.trim())), ['Скачать файл']);
+  assert.ok(await evaluate(() => document.querySelector('dialog[open]')?.textContent.includes('вручную')));
+  await clickText('Скачать файл');
+  await waitFor(() => document.querySelector('dialog[open]')?.textContent.includes('Файл обновления сохранён.'));
+  assert.deepEqual(await evaluate(() => [...document.querySelectorAll('.update-actions button')].map(button => button.textContent.trim())), ['Скачать файл']);
   emitUpdate({ status: 'idle', release: null, error: '' });
   await waitFor(() => !document.querySelector('dialog[open]'));
   await evaluate(() => { document.documentElement.dataset.appearance = 'light'; });
@@ -1256,7 +1269,7 @@ async function runUpdateChecks() {
     ...VIEWPORT, deviceScaleFactor: await evaluate(() => devicePixelRatio), mobile: false,
   });
   assert.equal(rendererErrors.length, 0, rendererErrors.join('\n'));
-  checks.push('Updates: hidden without release, manual check, header icon, cancel/retry, progress, save copy, portable restart, nonportable fallback, modal busy state, both themes/minimum viewport');
+  checks.push('Updates: one portable action per state, cancel/retry, progress, portable restart, manual save only for nonportable or failed installation, modal busy state, both themes/minimum viewport');
 }
 
 async function main() {

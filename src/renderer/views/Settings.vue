@@ -4,7 +4,7 @@ import { ShieldCheck, Wifi, RefreshCw, Check } from 'lucide-vue-next';
 import PageHeading from '../components/ui/PageHeading.vue';
 import AppUpdateSettings from '../components/updates/AppUpdateSettings.vue';
 import { useConnectionSettings } from '../composables/useConnectionSettings.js';
-import { DEFAULT_SERVER_CONFIG, SERVER_CONFIG_LIMITS } from '../../shared/constants/serverConfig.js';
+import { DEFAULT_SERVER_CONFIG } from '../../shared/constants/serverConfig.js';
 
 const { config, indexStatus, loading, saving, testing, message, error, busy,
   certificateLabel, loadConfig, saveConfig, testConnection } = useConnectionSettings();
@@ -52,37 +52,6 @@ onMounted(loadConfig);
           </div>
           <p class="text-sm text-matrix-muted">{{ certificateLabel }}</p>
         </div>
-        <details class="border-t border-matrix-border pt-5 sm:col-span-2">
-          <summary class="cursor-pointer text-sm font-medium text-matrix-muted">
-            Дополнительные параметры
-          </summary>
-          <div class="mt-5 grid gap-5 sm:grid-cols-2">
-            <label class="space-y-2 text-sm"
-              ><span class="block text-matrix-secondary">Записей в одной странице потока</span
-              ><input
-                v-model.number="config.pageSize"
-                type="number"
-                :min="SERVER_CONFIG_LIMITS.pageSize.min"
-                :max="SERVER_CONFIG_LIMITS.pageSize.max"
-                required
-                class="mx-input"
-              /><span class="block leading-5 text-matrix-muted"
-                >Сервер передаст все совпадения. Этот параметр определяет размер одной
-                страницы.</span
-              ></label
-            ><label class="space-y-2 text-sm"
-              ><span class="block text-matrix-secondary">Время ожидания подключения, мс</span
-              ><input
-                v-model.number="config.connectionTimeoutMs"
-                type="number"
-                :min="SERVER_CONFIG_LIMITS.requestTimeoutMs.min"
-                :max="SERVER_CONFIG_LIMITS.requestTimeoutMs.max"
-                :step="SERVER_CONFIG_LIMITS.requestTimeoutMs.step"
-                required
-                class="mx-input"
-            /></label>
-          </div>
-        </details>
       </fieldset>
       <div class="flex flex-wrap gap-3 border-t border-matrix-border pt-5">
         <button type="submit" :disabled="busy" class="mx-button mx-button-primary">

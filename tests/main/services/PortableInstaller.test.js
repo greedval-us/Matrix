@@ -8,7 +8,7 @@ import path from 'node:path';
 import { execFile, spawn as spawnProcess } from 'node:child_process';
 import { promisify } from 'node:util';
 import { setTimeout as delay } from 'node:timers/promises';
-import { PortableInstaller } from '../../../src/main/services/updates/PortableInstaller.js';
+import { PortableInstaller, acknowledgePortableUpdate } from '../../../src/main/services/updates/PortableInstaller.js';
 
 const hash = (bytes) => createHash('sha256').update(bytes).digest('hex');
 const execFileAsync = promisify(execFile);
@@ -36,7 +36,7 @@ test('installation requires a packaged Windows app with an absolute portable EXE
 });
 
 async function fixture(t, overrides = {}) {
-  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'matrix-portable-'));
+  const directory = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'matrix-portable-')));
   t.after(() => fs.rm(directory, { recursive: true, force: true }));
   const targetDirectory = path.join(directory, "Путь ' $ [portable]");
   const userData = path.join(directory, "User ' $ [data]");
@@ -106,6 +106,38 @@ test('preparation preserves the original filename and sends unusual paths as dat
   assert.equal(await fs.readFile(config.candidatePath, 'utf8'), 'new executable');
   assert.equal(config.sha256, hash('new executable'));
   assert.equal(config.originalSha256, hash('old executable'));
+  assert.equal(config.userDataPath, f.userData);
+});
+
+test('packaged startup acknowledges only the verified replacement in its own profile', { skip: process.platform !== 'win32' }, async (t) => {
+  const f = await fixture(t);
+  await f.installer.prepare(f.update);
+  const args = f.launches[0].args;
+  const configPath = args[args.indexOf('-ConfigPath') + 1];
+  const config = JSON.parse(await fs.readFile(configPath, 'utf8'));
+  await fs.copyFile(f.filePath, f.target);
+  const environment = { PORTABLE_EXECUTABLE_FILE: f.target, MATRIX_UPDATE_ACK_CONFIG: configPath, MATRIX_UPDATE_ACK_TOKEN: config.token };
+  assert.equal(await acknowledgePortableUpdate({
+    app: { isPackaged: true, getPath: () => f.userData }, environment, platform: 'win32', processId: 123, launcherPid: 456,
+  }), true);
+  assert.deepEqual(JSON.parse(await fs.readFile(config.ackPath, 'utf8')), { token: config.token, processId: 123, launcherPid: 456 });
+  assert.equal(environment.MATRIX_UPDATE_ACK_TOKEN, undefined);
+  assert.equal(environment.MATRIX_UPDATE_ACK_CONFIG, undefined);
+});
+
+test('startup cannot acknowledge with a wrong token, another profile, or an unchanged EXE', { skip: process.platform !== 'win32' }, async (t) => {
+  const f = await fixture(t);
+  await f.installer.prepare(f.update);
+  const args = f.launches[0].args;
+  const configPath = args[args.indexOf('-ConfigPath') + 1];
+  const config = JSON.parse(await fs.readFile(configPath, 'utf8'));
+  const environment = { PORTABLE_EXECUTABLE_FILE: f.target, MATRIX_UPDATE_ACK_CONFIG: configPath, MATRIX_UPDATE_ACK_TOKEN: config.token };
+  const app = { isPackaged: true, getPath: () => f.userData };
+  await assert.rejects(acknowledgePortableUpdate({ app, environment: { ...environment, MATRIX_UPDATE_ACK_TOKEN: 'incorrect' } }), /acknowledg|token/i);
+  await assert.rejects(acknowledgePortableUpdate({ app: { ...app, getPath: () => f.directory }, environment: { ...environment } }), /acknowledg|profile/i);
+  await assert.rejects(acknowledgePortableUpdate({ app, environment: { ...environment } }), /SHA-256|hash/i);
+  await assert.rejects(fs.access(config.ackPath));
+  assert.equal(await acknowledgePortableUpdate({ app: { isPackaged: false }, environment: { ...environment } }), false);
 });
 
 test('helper startup failure rejects preparation and preserves the current app and EXE', { skip: process.platform !== 'win32' }, async (t) => {
@@ -153,8 +185,8 @@ async function waitForFile(filePath, timeoutMs = 10000) {
   throw new Error(`Timed out waiting for ${filePath}`);
 }
 
-async function executableFixture(t, { nestedHelper = false, invalidUpdate = false } = {}) {
-  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "matrix-перенос ' $ [test]-"));
+async function executableFixture(t, { nestedHelper = false, invalidUpdate = false, startMode = 'acknowledge' } = {}) {
+  const directory = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "matrix-перенос ' $ [test]-")));
   const children = [];
   let config;
   t.after(async () => {
@@ -163,6 +195,7 @@ async function executableFixture(t, { nestedHelper = false, invalidUpdate = fals
       t.diagnostic(await fs.readFile(config.errorPath, 'utf8').catch(() => 'no helper error'));
     }
     if (config) await fs.writeFile(config.cancelPath, 'cancel').catch(() => {});
+    await fs.writeFile(path.join(directory, 'stop-new'), 'stop').catch(() => {});
     for (const child of children) {
       if (child.exitCode === null && child.signalCode === null) {
         const ended = new Promise((resolve) => child.once('exit', resolve));
@@ -177,6 +210,9 @@ async function executableFixture(t, { nestedHelper = false, invalidUpdate = fals
 using System;
 using System.IO;
 using System.Threading;
+using System.Diagnostics;
+using System.Collections.Generic;
+using System.Web.Script.Serialization;
 class Fixture {
   static int Main(string[] args) {
     string root = Environment.GetEnvironmentVariable("MATRIX_INSTALL_TEST_ROOT");
@@ -197,19 +233,32 @@ class Fixture {
       (File.Exists(Path.Combine(root, "cleanup-finished")) ? "cleaned" : "RACED") + "|" +
       (Environment.GetEnvironmentVariable("PORTABLE_EXECUTABLE_FILE") ?? "cleared") + "|" +
       (Environment.GetEnvironmentVariable("PORTABLE_EXECUTABLE_DIR") ?? "cleared"));
+#if UPDATED
+    File.WriteAllText(Path.Combine(root, "restart-args"), String.Join("\\n", args));
+    string mode = Environment.GetEnvironmentVariable("MATRIX_INSTALL_TEST_START_MODE");
+    if (mode == "crash") return 1;
+    string configPath = Environment.GetEnvironmentVariable("MATRIX_UPDATE_ACK_CONFIG");
+    if (mode == "acknowledge" && !String.IsNullOrEmpty(configPath)) {
+      var json = new JavaScriptSerializer();
+      var config = json.Deserialize<Dictionary<string, object>>(File.ReadAllText(configPath));
+      int pid = Process.GetCurrentProcess().Id;
+      File.WriteAllText((string)config["ackPath"], json.Serialize(new { token = Environment.GetEnvironmentVariable("MATRIX_UPDATE_ACK_TOKEN"), processId = pid, launcherPid = pid }));
+    }
+    while (!File.Exists(Path.Combine(root, "stop-new"))) Thread.Sleep(50);
+#endif
     return 0;
   }
 }`);
   const compiler = path.join(process.env.SystemRoot || 'C:\\Windows', 'Microsoft.NET', 'Framework64', 'v4.0.30319', 'csc.exe');
   const target = path.join(directory, 'Моя Матрица.exe');
   const download = path.join(directory, 'download.exe');
-  await execFileAsync(compiler, ['/nologo', '/target:exe', `/out:${target}`, sourcePath], { windowsHide: true });
+  await execFileAsync(compiler, ['/nologo', '/target:exe', '/reference:System.Web.Extensions.dll', `/out:${target}`, sourcePath], { windowsHide: true });
   if (invalidUpdate) await fs.writeFile(download, 'verified but invalid executable');
-  else await execFileAsync(compiler, ['/nologo', '/target:exe', '/define:UPDATED', `/out:${download}`, sourcePath], { windowsHide: true });
+  else await execFileAsync(compiler, ['/nologo', '/target:exe', '/reference:System.Web.Extensions.dll', '/define:UPDATED', `/out:${download}`, sourcePath], { windowsHide: true });
   const userData = path.join(directory, 'data');
   await fs.mkdir(userData);
   const environment = { ...process.env, MATRIX_INSTALL_TEST_ROOT: directory, PORTABLE_EXECUTABLE_FILE: target,
-    PORTABLE_EXECUTABLE_DIR: directory };
+    PORTABLE_EXECUTABLE_DIR: directory, MATRIX_INSTALL_TEST_START_MODE: startMode };
   const launcher = spawnProcess(target, ['--launcher'], { env: environment, windowsHide: true, stdio: 'ignore' });
   let main;
   if (!nestedHelper) main = spawnProcess(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { windowsHide: true, stdio: 'ignore' });
@@ -219,6 +268,7 @@ class Fixture {
   const installer = new PortableInstaller({
     app: { isPackaged: true, getPath: () => userData }, environment,
     processId: main?.pid, launcherPid: launcher.pid,
+    startupTimeoutMs: 1500, startupStabilityMs: 100,
     spawn: (command, args, options) => {
       const child = spawnProcess(command, args, options);
       children.push(child);
@@ -240,7 +290,7 @@ import { PortableInstaller } from ${JSON.stringify(installerUrl)};
 const directory = ${JSON.stringify(directory)};
 const installer = new PortableInstaller({
   app: { isPackaged: true, getPath: () => ${JSON.stringify(userData)} },
-  launcherPid: ${launcher.pid}, exitTimeoutMs: 15000,
+  launcherPid: ${launcher.pid}, exitTimeoutMs: 15000, startupTimeoutMs: 1500, startupStabilityMs: 100,
 });
 try {
   await installer.prepare(${JSON.stringify(update)});
@@ -288,7 +338,8 @@ test('real Windows helper waits for launcher cleanup, replaces the same EXE, and
     assert.equal(await waitForFile(path.join(f.directory, 'run-new')), 'cleaned|cleared|cleared');
     assert.equal(await waitForFile(config.successPath), 'complete');
     assert.deepEqual(await fs.readFile(f.target), await fs.readFile(f.download));
-    assert.deepEqual(await fs.readFile(config.backupPath), oldBytes);
+    await assert.rejects(fs.access(config.backupPath));
+    assert.equal(await fs.readFile(path.join(f.directory, 'restart-args'), 'utf8'), '--user-data-dir=' + config.userDataPath);
   });
 
 test('real Windows helper rejects post-handshake tampering and restarts the untouched original',
@@ -329,4 +380,32 @@ test('real Windows helper rolls back when the verified new executable cannot sta
     assert.equal(await waitForFile(path.join(f.directory, 'run-old')), 'cleaned|cleared|cleared');
     assert.deepEqual(await fs.readFile(f.target), oldBytes);
     assert.match(await fs.readFile(config.logPath, 'utf8'), /Original executable restored/);
+  });
+
+test('real Windows helper rolls back when the new process exits before acknowledging startup',
+  { skip: process.platform !== 'win32', timeout: 30000 }, async (t) => {
+    const f = await executableFixture(t, { startMode: 'crash' });
+    const oldBytes = await fs.readFile(f.target);
+    const config = await f.prepare();
+    f.main.kill();
+    await fs.writeFile(path.join(f.directory, 'stop-launcher'), 'stop');
+    assert.match(await waitForFile(config.errorPath), /exit|start/i);
+    await waitForFile(path.join(f.directory, 'run-old'));
+    assert.deepEqual(await fs.readFile(f.target), oldBytes);
+    await assert.rejects(fs.access(config.successPath));
+  });
+
+test('real Windows helper retains backup when a running replacement never acknowledges startup',
+  { skip: process.platform !== 'win32', timeout: 30000 }, async (t) => {
+    const f = await executableFixture(t, { startMode: 'silent' });
+    const oldBytes = await fs.readFile(f.target);
+    const config = await f.prepare();
+    f.main.kill();
+    await fs.writeFile(path.join(f.directory, 'stop-launcher'), 'stop');
+    await waitForFile(path.join(f.directory, 'run-new'));
+    assert.match(await waitForFile(config.errorPath), /acknowledg|confirm/i);
+    assert.deepEqual(await fs.readFile(config.backupPath), oldBytes);
+    assert.deepEqual(await fs.readFile(f.target), await fs.readFile(f.download));
+    await assert.rejects(fs.access(config.successPath));
+    await assert.rejects(fs.access(path.join(f.directory, 'run-old')));
   });

@@ -1,5 +1,6 @@
 import electron from 'electron';
 import path from 'node:path';
+import { APP_DISPLAY_NAME } from '../../shared/constants/appDisplayName.js';
 import { IPC_CHANNELS as channels } from '../../shared/constants/ipcChannels.js';
 import { registerIpcHandlers } from './registerIpcHandlers.js';
 
@@ -27,8 +28,10 @@ export class UpdateHandler {
       [channels.update.saveCopy]: async event => {
         try {
           return await this.service.saveCopy(async name => {
-            const options = { title: 'Сохранить новую версию', defaultPath: path.join(this.app.getPath('downloads'), name),
-              filters: [{ name: 'Приложение', extensions: [path.extname(name).slice(1)] }] };
+            const extension = path.extname(name);
+            const downloadName = `${APP_DISPLAY_NAME}${extension.toLowerCase() === '.exe' ? '.exe' : '.AppImage'}`;
+            const options = { title: 'Сохранить новую версию', defaultPath: path.join(this.app.getPath('downloads'), downloadName),
+              filters: [{ name: 'Приложение', extensions: [path.extname(downloadName).slice(1)] }] };
             const parent = this.windows.fromWebContents(event.sender);
             const result = parent ? await this.dialog.showSaveDialog(parent, options) : await this.dialog.showSaveDialog(options);
             return result.canceled ? null : result.filePath;

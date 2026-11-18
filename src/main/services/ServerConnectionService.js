@@ -1,19 +1,12 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
-import { DEFAULT_SERVER_CONFIG, SERVER_CONFIG_LIMITS, boundedConfigInteger } from "../../shared/constants/serverConfig.js";
+import { DEFAULT_SERVER_CONFIG } from "../../shared/constants/serverConfig.js";
 import { DeviceAccessCredentials, isDeviceApiKey } from "./DeviceAccessCredentials.js";
 
 const DEFAULT_CONFIG = Object.freeze({
   ...DEFAULT_SERVER_CONFIG,
   apiKey: "",
 });
-
-function configLimits(input, fallback) {
-  return {
-    pageSize: boundedConfigInteger(input.pageSize, fallback.pageSize, SERVER_CONFIG_LIMITS.pageSize),
-    connectionTimeoutMs: boundedConfigInteger(input.connectionTimeoutMs, fallback.connectionTimeoutMs, SERVER_CONFIG_LIMITS.requestTimeoutMs),
-  };
-}
 
 function normalizeEndpoint(value) {
   const endpoint = String(value || "")
@@ -52,7 +45,6 @@ export class ServerConnectionService {
       tlsServerName: String(stored.tlsServerName || ""),
       apiKey: String(stored.apiKey || ""),
       protectedApiKey: String(stored.protectedApiKey || ""),
-      ...configLimits(stored, DEFAULT_CONFIG),
     };
   }
 
@@ -74,7 +66,6 @@ export class ServerConnectionService {
       endpoint: normalizeEndpoint(input.endpoint ?? current.endpoint),
       tlsServerName: String(input.tlsServerName ?? current.tlsServerName).trim(),
       apiKey: input.clearApiKey ? "" : enteredKey || current.apiKey,
-      ...configLimits(input, current),
     };
 
     const certificate = await this.readBundledCertificate();
@@ -97,7 +88,8 @@ export class ServerConnectionService {
       apiKey: String(
         overrides.apiKey || this.environment.MATRIX_API_KEY || stored.apiKey || ""
       ).trim(),
-      ...configLimits(overrides, stored),
+      pageSize: DEFAULT_CONFIG.pageSize,
+      connectionTimeoutMs: DEFAULT_CONFIG.connectionTimeoutMs,
     };
     if (!config.apiKey && !stored.protectedApiKey) throw new Error("API-ключ сервера не настроен");
 

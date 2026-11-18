@@ -424,7 +424,7 @@ test('table headers stay with their rows while body values can paginate normally
 
 test('report names are safe Windows filenames and use the Moscow date', () => {
   const name = getReportFileName(exampleReport({ seedQuery: { number: '../CON: <>"/\\|?*\n' }, createdAt: '2026-10-10T22:00:00Z' }));
-  assert.match(name, /^Отчёт Matrix 2026-10-11 /);
+  assert.match(name, /^Отчёт model 404 2026-10-11 /);
   assert.match(name, /\.docx$/);
   assert.doesNotMatch(name, /[<>:"/\\|?*\x00-\x1F]/);
   const emojiName = getReportFileName(exampleReport({ seedQuery: { number: '😀'.repeat(100) } }));

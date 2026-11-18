@@ -38,11 +38,11 @@ test('settings prevent overlapping saves and retain the draft after rejection', 
   assert.equal(settings.saving.value, false);
 });
 
-test('settings display only the bundled certificate status and omit certificate overrides', async () => {
+test('settings display the bundled certificate status and only submit the endpoint and key', async () => {
   const drafts = [];
   const settings = useConnectionSettings({
     searchAPI: {
-      getConfig: async () => ({ hasBundledCertificate: true, caCertificatePath: 'custom-ca.crt' }),
+      getConfig: async () => ({ endpoint: 'server:50051', hasBundledCertificate: true, caCertificatePath: 'custom-ca.crt', pageSize: 250, connectionTimeoutMs: 1000 }),
       setConfig: async draft => { drafts.push(draft); return { hasBundledCertificate: false }; },
       testConnection: async draft => { drafts.push(draft); return {}; },
     },
@@ -53,9 +53,10 @@ test('settings display only the bundled certificate status and omit certificate 
   await settings.testConnection();
   await settings.saveConfig();
   assert.equal(settings.certificateLabel.value, 'Встроенный сертификат отсутствует');
-  assert.equal(drafts.length, 2);
-  assert.ok(drafts.every(draft => !Object.hasOwn(draft, 'caCertificatePath')));
-  assert.ok(drafts.every(draft => !Object.hasOwn(draft, 'hasBundledCertificate')));
+  assert.deepEqual(drafts, [
+    { endpoint: 'server:50051', apiKey: '' },
+    { endpoint: 'server:50051', apiKey: '' },
+  ]);
 });
 
 test('stopping status polling clears its timer and ignores a late response', async () => {

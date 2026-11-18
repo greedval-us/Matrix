@@ -111,11 +111,9 @@ test("server connection config normalizes endpoints and never exposes the API ke
   const publicConfig = await service.updateConfig({
     endpoint: "grpcs://matrix.local:50051/",
     apiKey: "secret-value",
-    pageSize: 20000,
   });
 
   assert.equal(publicConfig.endpoint, "matrix.local:50051");
-  assert.equal(publicConfig.pageSize, 10000);
   assert.equal(publicConfig.hasApiKey, true);
   assert.equal("apiKey" in publicConfig, false);
 });
@@ -201,7 +199,7 @@ test("a protected device key remains usable when a legacy CA path is discarded",
 
   const service = new ServerConnectionService(store, options);
   assert.equal((await service.getResolvedConfig()).apiKey, deviceApiKey);
-  await service.updateConfig({ pageSize: 100 });
+  await service.updateConfig();
   assert.equal((await service.getResolvedConfig()).apiKey, deviceApiKey);
   assert.equal(Object.hasOwn(store.get("searchServer"), "caCertificatePath"), false);
 });
@@ -221,10 +219,26 @@ test("resolved configuration keeps explicit, environment and stored API-key prec
   assert.deepEqual(paths, ["bundled.crt", "bundled.crt"]);
   const storedOnly = new ServerConnectionService(store, { ...deviceOptions(), readCertificate: service.readCertificate });
   assert.equal((await storedOnly.getResolvedConfig()).apiKey, "stored-key");
-  const updated = await service.updateConfig({ pageSize: 0, connectionTimeoutMs: 999999 });
-  assert.equal(updated.pageSize, 50);
-  assert.equal(updated.connectionTimeoutMs, 120000);
+  const updated = await service.updateConfig();
   assert.equal(store.get("searchServer").tlsServerName, "stored-name");
   assert.equal(store.get("searchServer").apiKey, "stored-key");
   assert.equal("apiKey" in updated, false);
+});
+
+test("connection defaults apply to legacy profiles, saved settings and connection tests", async () => {
+  const stored = { endpoint: "matrix.local:50051", apiKey: "stored-key", pageSize: 200, connectionTimeoutMs: 1000 };
+  const overrides = { pageSize: 500, connectionTimeoutMs: 60000 };
+  const store = memoryStore({ searchServer: stored });
+  const service = new ServerConnectionService(store, deviceOptions());
+
+  for (const config of [service.getPublicConfig(), await service.getResolvedConfig(), await service.getResolvedConfig(overrides)]) {
+    assert.equal(config.pageSize, 1000);
+    assert.equal(config.connectionTimeoutMs, 30000);
+  }
+  assert.equal(store.get("searchServer"), stored);
+
+  const saved = await service.updateConfig(overrides);
+  assert.equal(saved.pageSize, 1000);
+  assert.equal(saved.connectionTimeoutMs, 30000);
+  assert.deepEqual(store.get("searchServer"), { endpoint: stored.endpoint, apiKey: stored.apiKey, tlsServerName: "" });
 });

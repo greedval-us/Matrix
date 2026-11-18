@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { SearchClientService, SEARCH_FIELDS } from "../src/main/services/SearchClientService.js";
 import { ServerConnectionService } from "../src/main/services/ServerConnectionService.js";
-import { DEFAULT_SERVER_CONFIG } from "../src/shared/constants/serverConfig.js";
+import { DEFAULT_SERVER_CONFIG, SERVER_CONFIG_LIMITS, boundedConfigInteger } from "../src/shared/constants/serverConfig.js";
 
 function parseArgs(argv) {
   const result = {
@@ -31,18 +31,19 @@ function parseArgs(argv) {
 
 const args = parseArgs(process.argv.slice(2));
 const values = new Map([
-  ["searchServer", { endpoint: args.endpoint, pageSize: args.pageSize, tlsServerName: args.tlsServerName }],
+  ["searchServer", { endpoint: args.endpoint, tlsServerName: args.tlsServerName }],
 ]);
 const connectionService = new ServerConnectionService({
   get: (key) => values.get(key),
   set: (key, value) => values.set(key, value),
 }, { bundledCertificatePath: args.caCertificatePath });
 const client = new SearchClientService({ connectionService });
+const limit = boundedConfigInteger(args.pageSize, DEFAULT_SERVER_CONFIG.pageSize, SERVER_CONFIG_LIMITS.pageSize);
 let received = 0;
 
 try {
   const meta = await client.search(
-    { [args.field]: args.value },
+    { [args.field]: args.value, limit },
     {
       onChunk: (items) => {
         received += items.filter((item) => item.object_data).length;

@@ -8,8 +8,7 @@ export const DEFAULT_SERVER_CONFIG = Object.freeze({
 });
 
 export const SERVER_CONFIG_LIMITS = Object.freeze({
-  pageSize: Object.freeze({ min: 50, max: 10000, step: 50 }),
-  requestTimeoutMs: Object.freeze({ min: 1000, max: 120000, step: 1000 }),
+  pageSize: Object.freeze({ min: 50, max: 10000 }),
 });
 
 export function boundedConfigInteger(value, fallback, { min, max }) {
